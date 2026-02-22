@@ -1,0 +1,35 @@
+{
+  "name": "mega-collection",
+  "version": "1.0.0",
+  "description": "High-performance search, filter & sort engine for 10M+ item collections in JavaScript/TypeScript",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc && npm run bundle",
+    "bundle": "esbuild src/index.ts --bundle --format=iife --global-name=MegaCollection --outfile=dist/mega-collection.browser.js --target=es2020",
+    "build:watch": "tsc --watch",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "search",
+    "filter",
+    "sort",
+    "performance",
+    "large-dataset",
+    "10-million",
+    "index",
+    "map",
+    "collection"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.27.3",
+    "typescript": "^5.3.0"
+  }
+}
