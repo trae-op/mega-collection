@@ -8,5 +8,4 @@ Generated from `.agents/skills/*/SKILL.md`.
 | `git-commit-instructions` | `git-commit-instructions` | `/git-commit-instructions` |
 | `javascript`              | `javascript`              | `/javascript`              |
 | `large-data-iteration`    | `large-data-iteration`    | `/large-data-iteration`    |
-| `performance-monitoring`  | `performance-monitoring`  | `/performance-monitoring`  |
 | `typescript`              | `typescript`              | `/typescript`              |
