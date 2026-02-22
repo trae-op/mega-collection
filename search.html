@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MegaCollection — Text Search Demo</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0d1117;
+        color: #c9d1d9;
+        padding: 24px;
+      }
+      h1 {
+        color: #58a6ff;
+        margin-bottom: 4px;
+        font-size: 1.6rem;
+      }
+      .subtitle {
+        color: #8b949e;
+        margin-bottom: 20px;
+        font-size: 0.9rem;
+      }
+      a {
+        color: #58a6ff;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .nav {
+        margin-bottom: 20px;
+        display: flex;
+        gap: 16px;
+        font-size: 0.9rem;
+      }
+      .card {
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 8px;
+        padding: 16px;
+        width: 100%;
+        margin-bottom: 20px;
+      }
+      .card h2 {
+        font-size: 1rem;
+        color: #58a6ff;
+        margin-bottom: 10px;
+      }
+      label {
+        display: block;
+        color: #8b949e;
+        font-size: 0.8rem;
+        margin-bottom: 4px;
+      }
+      input[type="text"],
+      input[type="number"],
+      select {
+        width: 100%;
+        padding: 8px 10px;
+        border-radius: 6px;
+        border: 1px solid #30363d;
+        background: #0d1117;
+        color: #c9d1d9;
+        font-size: 0.9rem;
+        margin-bottom: 10px;
+      }
+      button {
+        padding: 8px 18px;
+        border-radius: 6px;
+        border: none;
+        background: #238636;
+        color: #fff;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background 0.15s;
+      }
+      button:hover {
+        background: #2ea043;
+      }
+      button.secondary {
+        background: #30363d;
+      }
+      button.secondary:hover {
+        background: #484f58;
+      }
+      .result-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+      .badge {
+        background: #1f6feb33;
+        color: #58a6ff;
+        padding: 3px 10px;
+        border-radius: 12px;
+        font-size: 0.8rem;
+      }
+      .badge.warn {
+        background: #d2992233;
+        color: #d29922;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+      }
+      th {
+        text-align: left;
+        padding: 8px 10px;
+        border-bottom: 2px solid #30363d;
+        color: #8b949e;
+        position: sticky;
+        top: 0;
+        background: #161b22;
+      }
+      td {
+        padding: 6px 10px;
+        border-bottom: 1px solid #21262d;
+      }
+      tr:hover td {
+        background: #1c2128;
+      }
+      .table-wrap {
+        max-height: 420px;
+        overflow-y: auto;
+        border-radius: 8px;
+        width: 100%;
+        border: 1px solid #30363d;
+      }
+      #status {
+        color: #8b949e;
+        font-size: 0.85rem;
+        margin-bottom: 16px;
+      }
+      .gen-row {
+        display: flex;
+        align-items: end;
+        gap: 12px;
+        margin-bottom: 20px;
+      }
+      .gen-row .field {
+        flex: 0 0 auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🔍 Text Search Demo</h1>
+    <p class="subtitle">
+      Trigram-accelerated text search &amp; O(1) exact key lookup on 10 M+ items
+    </p>
+
+    <nav class="nav">
+      <a href="index.html">← Home</a>
+      <a href="filter.html">Filter</a>
+      <a href="sort.html">Sort</a>
+    </nav>
+
+    <!-- Data generation -->
+    <div class="gen-row">
+      <div class="field">
+        <label for="countInput">Collection size</label>
+        <input
+          type="number"
+          id="countInput"
+          value="100000"
+          min="1000"
+          step="10000"
+          style="width: 160px"
+        />
+      </div>
+      <button id="btnGenerate">Generate &amp; Index</button>
+      <span id="status">No data loaded.</span>
+    </div>
+
+    <!-- Text search controls -->
+    <div class="card">
+      <h2>🔍 Text Search by Name</h2>
+      <label for="searchInput">Query</label>
+      <input type="text" id="searchInput" placeholder='e.g. "john"' />
+      <label>Mode</label>
+      <select id="searchMode">
+        <option value="contains">Contains (trigram)</option>
+        <option value="prefix">Prefix</option>
+        <option value="exact">Exact</option>
+      </select>
+      <button id="btnSearch">Search</button>
+    </div>
+
+    <!-- Exact key lookup -->
+    <div class="card">
+      <h2>🗝️ Exact Key Lookup (O(1))</h2>
+      <label for="lookupField">Field</label>
+      <select id="lookupField">
+        <option value="city">City</option>
+        <option value="department">Department</option>
+      </select>
+      <label for="lookupValue">Value</label>
+      <input type="text" id="lookupValue" placeholder='e.g. "Berlin"' />
+      <button id="btnLookup">Lookup</button>
+    </div>
+
+    <!-- Results -->
+    <div class="result-bar" id="resultBar"></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Age</th>
+            <th>City</th>
+            <th>Department</th>
+            <th>Salary</th>
+          </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+      </table>
+    </div>
+
+    <script src="./dist/mega-collection.browser.js"></script>
+    <script>
+      (function () {
+        const MC = window.MegaCollection;
+
+        const CITIES = [
+          "Kyiv",
+          "Berlin",
+          "London",
+          "New York",
+          "Tokyo",
+          "Paris",
+          "Sydney",
+          "Toronto",
+          "Warsaw",
+          "Rome",
+        ];
+        const DEPTS = [
+          "Engineering",
+          "Marketing",
+          "Sales",
+          "HR",
+          "Finance",
+          "Design",
+          "Support",
+          "Legal",
+        ];
+        const FIRST = [
+          "Alice",
+          "Bob",
+          "Charlie",
+          "Diana",
+          "Eve",
+          "Frank",
+          "Grace",
+          "Henry",
+          "Ivy",
+          "Jack",
+          "Karen",
+          "Leo",
+          "Mona",
+          "Nick",
+          "Olivia",
+          "Paul",
+          "Quinn",
+          "Rita",
+          "Sam",
+          "Tina",
+          "Uma",
+          "Victor",
+          "Wendy",
+          "Xander",
+          "Yara",
+          "Zach",
+        ];
+        const LAST = [
+          "Smith",
+          "Johnson",
+          "Brown",
+          "Taylor",
+          "Anderson",
+          "Thomas",
+          "Jackson",
+          "White",
+          "Harris",
+          "Martin",
+          "Garcia",
+          "Clark",
+          "Lewis",
+          "Walker",
+          "Hall",
+          "Allen",
+          "Young",
+        ];
+
+        let collection = null;
+
+        const countInput = document.getElementById("countInput");
+        const btnGenerate = document.getElementById("btnGenerate");
+        const statusEl = document.getElementById("status");
+        const searchInput = document.getElementById("searchInput");
+        const searchMode = document.getElementById("searchMode");
+        const btnSearch = document.getElementById("btnSearch");
+        const lookupField = document.getElementById("lookupField");
+        const lookupValue = document.getElementById("lookupValue");
+        const btnLookup = document.getElementById("btnLookup");
+        const resultBody = document.getElementById("resultBody");
+        const resultBar = document.getElementById("resultBar");
+
+        // --- Render ---
+        const MAX_DISPLAY = 100000;
+        function render(items, timingMs) {
+          resultBar.innerHTML = "";
+          badge(resultBar, items.length.toLocaleString() + " results", "badge");
+          badge(resultBar, timingMs.toFixed(1) + " ms", "badge warn");
+          if (items.length > MAX_DISPLAY)
+            badge(resultBar, "showing first " + MAX_DISPLAY, "badge");
+
+          resultBody.innerHTML = items
+            .slice(0, MAX_DISPLAY)
+            .map(
+              (r, i) =>
+                "<tr><td>" +
+                (i + 1) +
+                "</td><td>" +
+                esc(r.name) +
+                "</td><td>" +
+                r.age +
+                "</td><td>" +
+                esc(r.city) +
+                "</td><td>" +
+                esc(r.department) +
+                "</td><td>$" +
+                r.salary.toLocaleString() +
+                "</td></tr>",
+            )
+            .join("");
+        }
+        function badge(parent, text, cls) {
+          const s = document.createElement("span");
+          s.className = cls;
+          s.textContent = text;
+          parent.appendChild(s);
+        }
+        function esc(s) {
+          return s.replace(
+            /[&<>"']/g,
+            (c) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+              })[c],
+          );
+        }
+
+        // --- Generate data ---
+        btnGenerate.addEventListener("click", () => {
+          const count = parseInt(countInput.value, 10) || 100000;
+          statusEl.textContent =
+            "Generating " + count.toLocaleString() + " items…";
+          setTimeout(() => {
+            const t0 = performance.now();
+            const data = new Array(count);
+            for (let i = 0; i < count; i++) {
+              data[i] = {
+                id: i,
+                name: FIRST[i % FIRST.length] + " " + LAST[i % LAST.length],
+                age: 18 + (i % 50),
+                city: CITIES[i % CITIES.length],
+                department: DEPTS[i % DEPTS.length],
+                salary: 30000 + ((i * 7) % 120000),
+              };
+            }
+            const genTime = performance.now() - t0;
+
+            const t1 = performance.now();
+            collection = new MC.MegaCollection({
+              indexFields: ["city", "department", "age"],
+              textSearchFields: ["name"],
+            });
+            collection.load(data);
+            const indexTime = performance.now() - t1;
+
+            statusEl.textContent =
+              count.toLocaleString() +
+              " items loaded. Gen: " +
+              genTime.toFixed(0) +
+              " ms, Index: " +
+              indexTime.toFixed(0) +
+              " ms.";
+            render(data.slice(0, 500), genTime + indexTime);
+          }, 50);
+        });
+
+        // --- Text search ---
+        btnSearch.addEventListener("click", () => {
+          if (!collection) return alert("Generate data first!");
+          const query = searchInput.value.trim();
+          if (!query) return;
+          const t0 = performance.now();
+          const results = collection.textSearch("name", query, {
+            mode: searchMode.value,
+            limit: 10000,
+          });
+          render(results, performance.now() - t0);
+        });
+
+        // --- Exact lookup ---
+        btnLookup.addEventListener("click", () => {
+          if (!collection) return alert("Generate data first!");
+          const value = lookupValue.value.trim();
+          if (!value) return;
+          const t0 = performance.now();
+          const parsed = isNaN(Number(value)) ? value : Number(value);
+          const results = collection.exactLookup(lookupField.value, parsed);
+          render(results, performance.now() - t0);
+        });
+      })();
+    </script>
+  </body>
+</html>
