@@ -16,7 +16,7 @@
  *     Pass `inPlace: true` to mutate.
  */
 
-import { CollectionItem, SortDescriptor } from "./types";
+import { CollectionItem, SortDescriptor } from "../types";
 
 export class SortEngine<T extends CollectionItem> {
   /**

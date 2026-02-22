@@ -1,0 +1,14 @@
+# Ignore everything except dist and docs
+node_modules/
+src/
+*.html
+tsup.config.ts
+tsconfig.json
+.git/
+.github/
+.vscode/
+.eslintrc*
+.prettierrc*
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md

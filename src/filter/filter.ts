@@ -13,8 +13,8 @@
  *  ALL criteria to be included.
  */
 
-import { CollectionItem, FilterCriterion } from "./types";
-import { Indexer } from "./indexer";
+import { CollectionItem, FilterCriterion } from "../types";
+import { Indexer } from "../indexer";
 
 export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;

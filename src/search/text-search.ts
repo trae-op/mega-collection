@@ -1,5 +1,5 @@
 /**
- * TextSearchEngine — fast substring and prefix search on 10 M+ string fields.
+ * TextSearchEngine — fast substring search on 10 M+ string fields.
  *
  * Strategy:
  *  1. **Trigram index** — every string is split into overlapping 3-character
@@ -7,16 +7,11 @@
  *     intersect the trigram posting lists to get *candidates*, then verify
  *     with `String.includes` (which is very fast on a small candidate set).
  *
- *  2. **Exact search** falls back to the Indexer (O(1) hash lookup).
- *
- *  3. **Prefix search** uses the trigram index for candidates, then verifies
- *     with `String.startsWith`.
- *
  *  Building the trigram index is O(n·L) where L is average string length.
  *  Query time is roughly O(|candidates| + |postingList intersections|).
  */
 
-import { CollectionItem, TextSearchOptions } from "./types";
+import { CollectionItem } from "../types";
 
 /** Extract all trigrams from a lowercased string. */
 function extractTrigrams(s: string): string[] {
@@ -68,12 +63,7 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Search items by substring (contains) using the trigram index.
    * Returns matching items.
    */
-  search(
-    field: keyof T & string,
-    query: string,
-    options: TextSearchOptions = {},
-  ): T[] {
-    const { mode = "contains", limit = Infinity } = options;
+  search(field: keyof T & string, query: string): T[] {
     const triMap = this.trigramIndexes.get(field as string);
     if (!triMap) return [];
 
@@ -109,19 +99,8 @@ export class TextSearchEngine<T extends CollectionItem> {
     for (const idx of candidateSet) {
       const value = (this.data[idx][field] as string).toLowerCase();
 
-      let match = false;
-      if (mode === "contains") {
-        match = value.includes(lowerQuery);
-      } else if (mode === "prefix") {
-        match = value.startsWith(lowerQuery);
-      } else {
-        // exact
-        match = value === lowerQuery;
-      }
-
-      if (match) {
+      if (value.includes(lowerQuery)) {
         results.push(this.data[idx]);
-        if (results.length >= limit) break;
       }
     }
 

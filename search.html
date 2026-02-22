@@ -186,12 +186,6 @@
       <h2>🔍 Text Search by Name</h2>
       <label for="searchInput">Query</label>
       <input type="text" id="searchInput" placeholder='e.g. "john"' />
-      <label>Mode</label>
-      <select id="searchMode">
-        <option value="contains">Contains (trigram)</option>
-        <option value="prefix">Prefix</option>
-        <option value="exact">Exact</option>
-      </select>
       <button id="btnSearch">Search</button>
     </div>
 
@@ -307,7 +301,6 @@
         const btnGenerate = document.getElementById("btnGenerate");
         const statusEl = document.getElementById("status");
         const searchInput = document.getElementById("searchInput");
-        const searchMode = document.getElementById("searchMode");
         const btnSearch = document.getElementById("btnSearch");
         const lookupField = document.getElementById("lookupField");
         const lookupValue = document.getElementById("lookupValue");
@@ -409,10 +402,7 @@
           const query = searchInput.value.trim();
           if (!query) return;
           const t0 = performance.now();
-          const results = collection.textSearch("name", query, {
-            mode: searchMode.value,
-            limit: 10000,
-          });
+          const results = collection.textSearch("name", query);
           render(results, performance.now() - t0);
         });
 

@@ -1,19 +1,79 @@
 {
-  "name": "mega-collection",
+  "name": "@devisfuture/mega-collection",
   "version": "1.0.0",
   "description": "High-performance search, filter & sort engine for 10M+ item collections in JavaScript/TypeScript",
-  "main": "dist/index.js",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./search": {
+      "import": {
+        "types": "./dist/search/index.d.mts",
+        "default": "./dist/search/index.mjs"
+      },
+      "require": {
+        "types": "./dist/search/index.d.ts",
+        "default": "./dist/search/index.js"
+      }
+    },
+    "./filter": {
+      "import": {
+        "types": "./dist/filter/index.d.mts",
+        "default": "./dist/filter/index.mjs"
+      },
+      "require": {
+        "types": "./dist/filter/index.d.ts",
+        "default": "./dist/filter/index.js"
+      }
+    },
+    "./sort": {
+      "import": {
+        "types": "./dist/sort/index.d.mts",
+        "default": "./dist/sort/index.mjs"
+      },
+      "require": {
+        "types": "./dist/sort/index.d.ts",
+        "default": "./dist/sort/index.js"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "search": [
+        "./dist/search/index.d.ts"
+      ],
+      "filter": [
+        "./dist/filter/index.d.ts"
+      ],
+      "sort": [
+        "./dist/sort/index.d.ts"
+      ]
+    }
+  },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
+  "sideEffects": false,
   "scripts": {
-    "build": "tsc && npm run bundle",
-    "bundle": "esbuild src/index.ts --bundle --format=iife --global-name=MegaCollection --outfile=dist/mega-collection.browser.js --target=es2020",
-    "build:watch": "tsc --watch",
-    "dev": "tsc --watch",
-    "prepublishOnly": "npm run build"
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run build",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "search",
@@ -23,13 +83,27 @@
     "large-dataset",
     "10-million",
     "index",
-    "map",
-    "collection"
+    "trigram",
+    "collection",
+    "big-data",
+    "hash-map",
+    "mega-collection"
   ],
-  "author": "",
+  "author": "devisfuture",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/devisfuture/mega-collection.git"
+  },
+  "bugs": {
+    "url": "https://github.com/devisfuture/mega-collection/issues"
+  },
+  "homepage": "https://github.com/devisfuture/mega-collection#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "devDependencies": {
-    "esbuild": "^0.27.3",
+    "tsup": "^8.0.0",
     "typescript": "^5.3.0"
   }
 }

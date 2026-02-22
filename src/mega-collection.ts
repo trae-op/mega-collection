@@ -27,7 +27,7 @@
  * mc.exactLookup("city", "Kyiv");
  *
  * // Trigram-accelerated text search
- * mc.textSearch("name", "john", { mode: "contains", limit: 100 });
+ * mc.textSearch("name", "john");
  *
  * // Multi-criteria filter (AND logic)
  * mc.filter([
@@ -45,12 +45,11 @@ import {
   MegaCollectionConfig,
   FilterCriterion,
   SortDescriptor,
-  TextSearchOptions,
 } from "./types";
 import { Indexer } from "./indexer";
-import { TextSearchEngine } from "./text-search";
-import { FilterEngine } from "./filter";
-import { SortEngine } from "./sorter";
+import { TextSearchEngine } from "./search/text-search";
+import { FilterEngine } from "./filter/filter";
+import { SortEngine } from "./sort/sorter";
 
 export class MegaCollection<T extends CollectionItem> {
   private data: T[] = [];
@@ -159,15 +158,10 @@ export class MegaCollection<T extends CollectionItem> {
 
   /**
    * Text search using the trigram index.
-   * Supports "contains", "prefix" and "exact" modes.
    * The field MUST have been indexed via `textSearchFields` or `addTextIndex()`.
    */
-  textSearch(
-    field: keyof T & string,
-    query: string,
-    options?: TextSearchOptions,
-  ): T[] {
-    return this.textEngine.search(field, query, options);
+  textSearch(field: keyof T & string, query: string): T[] {
+    return this.textEngine.search(field, query);
   }
 
   // ────────────────────────────────────────────────────────────────────────

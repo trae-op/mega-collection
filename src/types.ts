@@ -45,16 +45,3 @@ export interface SortDescriptor<T extends CollectionItem> {
   field: keyof T & string;
   direction: SortDirection;
 }
-
-/**
- * Options for text search.
- * `mode`:
- *   - "exact"    → hash-map O(1) lookup
- *   - "contains" → trigram-accelerated substring search
- *   - "prefix"   → prefix matching via trigram index + verification
- */
-export interface TextSearchOptions {
-  mode?: "exact" | "contains" | "prefix";
-  /** Maximum number of results to return (default: Infinity). */
-  limit?: number;
-}
