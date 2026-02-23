@@ -7,6 +7,7 @@ type CardItem = {
   title: string;
   description: string;
   tag: string;
+  city?: string;
 };
 
 const cards: CardItem[] = Array.from({ length: 1000 }, (_, index) => ({
@@ -15,6 +16,23 @@ const cards: CardItem[] = Array.from({ length: 1000 }, (_, index) => ({
   description: `This is card item number ${index + 1} in a virtualized list using react-window.`,
   tag: index % 2 === 0 ? "Even" : "Odd",
 }));
+
+const cityCards: CardItem[] = [
+  {
+    id: 1,
+    title: "Noah 5",
+    description: "User from Dnipro",
+    tag: "Odd",
+    city: "Dnipro",
+  },
+  {
+    id: 2,
+    title: "Mia 10",
+    description: "User from Kyiv",
+    tag: "Even",
+    city: "Kyiv",
+  },
+];
 
 describe("TextSearchEngine", () => {
   it("finds numeric substrings in long text fields", () => {
@@ -44,5 +62,25 @@ describe("TextSearchEngine", () => {
     const matches = engine.search("description", "virtualized");
 
     expect(matches.length).toBe(cards.length);
+  });
+
+  it("supports search from the first character", () => {
+    const engine = new TextSearchEngine<CardItem>();
+    engine.buildIndex(cityCards, "city");
+
+    const matches = engine.search("city", "d");
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0].city).toBe("Dnipro");
+  });
+
+  it("supports two-character queries", () => {
+    const engine = new TextSearchEngine<CardItem>();
+    engine.buildIndex(cityCards, "city");
+
+    const matches = engine.search("city", "dn");
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0].city).toBe("Dnipro");
   });
 });

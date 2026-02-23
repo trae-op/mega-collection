@@ -2,9 +2,9 @@
  * TextSearchEngine — fast substring search on 10 M+ string fields.
  *
  * Strategy:
- *  1. **Trigram index** — every string is split into overlapping 3-character
- *     grams.  Each trigram maps to a Set of item indexes.  At query time we
- *     intersect the trigram posting lists to get *candidates*, then verify
+ *  1. **N-gram index (1..3 chars)** — every string is split into overlapping
+ *     1/2/3-character grams. Each gram maps to a Set of item indexes.
+ *     At query time we intersect posting lists to get *candidates*, then verify
  *     with `String.includes` (which is very fast on a small candidate set).
  *
  *  Building the trigram index is O(n·L) where L is average string length.
@@ -13,44 +13,44 @@
 
 import { CollectionItem } from "../types";
 
-const MINIMUM_TRIGRAM_LENGTH = 1;
+const MAXIMUM_NGRAM_LENGTH = 3;
 
-/** Extract all trigrams from a lowercased string. */
-function extractTrigrams(input: string): string[] {
+/** Extract query grams using the longest available gram length (1..3). */
+function extractQueryGrams(input: string): string[] {
   const lower = input.toLowerCase();
-  if (lower.length < MINIMUM_TRIGRAM_LENGTH) return [lower];
-  const trigramCount = lower.length - MINIMUM_TRIGRAM_LENGTH + 1;
-  const trigrams = new Array<string>(trigramCount);
-  for (let index = 0; index < trigramCount; index++) {
-    trigrams[index] = lower.substring(index, index + MINIMUM_TRIGRAM_LENGTH);
+  const gramLength = Math.min(MAXIMUM_NGRAM_LENGTH, lower.length);
+  const gramCount = lower.length - gramLength + 1;
+  const queryGrams = new Array<string>(gramCount);
+  for (let index = 0; index < gramCount; index++) {
+    queryGrams[index] = lower.substring(index, index + gramLength);
   }
-  return trigrams;
+  return queryGrams;
 }
 
 function getOrCreatePostingList(
-  trigramMap: Map<string, Set<number>>,
-  trigram: string,
+  ngramMap: Map<string, Set<number>>,
+  ngram: string,
 ): Set<number> {
-  const existingPostingList = trigramMap.get(trigram);
+  const existingPostingList = ngramMap.get(ngram);
   if (existingPostingList) return existingPostingList;
 
   const newPostingList = new Set<number>();
-  trigramMap.set(trigram, newPostingList);
+  ngramMap.set(ngram, newPostingList);
   return newPostingList;
 }
 
 export class TextSearchEngine<T extends CollectionItem> {
   /**
-   * field → trigram → Set<index in data[]>
+   * field → ngram → Set<index in data[]>
    * We store *indexes into the data array* (not the objects) to save memory.
    */
-  private trigramIndexes = new Map<string, Map<string, Set<number>>>();
+  private ngramIndexes = new Map<string, Map<string, Set<number>>>();
 
   /** Reference to the full dataset (set once via `buildIndex`). */
   private data: T[] = [];
 
   /**
-   * Build trigram index for one field. O(n·L).
+   * Build n-gram index (1..3 chars) for one field. O(n·L).
    *
    * Trigram extraction is inlined to avoid allocating a temporary array
    * and a deduplication Set per item.  Posting lists are `Set<number>`,
@@ -63,7 +63,7 @@ export class TextSearchEngine<T extends CollectionItem> {
   buildIndex(data: T[], field: keyof T & string): void {
     this.data = data;
 
-    const trigramMap = new Map<string, Set<number>>();
+    const ngramMap = new Map<string, Set<number>>();
 
     for (
       let itemIndex = 0, dataLength = data.length;
@@ -75,23 +75,31 @@ export class TextSearchEngine<T extends CollectionItem> {
 
       const lower = rawValue.toLowerCase();
 
-      // Short strings produce a single "trigram" (the whole string)
-      if (lower.length < MINIMUM_TRIGRAM_LENGTH) {
-        getOrCreatePostingList(trigramMap, lower).add(itemIndex);
-        continue;
-      }
-
-      // Inline trigram extraction — no intermediate array or Set created.
-      // Set.add is idempotent, so duplicate trigrams within one string
+      // Inline n-gram extraction (1..3 chars) — no intermediate array or Set created.
+      // Set.add is idempotent, so duplicate grams within one string
       // are harmless and far cheaper than per-item Set allocation.
-      const trigramCount = lower.length - MINIMUM_TRIGRAM_LENGTH + 1;
-      for (let i = 0; i < trigramCount; i++) {
-        const trigram = lower.substring(i, i + MINIMUM_TRIGRAM_LENGTH);
-        getOrCreatePostingList(trigramMap, trigram).add(itemIndex);
+      for (
+        let startIndex = 0, lowerLength = lower.length;
+        startIndex < lowerLength;
+        startIndex++
+      ) {
+        const remainingLength = lowerLength - startIndex;
+        const maxLengthAtPosition = Math.min(
+          MAXIMUM_NGRAM_LENGTH,
+          remainingLength,
+        );
+        for (
+          let gramLength = 1;
+          gramLength <= maxLengthAtPosition;
+          gramLength++
+        ) {
+          const ngram = lower.substring(startIndex, startIndex + gramLength);
+          getOrCreatePostingList(ngramMap, ngram).add(itemIndex);
+        }
       }
     }
 
-    this.trigramIndexes.set(field as string, trigramMap);
+    this.ngramIndexes.set(field as string, ngramMap);
   }
 
   /**
@@ -99,41 +107,21 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Returns matching items.
    */
   search(field: keyof T & string, query: string): T[] {
-    const trigramMap = this.trigramIndexes.get(field as string);
-    if (!trigramMap) return [];
+    const ngramMap = this.ngramIndexes.get(field as string);
+    if (!ngramMap) return [];
 
     const lowerQuery = query.trim().toLowerCase();
     if (!lowerQuery) return [];
 
-    // Trigram index cannot directly serve queries shorter than 3 chars.
-    // Fall back to linear scan + includes verification for correctness.
-    if (lowerQuery.length < MINIMUM_TRIGRAM_LENGTH) {
-      const matchedItems: T[] = [];
-      for (
-        let itemIndex = 0, dataLength = this.data.length;
-        itemIndex < dataLength;
-        itemIndex++
-      ) {
-        const fieldValue = this.data[itemIndex][field];
-        if (
-          typeof fieldValue === "string" &&
-          fieldValue.toLowerCase().includes(lowerQuery)
-        ) {
-          matchedItems.push(this.data[itemIndex]);
-        }
-      }
-      return matchedItems;
-    }
-
-    // -- Step 1: collect posting lists for each unique query trigram --
+    // -- Step 1: collect posting lists for each unique query gram --
     // Single loop replaces Array.from → Set → map → filter chain,
     // eliminating 3 intermediate array allocations.
-    const uniqueQueryTrigrams = new Set(extractTrigrams(lowerQuery));
+    const uniqueQueryGrams = new Set(extractQueryGrams(lowerQuery));
     const postingLists: Set<number>[] = [];
 
-    for (const trigram of uniqueQueryTrigrams) {
-      const postingList = trigramMap.get(trigram);
-      if (!postingList) return []; // trigram absent → zero matches, bail out early
+    for (const queryGram of uniqueQueryGrams) {
+      const postingList = ngramMap.get(queryGram);
+      if (!postingList) return []; // gram absent → zero matches, bail out early
       postingLists.push(postingList);
     }
 
@@ -176,12 +164,12 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   /** Check whether a trigram index exists for a field. */
   hasIndex(field: string): boolean {
-    return this.trigramIndexes.has(field);
+    return this.ngramIndexes.has(field);
   }
 
   /** Free memory. */
   clear(): void {
-    this.trigramIndexes.clear();
+    this.ngramIndexes.clear();
     this.data = [];
   }
 }
