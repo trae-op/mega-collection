@@ -58,25 +58,16 @@ export class SortEngine<T extends CollectionItem> {
   private buildComparator(
     descriptors: SortDescriptor<T>[],
   ): (a: T, b: T) => number {
-    // Pre-compute direction multipliers
-    const fields: string[] = [];
-    const directionMultipliers: number[] = [];
+    // Pre-compute fields and direction multipliers via map (no manual loop)
+    const fields = descriptors.map(({ field }) => field);
+    const directionMultipliers = descriptors.map(({ direction }) =>
+      direction === "asc" ? 1 : -1,
+    );
 
-    for (
-      let descriptorIndex = 0;
-      descriptorIndex < descriptors.length;
-      descriptorIndex++
-    ) {
-      fields.push(descriptors[descriptorIndex].field);
-      directionMultipliers.push(
-        descriptors[descriptorIndex].direction === "asc" ? 1 : -1,
-      );
-    }
-
-    const len = fields.length;
+    const fieldCount = fields.length;
 
     return (a: T, b: T): number => {
-      for (let fieldIndex = 0; fieldIndex < len; fieldIndex++) {
+      for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++) {
         const leftValue = a[fields[fieldIndex]];
         const rightValue = b[fields[fieldIndex]];
 

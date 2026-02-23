@@ -35,16 +35,23 @@ export class FilterEngine<T extends CollectionItem> {
     if (criteria.length === 0) return data;
 
     // --- Separate indexed vs. non-indexed criteria ---
-    const indexedCriteria: FilterCriterion<T>[] = [];
-    const linearCriteria: FilterCriterion<T>[] = [];
-
-    for (const criterion of criteria) {
-      if (this.indexer.hasIndex(criterion.field)) {
-        indexedCriteria.push(criterion);
-      } else {
-        linearCriteria.push(criterion);
-      }
-    }
+    const { indexedCriteria, linearCriteria } = criteria.reduce(
+      (
+        accumulator: {
+          indexedCriteria: FilterCriterion<T>[];
+          linearCriteria: FilterCriterion<T>[];
+        },
+        criterion,
+      ) => {
+        if (this.indexer.hasIndex(criterion.field)) {
+          accumulator.indexedCriteria.push(criterion);
+        } else {
+          accumulator.linearCriteria.push(criterion);
+        }
+        return accumulator;
+      },
+      { indexedCriteria: [], linearCriteria: [] },
+    );
 
     // --- Fast path: all criteria are indexed ---
     if (indexedCriteria.length > 0 && linearCriteria.length === 0) {
@@ -63,52 +70,33 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   /**
-   * Linear scan with Set-based membership tests. O(n * k) where
-   * n = data.length and k = number of criteria (each test is O(1) via Set).
+   * Single-pass linear filter using pre-indexed criteria value Sets.
+   * O(n × k) where n = data.length, k = criteria count.
+   * Each criterion check is O(1) via Map + Set lookup — no nested data iteration.
    */
   private linearFilter(data: T[], criteria: FilterCriterion<T>[]): T[] {
-    const valueSets = criteria.map((c) => ({
-      field: c.field,
-      set: new Set(c.values),
-    }));
+    // Pre-index: field → Set<acceptable values> (Rule 1: Index Before Iterate)
+    const acceptableValuesByField = new Map<string, Set<any>>(
+      criteria.map(({ field, values }) => [field, new Set(values)]),
+    );
+    const criterionFields = criteria.map(({ field }) => field);
 
-    const results: T[] = [];
-    const numCriteria = valueSets.length;
-
-    for (
-      let itemIndex = 0, dataLength = data.length;
-      itemIndex < dataLength;
-      itemIndex++
-    ) {
-      const item = data[itemIndex];
-      let passesAllCriteria = true;
-
-      for (
-        let criterionIndex = 0;
-        criterionIndex < numCriteria;
-        criterionIndex++
-      ) {
-        if (
-          !valueSets[criterionIndex].set.has(
-            item[valueSets[criterionIndex].field],
-          )
-        ) {
-          passesAllCriteria = false;
-          break;
-        }
-      }
-
-      if (passesAllCriteria) results.push(item);
-    }
-
-    return results;
+    // Single-pass filter: each criterion is an O(1) Set lookup, not a nested scan
+    return data.filter((item) =>
+      criterionFields.every((field) =>
+        acceptableValuesByField.get(field)!.has(item[field]),
+      ),
+    );
   }
 
   /**
-   * Pure index-based filtering. For each criterion we pull items from the
-   * hash-map, then intersect across criteria using a reference-counting
-   * approach. Criteria are sorted by estimated selectivity (smallest
-   * candidate set first) to prune the intersection early.
+   * Pure index-based filtering with selectivity-driven pruning.
+   *
+   * Strategy:
+   *  1. Sort criteria by estimated result-set size (smallest first).
+   *  2. Materialise only the most selective criterion via the index.
+   *  3. Pre-index remaining criteria values into Sets for O(1) checks.
+   *  4. Single-pass filter over candidates — no nested collection iteration.
    */
   private filterViaIndex(criteria: FilterCriterion<T>[]): T[] {
     // For a single criterion, just grab from the index
@@ -116,50 +104,40 @@ export class FilterEngine<T extends CollectionItem> {
       return this.indexer.getByValues(criteria[0].field, criteria[0].values);
     }
 
-    // Estimate candidate-set sizes and sort smallest first for faster pruning.
-    const estimatedCriteria = criteria.map((criterion) => ({
-      criterion,
-      size: this.estimateIndexSize(criterion),
-    }));
-    estimatedCriteria.sort((a, b) => a.size - b.size);
+    // Estimate candidate-set sizes and sort smallest first for faster pruning
+    const estimatedCriteria = criteria
+      .map((criterion) => ({
+        criterion,
+        size: this.estimateIndexSize(criterion),
+      }))
+      .sort(
+        (leftEstimate, rightEstimate) => leftEstimate.size - rightEstimate.size,
+      );
 
-    // Start from the smallest candidate set
-    const firstCriterion = estimatedCriteria[0].criterion;
+    // Materialise only the most selective criterion via the index
+    const { field: mostSelectiveField, values: mostSelectiveValues } =
+      estimatedCriteria[0].criterion;
     const candidateItems = this.indexer.getByValues(
-      firstCriterion.field,
-      firstCriterion.values,
+      mostSelectiveField,
+      mostSelectiveValues,
     );
 
     if (candidateItems.length === 0) return [];
 
-    // Use a Set for the running intersection
-    let candidateSet = new Set<T>(candidateItems);
+    // Pre-index remaining criteria values for O(1) membership checks
+    const remainingValuesByField = new Map<string, Set<any>>(
+      estimatedCriteria
+        .slice(1)
+        .map(({ criterion: { field, values } }) => [field, new Set(values)]),
+    );
+    const remainingFields = Array.from(remainingValuesByField.keys());
 
-    for (
-      let estimatedIndex = 1;
-      estimatedIndex < estimatedCriteria.length;
-      estimatedIndex++
-    ) {
-      const criterion = estimatedCriteria[estimatedIndex].criterion;
-      const nextItems = this.indexer.getByValues(
-        criterion.field,
-        criterion.values,
-      );
-      const nextSet = new Set<T>(nextItems);
-
-      // Intersect: keep only items present in both
-      const intersection = new Set<T>();
-      for (const item of candidateSet) {
-        if (nextSet.has(item)) {
-          intersection.add(item);
-        }
-      }
-      candidateSet = intersection;
-
-      if (candidateSet.size === 0) return [];
-    }
-
-    return Array.from(candidateSet);
+    // Single-pass filter over candidates: O(1) Set check per criterion
+    return candidateItems.filter((item) =>
+      remainingFields.every((field) =>
+        remainingValuesByField.get(field)!.has(item[field]),
+      ),
+    );
   }
 
   /**
@@ -170,11 +148,9 @@ export class FilterEngine<T extends CollectionItem> {
     const indexMap = this.indexer.getIndexMap(criterion.field);
     if (!indexMap) return Infinity;
 
-    let size = 0;
-    for (const value of criterion.values) {
+    return criterion.values.reduce((totalSize, value) => {
       const bucket = indexMap.get(value);
-      if (bucket) size += bucket.length;
-    }
-    return size;
+      return bucket ? totalSize + bucket.length : totalSize;
+    }, 0);
   }
 }
