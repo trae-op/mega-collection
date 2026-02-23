@@ -14,14 +14,14 @@
 import { CollectionItem } from "../types";
 
 /** Extract all trigrams from a lowercased string. */
-function extractTrigrams(s: string): string[] {
-  const lower = s.toLowerCase();
+function extractTrigrams(input: string): string[] {
+  const lower = input.toLowerCase();
   if (lower.length < 3) return [lower]; // short strings become a single "gram"
-  const grams: string[] = [];
-  for (let i = 0; i <= lower.length - 3; i++) {
-    grams.push(lower.substring(i, i + 3));
+  const trigrams: string[] = [];
+  for (let index = 0; index <= lower.length - 3; index++) {
+    trigrams.push(lower.substring(index, index + 3));
   }
-  return grams;
+  return trigrams;
 }
 
 export class TextSearchEngine<T extends CollectionItem> {
@@ -38,25 +38,33 @@ export class TextSearchEngine<T extends CollectionItem> {
   buildIndex(data: T[], field: keyof T & string): void {
     this.data = data;
 
-    const triMap = new Map<string, Set<number>>();
+    const trigramMap = new Map<string, Set<number>>();
 
-    for (let i = 0, len = data.length; i < len; i++) {
-      const raw = data[i][field];
-      if (typeof raw !== "string") continue;
+    for (
+      let itemIndex = 0, dataLength = data.length;
+      itemIndex < dataLength;
+      itemIndex++
+    ) {
+      const rawValue = data[itemIndex][field];
+      if (typeof rawValue !== "string") continue;
 
-      const grams = extractTrigrams(raw);
-      for (let g = 0; g < grams.length; g++) {
-        const gram = grams[g];
-        let set = triMap.get(gram);
-        if (!set) {
-          set = new Set<number>();
-          triMap.set(gram, set);
+      const trigrams = extractTrigrams(rawValue);
+      for (
+        let trigramIndex = 0;
+        trigramIndex < trigrams.length;
+        trigramIndex++
+      ) {
+        const trigram = trigrams[trigramIndex];
+        let itemIndexes = trigramMap.get(trigram);
+        if (!itemIndexes) {
+          itemIndexes = new Set<number>();
+          trigramMap.set(trigram, itemIndexes);
         }
-        set.add(i);
+        itemIndexes.add(itemIndex);
       }
     }
 
-    this.trigramIndexes.set(field as string, triMap);
+    this.trigramIndexes.set(field as string, trigramMap);
   }
 
   /**
@@ -64,8 +72,8 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Returns matching items.
    */
   search(field: keyof T & string, query: string): T[] {
-    const triMap = this.trigramIndexes.get(field as string);
-    if (!triMap) return [];
+    const trigramMap = this.trigramIndexes.get(field as string);
+    if (!trigramMap) return [];
 
     const lowerQuery = query.toLowerCase();
 
@@ -74,17 +82,17 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     let candidateSet: Set<number> | null = null;
 
-    for (const gram of queryGrams) {
-      const posting = triMap.get(gram);
-      if (!posting) return []; // trigram not found → zero results
+    for (const queryTrigram of queryGrams) {
+      const postingList = trigramMap.get(queryTrigram);
+      if (!postingList) return []; // trigram not found → zero results
 
       if (candidateSet === null) {
-        candidateSet = new Set(posting);
+        candidateSet = new Set(postingList);
       } else {
         // Intersect: keep only indexes present in both sets
-        for (const idx of candidateSet) {
-          if (!posting.has(idx)) {
-            candidateSet.delete(idx);
+        for (const candidateIndex of candidateSet) {
+          if (!postingList.has(candidateIndex)) {
+            candidateSet.delete(candidateIndex);
           }
         }
       }
@@ -96,11 +104,11 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     // -- Step 2: verify candidates against the real string --
     const results: T[] = [];
-    for (const idx of candidateSet) {
-      const value = (this.data[idx][field] as string).toLowerCase();
+    for (const itemIndex of candidateSet) {
+      const value = (this.data[itemIndex][field] as string).toLowerCase();
 
       if (value.includes(lowerQuery)) {
-        results.push(this.data[idx]);
+        results.push(this.data[itemIndex]);
       }
     }
 

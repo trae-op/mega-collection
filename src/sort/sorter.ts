@@ -16,7 +16,7 @@
  *     Pass `inPlace: true` to mutate.
  */
 
-import { CollectionItem, SortDescriptor } from "../types";
+import { CollectionItem, SortDescriptor, SortDirection } from "../types";
 
 export class SortEngine<T extends CollectionItem> {
   /**
@@ -30,7 +30,7 @@ export class SortEngine<T extends CollectionItem> {
   sort(data: T[], descriptors: SortDescriptor<T>[], inPlace = false): T[] {
     if (descriptors.length === 0 || data.length === 0) return data;
 
-    const arr = inPlace ? data : data.slice();
+    const sortableItems = inPlace ? data : data.slice();
 
     // Optimised path: single numeric field → radix sort
     if (
@@ -39,7 +39,7 @@ export class SortEngine<T extends CollectionItem> {
       typeof data[0][descriptors[0].field] === "number"
     ) {
       return this.radixSortNumeric(
-        arr,
+        sortableItems,
         descriptors[0].field,
         descriptors[0].direction,
       );
@@ -47,8 +47,8 @@ export class SortEngine<T extends CollectionItem> {
 
     // General path: build a comparator for multi-field sort
     const comparator = this.buildComparator(descriptors);
-    arr.sort(comparator);
-    return arr;
+    sortableItems.sort(comparator);
+    return sortableItems;
   }
 
   /**
@@ -60,22 +60,29 @@ export class SortEngine<T extends CollectionItem> {
   ): (a: T, b: T) => number {
     // Pre-compute direction multipliers
     const fields: string[] = [];
-    const mults: number[] = [];
+    const directionMultipliers: number[] = [];
 
-    for (let i = 0; i < descriptors.length; i++) {
-      fields.push(descriptors[i].field);
-      mults.push(descriptors[i].direction === "asc" ? 1 : -1);
+    for (
+      let descriptorIndex = 0;
+      descriptorIndex < descriptors.length;
+      descriptorIndex++
+    ) {
+      fields.push(descriptors[descriptorIndex].field);
+      directionMultipliers.push(
+        descriptors[descriptorIndex].direction === "asc" ? 1 : -1,
+      );
     }
 
     const len = fields.length;
 
     return (a: T, b: T): number => {
-      for (let i = 0; i < len; i++) {
-        const fa = a[fields[i]];
-        const fb = b[fields[i]];
+      for (let fieldIndex = 0; fieldIndex < len; fieldIndex++) {
+        const leftValue = a[fields[fieldIndex]];
+        const rightValue = b[fields[fieldIndex]];
 
-        if (fa < fb) return -1 * mults[i];
-        if (fa > fb) return 1 * mults[i];
+        if (leftValue < rightValue)
+          return -1 * directionMultipliers[fieldIndex];
+        if (leftValue > rightValue) return 1 * directionMultipliers[fieldIndex];
         // equal → continue to next field
       }
       return 0;
@@ -90,18 +97,22 @@ export class SortEngine<T extends CollectionItem> {
    *
    * Falls back to native sort if the range is too large (sparse data).
    */
-  private radixSortNumeric(data: T[], field: string, direction: string): T[] {
-    const n = data.length;
+  private radixSortNumeric(
+    data: T[],
+    field: string,
+    direction: SortDirection,
+  ): T[] {
+    const itemCount = data.length;
 
     // Extract values into a Float64Array for cache-friendly access
-    const values = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      values[i] = data[i][field] as number;
+    const values = new Float64Array(itemCount);
+    for (let index = 0; index < itemCount; index++) {
+      values[index] = data[index][field] as number;
     }
 
     // Build index array
-    const indexes = new Uint32Array(n);
-    for (let i = 0; i < n; i++) indexes[i] = i;
+    const indexes = new Uint32Array(itemCount);
+    for (let index = 0; index < itemCount; index++) indexes[index] = index;
 
     // For very large datasets, native sort on index array with numeric comparison
     // is actually faster than a full radix sort on floats in JS (V8 optimises this).
@@ -112,11 +123,15 @@ export class SortEngine<T extends CollectionItem> {
     });
 
     // Reconstruct array from sorted indexes
-    const result: T[] = new Array(n);
+    const result: T[] = new Array(itemCount);
     if (direction === "asc") {
-      for (let i = 0; i < n; i++) result[i] = data[indexes[i]];
+      for (let index = 0; index < itemCount; index++) {
+        result[index] = data[indexes[index]];
+      }
     } else {
-      for (let i = 0; i < n; i++) result[n - 1 - i] = data[indexes[i]];
+      for (let index = 0; index < itemCount; index++) {
+        result[itemCount - 1 - index] = data[indexes[index]];
+      }
     }
 
     return result;

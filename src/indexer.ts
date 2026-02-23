@@ -15,29 +15,33 @@ export class Indexer<T extends CollectionItem> {
 
   /** Build an index for the given field across the entire dataset. O(n). */
   buildIndex(data: T[], field: keyof T & string): void {
-    const map = new Map<any, T[]>();
+    const indexMap = new Map<any, T[]>();
 
-    for (let i = 0, len = data.length; i < len; i++) {
-      const item = data[i];
-      const key = item[field];
-      if (key === undefined || key === null) continue;
+    for (
+      let itemIndex = 0, dataLength = data.length;
+      itemIndex < dataLength;
+      itemIndex++
+    ) {
+      const item = data[itemIndex];
+      const fieldValue = item[field];
+      if (fieldValue === undefined || fieldValue === null) continue;
 
-      const bucket = map.get(key);
+      const bucket = indexMap.get(fieldValue);
       if (bucket) {
         bucket.push(item);
       } else {
-        map.set(key, [item]);
+        indexMap.set(fieldValue, [item]);
       }
     }
 
-    this.indexes.set(field as string, map);
+    this.indexes.set(field as string, indexMap);
   }
 
   /** O(1) exact-value lookup. Returns matching items or empty array. */
   getByValue(field: keyof T & string, value: any): T[] {
-    const map = this.indexes.get(field as string);
-    if (!map) return [];
-    return map.get(value) ?? [];
+    const indexMap = this.indexes.get(field as string);
+    if (!indexMap) return [];
+    return indexMap.get(value) ?? [];
   }
 
   /**
@@ -50,23 +54,23 @@ export class Indexer<T extends CollectionItem> {
    * (e.g. if the same item appears in multiple buckets).
    */
   getByValues(field: keyof T & string, values: any[]): T[] {
-    const map = this.indexes.get(field as string);
-    if (!map) return [];
+    const indexMap = this.indexes.get(field as string);
+    if (!indexMap) return [];
 
     // Fast path: single value — no dedup needed
     if (values.length === 1) {
-      return map.get(values[0]) ?? [];
+      return indexMap.get(values[0]) ?? [];
     }
 
     // Multiple values: collect and deduplicate via Set
     const seen = new Set<T>();
     const results: T[] = [];
 
-    for (let i = 0; i < values.length; i++) {
-      const bucket = map.get(values[i]);
+    for (let valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      const bucket = indexMap.get(values[valueIndex]);
       if (bucket) {
-        for (let j = 0; j < bucket.length; j++) {
-          const item = bucket[j];
+        for (let bucketIndex = 0; bucketIndex < bucket.length; bucketIndex++) {
+          const item = bucket[bucketIndex];
           if (!seen.has(item)) {
             seen.add(item);
             results.push(item);

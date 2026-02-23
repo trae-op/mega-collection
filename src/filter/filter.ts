@@ -38,11 +38,11 @@ export class FilterEngine<T extends CollectionItem> {
     const indexedCriteria: FilterCriterion<T>[] = [];
     const linearCriteria: FilterCriterion<T>[] = [];
 
-    for (const c of criteria) {
-      if (this.indexer.hasIndex(c.field)) {
-        indexedCriteria.push(c);
+    for (const criterion of criteria) {
+      if (this.indexer.hasIndex(criterion.field)) {
+        indexedCriteria.push(criterion);
       } else {
-        linearCriteria.push(c);
+        linearCriteria.push(criterion);
       }
     }
 
@@ -75,18 +75,30 @@ export class FilterEngine<T extends CollectionItem> {
     const results: T[] = [];
     const numCriteria = valueSets.length;
 
-    for (let i = 0, len = data.length; i < len; i++) {
-      const item = data[i];
-      let pass = true;
+    for (
+      let itemIndex = 0, dataLength = data.length;
+      itemIndex < dataLength;
+      itemIndex++
+    ) {
+      const item = data[itemIndex];
+      let passesAllCriteria = true;
 
-      for (let c = 0; c < numCriteria; c++) {
-        if (!valueSets[c].set.has(item[valueSets[c].field])) {
-          pass = false;
+      for (
+        let criterionIndex = 0;
+        criterionIndex < numCriteria;
+        criterionIndex++
+      ) {
+        if (
+          !valueSets[criterionIndex].set.has(
+            item[valueSets[criterionIndex].field],
+          )
+        ) {
+          passesAllCriteria = false;
           break;
         }
       }
 
-      if (pass) results.push(item);
+      if (passesAllCriteria) results.push(item);
     }
 
     return results;
@@ -105,24 +117,34 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     // Estimate candidate-set sizes and sort smallest first for faster pruning.
-    const estimated = criteria.map((c) => ({
-      criterion: c,
-      size: this.estimateIndexSize(c),
+    const estimatedCriteria = criteria.map((criterion) => ({
+      criterion,
+      size: this.estimateIndexSize(criterion),
     }));
-    estimated.sort((a, b) => a.size - b.size);
+    estimatedCriteria.sort((a, b) => a.size - b.size);
 
     // Start from the smallest candidate set
-    const first = estimated[0].criterion;
-    const candidateItems = this.indexer.getByValues(first.field, first.values);
+    const firstCriterion = estimatedCriteria[0].criterion;
+    const candidateItems = this.indexer.getByValues(
+      firstCriterion.field,
+      firstCriterion.values,
+    );
 
     if (candidateItems.length === 0) return [];
 
     // Use a Set for the running intersection
     let candidateSet = new Set<T>(candidateItems);
 
-    for (let i = 1; i < estimated.length; i++) {
-      const c = estimated[i].criterion;
-      const nextItems = this.indexer.getByValues(c.field, c.values);
+    for (
+      let estimatedIndex = 1;
+      estimatedIndex < estimatedCriteria.length;
+      estimatedIndex++
+    ) {
+      const criterion = estimatedCriteria[estimatedIndex].criterion;
+      const nextItems = this.indexer.getByValues(
+        criterion.field,
+        criterion.values,
+      );
       const nextSet = new Set<T>(nextItems);
 
       // Intersect: keep only items present in both
@@ -145,12 +167,12 @@ export class FilterEngine<T extends CollectionItem> {
    * Used to sort criteria by selectivity for faster intersection.
    */
   private estimateIndexSize(criterion: FilterCriterion<T>): number {
-    const map = this.indexer.getIndexMap(criterion.field);
-    if (!map) return Infinity;
+    const indexMap = this.indexer.getIndexMap(criterion.field);
+    if (!indexMap) return Infinity;
 
     let size = 0;
-    for (const val of criterion.values) {
-      const bucket = map.get(val);
+    for (const value of criterion.values) {
+      const bucket = indexMap.get(value);
       if (bucket) size += bucket.length;
     }
     return size;
