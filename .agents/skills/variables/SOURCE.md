@@ -1,4 +1,4 @@
-# JavaScript Variables — Instruction for AI Agents
+# JavaScript Variables
 
 ## 1. Variable Declaration
 
@@ -40,7 +40,7 @@ index = index + 1;
 - Use **camelCase** for variables and functions.
 - Use **PascalCase** for classes and React components.
 - Use **UPPER_SNAKE_CASE** for global constants and configurations.
-- Use **_camelCase** with a leading underscore for private/internal values (where needed).
+- Use **\_camelCase** with a leading underscore for private/internal values (where needed).
 
 ```js
 // ✅ camelCase
@@ -199,7 +199,10 @@ const lastName = user.profile.lastName;
 const city = user.address.city;
 
 // ✅ Good
-const { profile: { firstName, lastName }, address: { city } } = user;
+const {
+  profile: { firstName, lastName },
+  address: { city },
+} = user;
 ```
 
 ### Array Destructuring
@@ -239,7 +242,9 @@ Extract complex expressions into named variables for readability.
 
 ```js
 // ❌ Bad — hard to read
-const result = users.filter(u => u.age > 18 && u.isActive).map(u => ({ ...u, label: `${u.firstName} ${u.lastName}` }));
+const result = users
+  .filter((u) => u.age > 18 && u.isActive)
+  .map((u) => ({ ...u, label: `${u.firstName} ${u.lastName}` }));
 
 // ✅ Good — broken into steps with descriptive names
 const adultActiveUsers = users.filter((user) => user.age > 18 && user.isActive);
@@ -257,7 +262,8 @@ Never use "magic" values directly — extract them into named constants.
 
 ```js
 // ❌ Bad
-if (status === 2) {}
+if (status === 2) {
+}
 setTimeout(fn, 86400000);
 const discount = price * 0.15;
 
@@ -266,7 +272,8 @@ const STATUS_APPROVED = 2;
 const ONE_DAY_MS = 86_400_000;
 const DISCOUNT_RATE = 0.15;
 
-if (status === STATUS_APPROVED) {}
+if (status === STATUS_APPROVED) {
+}
 setTimeout(fn, ONE_DAY_MS);
 const discount = price * DISCOUNT_RATE;
 ```
@@ -279,8 +286,8 @@ const discount = price * DISCOUNT_RATE;
 
 ```js
 // ✅ Explicit initialization for absent values
-const selectedUser = null;       // intentionally empty
-const cachedValue = undefined;   // not yet initialized (rarely used)
+const selectedUser = null; // intentionally empty
+const cachedValue = undefined; // not yet initialized (rarely used)
 
 // ✅ Optional chaining for safe access
 const city = user?.address?.city;
@@ -293,14 +300,14 @@ const displayName = user.name ?? "Anonymous";
 
 ## 10. Forbidden Practices
 
-| Practice | Why It Is Forbidden |
-|---|---|
-| `var` | Function-scoped, hoisting issues, block scope problems |
-| Single-letter names (`x`, `i` outside loops) | Unreadable, not descriptive |
-| Reassigning `const` | Runtime error |
-| Global variables without declaration | Global scope pollution |
-| Similar names (`data`, `data2`, `newData`) | Confusion, hard to maintain |
-| Abbreviations (`usrNm`, `prdt`) | Poor readability |
+| Practice                                     | Why It Is Forbidden                                    |
+| -------------------------------------------- | ------------------------------------------------------ |
+| `var`                                        | Function-scoped, hoisting issues, block scope problems |
+| Single-letter names (`x`, `i` outside loops) | Unreadable, not descriptive                            |
+| Reassigning `const`                          | Runtime error                                          |
+| Global variables without declaration         | Global scope pollution                                 |
+| Similar names (`data`, `data2`, `newData`)   | Confusion, hard to maintain                            |
+| Abbreviations (`usrNm`, `prdt`)              | Poor readability                                       |
 
 ---
 
