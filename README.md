@@ -19,47 +19,18 @@ Zero dependencies. Tree-shakeable. Import only what you need.
 npm install @devisfuture/mega-collection
 ```
 
-## Quick Start — Full Package
+## Quick Start
+
+Import only the module you need — like `lodash`, each sub-module is fully independent:
 
 ```ts
-import { MegaCollection } from "@devisfuture/mega-collection";
-
 interface User {
   id: number;
   name: string;
   city: string;
   age: number;
 }
-
-const mc = new MegaCollection<User>({
-  indexFields: ["city", "age"],
-  textSearchFields: ["name"],
-});
-
-mc.load(myTenMillionUsers);
-
-// O(1) exact lookup
-mc.exactLookup("city", "Kyiv");
-
-// Text search (trigram-accelerated)
-mc.textSearch("name", "john");
-
-// Multi-criteria filter (AND logic, like multiselect checkboxes)
-mc.filter([
-  { field: "city", values: ["Kyiv", "Lviv"] },
-  { field: "age", values: [25, 30, 35] },
-]);
-
-// Sort
-mc.sort([
-  { field: "age", direction: "asc" },
-  { field: "name", direction: "desc" },
-]);
 ```
-
-## Modular Imports (Tree-Shaking)
-
-Like `lodash` — import only the module you need so your bundle stays small:
 
 ### Search only
 
@@ -104,30 +75,6 @@ const sorted = sorter.sort(users, [
 ```
 
 ## API Reference
-
-### `MegaCollection<T>` (main facade)
-
-#### `new MegaCollection<T>(config?)`
-
-| Config field       | Type       | Description                         |
-| ------------------ | ---------- | ----------------------------------- |
-| `indexFields`      | `string[]` | Fields to build hash-map indexes on |
-| `textSearchFields` | `string[]` | Fields to build trigram indexes on  |
-
-#### Methods
-
-| Method                            | Description                     |
-| --------------------------------- | ------------------------------- |
-| `load(data)`                      | Load data and build all indexes |
-| `exactLookup(field, value)`       | O(1) exact-value lookup         |
-| `exactLookupMulti(field, values)` | O(1) multi-value lookup         |
-| `textSearch(field, query)`        | Trigram-powered text search     |
-| `filter(criteria)`                | Multi-criteria AND filter       |
-| `sort(descriptors, inPlace?)`     | Multi-field sort                |
-| `addIndex(field)`                 | Add hash-map index at runtime   |
-| `addTextIndex(field)`             | Add trigram index at runtime    |
-| `clearIndexes()`                  | Free index memory               |
-| `destroy()`                       | Remove all data and indexes     |
 
 ### `Indexer<T>` (search module)
 
@@ -175,12 +122,13 @@ All types are exported from the main package and from each sub-module:
 ```ts
 import type {
   CollectionItem,
-  MegaCollectionConfig,
-  FilterCriterion,
+  IndexableKey,
+} from "@devisfuture/mega-collection/search";
+import type { FilterCriterion } from "@devisfuture/mega-collection/filter";
+import type {
   SortDescriptor,
   SortDirection,
-  IndexableKey,
-} from "@devisfuture/mega-collection";
+} from "@devisfuture/mega-collection/sort";
 ```
 
 ## Architecture
@@ -198,8 +146,7 @@ src/
   sort/
     sorter.ts            — Sort engine (TimSort + index-sort)
     index.ts             — Sort module entry point
-  mega-collection.ts     — Main API facade
-  index.ts               — Main barrel export
+  index.ts               — Barrel export
 ```
 
 ## Build

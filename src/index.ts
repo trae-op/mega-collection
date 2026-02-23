@@ -1,11 +1,13 @@
 /**
  * @devisfuture/mega-collection — public API barrel export.
  *
- * This is the main entry point for the npm package.
- * Re-exports everything from all sub-modules for convenience.
+ * Tree-shakeable: import only the module you need.
+ *
+ * - `@devisfuture/mega-collection/search` — Indexer + TextSearchEngine
+ * - `@devisfuture/mega-collection/filter`  — FilterEngine + Indexer
+ * - `@devisfuture/mega-collection/sort`    — SortEngine
  */
 
-export { MegaCollection } from "./mega-collection";
 export { Indexer } from "./indexer";
 export { TextSearchEngine } from "./search/text-search";
 export { FilterEngine } from "./filter/filter";
@@ -13,7 +15,6 @@ export { SortEngine } from "./sort/sorter";
 
 export type {
   CollectionItem,
-  MegaCollectionConfig,
   FilterCriterion,
   SortDescriptor,
   SortDirection,
