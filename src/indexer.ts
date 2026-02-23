@@ -62,18 +62,24 @@ export class Indexer<T extends CollectionItem> {
       return indexMap.get(values[0]) ?? [];
     }
 
-    // Collect matching buckets, flatten, and deduplicate in a single pass
-    const allMatchingItems = values
-      .map((value) => indexMap.get(value))
-      .filter((bucket): bucket is T[] => bucket !== undefined)
-      .flat();
-
+    // Single-pass collect + dedup — no intermediate arrays
     const seenItems = new Set<T>();
-    return allMatchingItems.filter((item) => {
-      if (seenItems.has(item)) return false;
-      seenItems.add(item);
-      return true;
-    });
+    const result: T[] = [];
+
+    for (let valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      const bucket = indexMap.get(values[valueIndex]);
+      if (bucket === undefined) continue;
+
+      for (let bucketIndex = 0; bucketIndex < bucket.length; bucketIndex++) {
+        const item = bucket[bucketIndex];
+        if (!seenItems.has(item)) {
+          seenItems.add(item);
+          result.push(item);
+        }
+      }
+    }
+
+    return result;
   }
 
   /** Check whether an index exists for a field. */

@@ -55,16 +55,20 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     const trigramMap = new Map<string, Set<number>>();
 
-    data.forEach((item, itemIndex) => {
-      const rawValue = item[field];
-      if (typeof rawValue !== "string") return;
+    for (
+      let itemIndex = 0, dataLength = data.length;
+      itemIndex < dataLength;
+      itemIndex++
+    ) {
+      const rawValue = data[itemIndex][field];
+      if (typeof rawValue !== "string") continue;
 
-      // Process item's own derived trigrams (per-item sub-data, not a separate collection)
+      // Deduplicate trigrams per item, then add to posting lists
       const uniqueTrigrams = new Set(extractTrigrams(rawValue));
-      uniqueTrigrams.forEach((trigram) => {
+      for (const trigram of uniqueTrigrams) {
         getOrCreatePostingList(trigramMap, trigram).add(itemIndex);
-      });
-    });
+      }
+    }
 
     this.trigramIndexes.set(field as string, trigramMap);
   }
@@ -94,27 +98,33 @@ export class TextSearchEngine<T extends CollectionItem> {
         leftPostingList.size - rightPostingList.size,
     );
 
-    // Intersect: filter smallest posting list by O(1) Set.has in all remaining lists
+    // Intersect + verify in a single pass — no intermediate arrays
     const [smallestPostingList, ...remainingPostingLists] = postingLists;
-    const candidateIndexes = Array.from(smallestPostingList).filter(
-      (candidateIndex) =>
-        remainingPostingLists.every((postingList) =>
-          postingList.has(candidateIndex),
-        ),
-    );
+    const remainingCount = remainingPostingLists.length;
+    const matchedItems: T[] = [];
 
-    if (candidateIndexes.length === 0) return [];
+    for (const candidateIndex of smallestPostingList) {
+      // Check all remaining posting lists (O(1) each)
+      let isCandidate = true;
+      for (let listIndex = 0; listIndex < remainingCount; listIndex++) {
+        if (!remainingPostingLists[listIndex].has(candidateIndex)) {
+          isCandidate = false;
+          break;
+        }
+      }
+      if (!isCandidate) continue;
 
-    // -- Step 2: verify candidates against the real string --
-    return candidateIndexes
-      .filter((itemIndex) => {
-        const fieldValue = this.data[itemIndex][field];
-        return (
-          typeof fieldValue === "string" &&
-          fieldValue.toLowerCase().includes(lowerQuery)
-        );
-      })
-      .map((itemIndex) => this.data[itemIndex]);
+      // Verify against the real string
+      const fieldValue = this.data[candidateIndex][field];
+      if (
+        typeof fieldValue === "string" &&
+        fieldValue.toLowerCase().includes(lowerQuery)
+      ) {
+        matchedItems.push(this.data[candidateIndex]);
+      }
+    }
+
+    return matchedItems;
   }
 
   /** Check whether a trigram index exists for a field. */

@@ -71,9 +71,8 @@ export class SortEngine<T extends CollectionItem> {
         const leftValue = a[fields[fieldIndex]];
         const rightValue = b[fields[fieldIndex]];
 
-        if (leftValue < rightValue)
-          return -1 * directionMultipliers[fieldIndex];
-        if (leftValue > rightValue) return 1 * directionMultipliers[fieldIndex];
+        if (leftValue < rightValue) return -directionMultipliers[fieldIndex];
+        if (leftValue > rightValue) return directionMultipliers[fieldIndex];
         // equal → continue to next field
       }
       return 0;
@@ -108,10 +107,7 @@ export class SortEngine<T extends CollectionItem> {
     // For very large datasets, native sort on index array with numeric comparison
     // is actually faster than a full radix sort on floats in JS (V8 optimises this).
     // We use the index-sort approach to avoid moving heavy objects during sort.
-    indexes.sort((a, b) => {
-      const diff = values[a] - values[b];
-      return diff !== 0 ? diff : 0;
-    });
+    indexes.sort((a, b) => values[a] - values[b]);
 
     // Reconstruct array from sorted indexes
     const result: T[] = new Array(itemCount);
