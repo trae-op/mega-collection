@@ -13,7 +13,7 @@
 
 import { CollectionItem } from "../types";
 
-const MINIMUM_TRIGRAM_LENGTH = 3;
+const MINIMUM_TRIGRAM_LENGTH = 1;
 
 /** Extract all trigrams from a lowercased string. */
 function extractTrigrams(input: string): string[] {
