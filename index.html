@@ -104,6 +104,54 @@
         color: #58a6ff;
         text-decoration: none;
       }
+      .benchmark {
+        margin-top: 20px;
+        max-width: 960px;
+        width: 100%;
+        background: #161b22;
+        border: 1px solid #30363d;
+        border-radius: 12px;
+        padding: 24px;
+      }
+      .benchmark h2 {
+        color: #58a6ff;
+        font-size: 1.15rem;
+        margin-bottom: 8px;
+      }
+      .benchmark p {
+        color: #8b949e;
+        font-size: 0.92rem;
+        line-height: 1.5;
+      }
+      .benchmark .controls {
+        display: flex;
+        gap: 10px;
+        margin-top: 14px;
+        flex-wrap: wrap;
+      }
+      .benchmark button {
+        border: 1px solid #30363d;
+        background: #1f6feb;
+        color: #ffffff;
+        border-radius: 8px;
+        padding: 8px 14px;
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+      .benchmark button:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+      }
+      .benchmark .secondary {
+        background: #21262d;
+      }
+      .benchmark .metrics {
+        margin-top: 12px;
+        color: #c9d1d9;
+        font-size: 0.88rem;
+        line-height: 1.6;
+        white-space: pre-line;
+      }
     </style>
   </head>
   <body>
@@ -175,10 +223,120 @@ sorter.<span class="fn">sort</span>(users, [
       </div>
     </div>
 
+    <section class="benchmark">
+      <h2>Live demo: mega-collection/search (10M)</h2>
+      <p>
+        Натисни запуск, щоб згенерувати 10 000 000 елементів, побудувати
+        trigram-індекс по полю <strong>name</strong> і виконати пошук
+        <strong>"john"</strong>. Результат часу буде нижче.
+      </p>
+      <div class="controls">
+        <button id="runBenchmark">Run 10M benchmark</button>
+        <button id="clearBenchmark" class="secondary">Clear</button>
+      </div>
+      <div id="benchmarkOutput" class="metrics">
+        Ready. Для запуску потрібен build (`npm run build`) і локальний сервер.
+      </div>
+    </section>
+
     <footer>
       <strong>@devisfuture/mega-collection</strong> · tree-shakeable TypeScript
       package ·
       <a href="https://github.com/devisfuture/mega-collection">GitHub</a>
     </footer>
+
+    <script type="module">
+      import { TextSearchEngine } from "./dist/search/index.mjs";
+
+      const TEN_MILLION = 10_000_000;
+      const runButton = document.getElementById("runBenchmark");
+      const clearButton = document.getElementById("clearBenchmark");
+      const output = document.getElementById("benchmarkOutput");
+
+      function formatMs(value) {
+        return `${value.toLocaleString()} ms`;
+      }
+
+      function formatMemory(bytes) {
+        if (!bytes || Number.isNaN(bytes)) return "n/a";
+        return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+      }
+
+      function setOutput(text) {
+        output.textContent = text;
+      }
+
+      function createUsers(size) {
+        const users = new Array(size);
+
+        for (let i = 0; i < size; i++) {
+          const hasJohn = i % 1000 === 0;
+          users[i] = {
+            id: i,
+            name: hasJohn ? `john-user-${i}` : `user-${i}`,
+            city: i % 2 === 0 ? "Kyiv" : "Lviv",
+          };
+        }
+
+        return users;
+      }
+
+      async function runBenchmark() {
+        runButton.disabled = true;
+
+        try {
+          setOutput("Generating 10,000,000 users...");
+          await new Promise((resolve) => setTimeout(resolve, 0));
+
+          const beforeMemory = performance.memory?.usedJSHeapSize;
+
+          const createStart = performance.now();
+          const users = createUsers(TEN_MILLION);
+          const createEnd = performance.now();
+
+          setOutput("Building trigram index for field: name...");
+          await new Promise((resolve) => setTimeout(resolve, 0));
+
+          const engine = new TextSearchEngine();
+          const indexStart = performance.now();
+          engine.buildIndex(users, "name");
+          const indexEnd = performance.now();
+
+          setOutput("Running search for query: john...");
+          await new Promise((resolve) => setTimeout(resolve, 0));
+
+          const searchStart = performance.now();
+          const results = engine.search("name", "john");
+          const searchEnd = performance.now();
+
+          const afterMemory = performance.memory?.usedJSHeapSize;
+
+          setOutput(
+            [
+              `Dataset: ${TEN_MILLION.toLocaleString()} users`,
+              `Create data: ${formatMs(Math.round(createEnd - createStart))}`,
+              `Build index: ${formatMs(Math.round(indexEnd - indexStart))}`,
+              `Search: ${formatMs(Math.round(searchEnd - searchStart))}`,
+              `Matches: ${results.length.toLocaleString()}`,
+              `Heap before: ${formatMemory(beforeMemory)}`,
+              `Heap after: ${formatMemory(afterMemory)}`,
+            ].join("\n"),
+          );
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          setOutput(`Benchmark failed: ${message}`);
+        } finally {
+          runButton.disabled = false;
+        }
+      }
+
+      runButton.addEventListener("click", runBenchmark);
+      clearButton.addEventListener("click", () => {
+        setOutput(
+          "Ready. Для запуску потрібен build (`npm run build`) і локальний сервер.",
+        );
+      });
+    </script>
   </body>
 </html>
