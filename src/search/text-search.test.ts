@@ -1,0 +1,48 @@
+import { describe, expect, it } from "vitest";
+
+import { TextSearchEngine } from "./text-search";
+
+type CardItem = {
+  id: number;
+  title: string;
+  description: string;
+  tag: string;
+};
+
+const cards: CardItem[] = Array.from({ length: 1000 }, (_, index) => ({
+  id: index + 1,
+  title: `Card #${index + 1}`,
+  description: `This is card item number ${index + 1} in a virtualized list using react-window.`,
+  tag: index % 2 === 0 ? "Even" : "Odd",
+}));
+
+describe("TextSearchEngine", () => {
+  it("finds numeric substrings in long text fields", () => {
+    const engine = new TextSearchEngine<CardItem>();
+    engine.buildIndex(cards, "title");
+
+    const matches = engine.search("title", "1");
+
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.some((item) => item.title.includes("1"))).toBe(true);
+  });
+
+  it("trims query before searching", () => {
+    const engine = new TextSearchEngine<CardItem>();
+    engine.buildIndex(cards, "title");
+
+    const exactMatches = engine.search("title", "1");
+    const paddedMatches = engine.search("title", " 1 ");
+
+    expect(paddedMatches).toEqual(exactMatches);
+  });
+
+  it("keeps indexed-path behavior for longer queries", () => {
+    const engine = new TextSearchEngine<CardItem>();
+    engine.buildIndex(cards, "description");
+
+    const matches = engine.search("description", "virtualized");
+
+    expect(matches.length).toBe(cards.length);
+  });
+});

@@ -102,7 +102,28 @@ export class TextSearchEngine<T extends CollectionItem> {
     const trigramMap = this.trigramIndexes.get(field as string);
     if (!trigramMap) return [];
 
-    const lowerQuery = query.toLowerCase();
+    const lowerQuery = query.trim().toLowerCase();
+    if (!lowerQuery) return [];
+
+    // Trigram index cannot directly serve queries shorter than 3 chars.
+    // Fall back to linear scan + includes verification for correctness.
+    if (lowerQuery.length < MINIMUM_TRIGRAM_LENGTH) {
+      const matchedItems: T[] = [];
+      for (
+        let itemIndex = 0, dataLength = this.data.length;
+        itemIndex < dataLength;
+        itemIndex++
+      ) {
+        const fieldValue = this.data[itemIndex][field];
+        if (
+          typeof fieldValue === "string" &&
+          fieldValue.toLowerCase().includes(lowerQuery)
+        ) {
+          matchedItems.push(this.data[itemIndex]);
+        }
+      }
+      return matchedItems;
+    }
 
     // -- Step 1: collect posting lists for each unique query trigram --
     // Single loop replaces Array.from → Set → map → filter chain,

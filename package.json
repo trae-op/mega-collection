@@ -58,6 +58,7 @@
     "build": "tsup",
     "build:watch": "tsup --watch",
     "dev": "tsup --watch",
+    "test": "vitest run",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
@@ -91,6 +92,7 @@
   },
   "devDependencies": {
     "tsup": "^8.0.0",
-    "typescript": "^5.3.0"
+    "typescript": "^5.3.0",
+    "vitest": "^3.2.4"
   }
 }
