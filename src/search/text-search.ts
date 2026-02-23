@@ -49,7 +49,17 @@ export class TextSearchEngine<T extends CollectionItem> {
   /** Reference to the full dataset (set once via `buildIndex`). */
   private data: T[] = [];
 
-  /** Build trigram index for one field. O(n·L). */
+  /**
+   * Build trigram index for one field. O(n·L).
+   *
+   * Trigram extraction is inlined to avoid allocating a temporary array
+   * and a deduplication Set per item.  Posting lists are `Set<number>`,
+   * so duplicate `.add()` calls for the same itemIndex are no-ops — we
+   * get correctness without per-item deduplication overhead.
+   *
+   * For 10 M+ items this eliminates ~20 M transient object allocations
+   * and dramatically reduces GC pressure.
+   */
   buildIndex(data: T[], field: keyof T & string): void {
     this.data = data;
 
@@ -63,9 +73,20 @@ export class TextSearchEngine<T extends CollectionItem> {
       const rawValue = data[itemIndex][field];
       if (typeof rawValue !== "string") continue;
 
-      // Deduplicate trigrams per item, then add to posting lists
-      const uniqueTrigrams = new Set(extractTrigrams(rawValue));
-      for (const trigram of uniqueTrigrams) {
+      const lower = rawValue.toLowerCase();
+
+      // Short strings produce a single "trigram" (the whole string)
+      if (lower.length < MINIMUM_TRIGRAM_LENGTH) {
+        getOrCreatePostingList(trigramMap, lower).add(itemIndex);
+        continue;
+      }
+
+      // Inline trigram extraction — no intermediate array or Set created.
+      // Set.add is idempotent, so duplicate trigrams within one string
+      // are harmless and far cheaper than per-item Set allocation.
+      const trigramCount = lower.length - MINIMUM_TRIGRAM_LENGTH + 1;
+      for (let i = 0; i < trigramCount; i++) {
+        const trigram = lower.substring(i, i + MINIMUM_TRIGRAM_LENGTH);
         getOrCreatePostingList(trigramMap, trigram).add(itemIndex);
       }
     }
@@ -83,31 +104,36 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     const lowerQuery = query.toLowerCase();
 
-    // -- Step 1: get candidate indexes via trigram intersection --
-    const queryTrigrams = Array.from(new Set(extractTrigrams(lowerQuery)));
-    const postingLists = queryTrigrams
-      .map((queryTrigram) => trigramMap.get(queryTrigram))
-      .filter((postingList): postingList is Set<number> =>
-        Boolean(postingList),
-      );
+    // -- Step 1: collect posting lists for each unique query trigram --
+    // Single loop replaces Array.from → Set → map → filter chain,
+    // eliminating 3 intermediate array allocations.
+    const uniqueQueryTrigrams = new Set(extractTrigrams(lowerQuery));
+    const postingLists: Set<number>[] = [];
 
-    if (postingLists.length !== queryTrigrams.length) return [];
+    for (const trigram of uniqueQueryTrigrams) {
+      const postingList = trigramMap.get(trigram);
+      if (!postingList) return []; // trigram absent → zero matches, bail out early
+      postingLists.push(postingList);
+    }
 
+    // Sort so the smallest posting list comes first (best selectivity)
     postingLists.sort(
       (leftPostingList, rightPostingList) =>
         leftPostingList.size - rightPostingList.size,
     );
 
-    // Intersect + verify in a single pass — no intermediate arrays
-    const [smallestPostingList, ...remainingPostingLists] = postingLists;
-    const remainingCount = remainingPostingLists.length;
+    // -- Step 2: intersect + verify in a single pass --
+    // Index-based access avoids spread destructuring ([first, ...rest])
+    // which would allocate an extra array.
+    const smallestPostingList = postingLists[0];
+    const totalPostingLists = postingLists.length;
     const matchedItems: T[] = [];
 
     for (const candidateIndex of smallestPostingList) {
-      // Check all remaining posting lists (O(1) each)
+      // Check remaining posting lists (O(1) Set lookup each)
       let isCandidate = true;
-      for (let listIndex = 0; listIndex < remainingCount; listIndex++) {
-        if (!remainingPostingLists[listIndex].has(candidateIndex)) {
+      for (let listIndex = 1; listIndex < totalPostingLists; listIndex++) {
+        if (!postingLists[listIndex].has(candidateIndex)) {
           isCandidate = false;
           break;
         }
