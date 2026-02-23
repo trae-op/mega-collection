@@ -44,17 +44,33 @@ export class Indexer<T extends CollectionItem> {
    * Multi-value lookup: return items that match ANY of the provided values
    * for the given field.  Equivalent to SQL `field IN (v1, v2, …)`.
    * Each value lookup is O(1), total O(k) where k = values.length.
+   *
+   * When only one value is provided, skips Set dedup for speed.
+   * For multiple values, uses a Set to prevent duplicate items
+   * (e.g. if the same item appears in multiple buckets).
    */
   getByValues(field: keyof T & string, values: any[]): T[] {
     const map = this.indexes.get(field as string);
     if (!map) return [];
 
+    // Fast path: single value — no dedup needed
+    if (values.length === 1) {
+      return map.get(values[0]) ?? [];
+    }
+
+    // Multiple values: collect and deduplicate via Set
+    const seen = new Set<T>();
     const results: T[] = [];
+
     for (let i = 0; i < values.length; i++) {
       const bucket = map.get(values[i]);
       if (bucket) {
         for (let j = 0; j < bucket.length; j++) {
-          results.push(bucket[j]);
+          const item = bucket[j];
+          if (!seen.has(item)) {
+            seen.add(item);
+            results.push(item);
+          }
         }
       }
     }

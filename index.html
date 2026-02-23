@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MegaCollection — 10 M+ Demos</title>
+    <title>MegaCollection — Tree-Shakeable API</title>
     <style>
       * {
         box-sizing: border-box;
@@ -45,15 +45,7 @@
         border: 1px solid #30363d;
         border-radius: 12px;
         padding: 24px;
-        text-decoration: none;
         color: inherit;
-        transition:
-          border-color 0.2s,
-          transform 0.15s;
-      }
-      .card:hover {
-        border-color: #58a6ff;
-        transform: translateY(-2px);
       }
       .card .icon {
         font-size: 2rem;
@@ -78,6 +70,29 @@
         background: #1f6feb33;
         color: #58a6ff;
       }
+      pre {
+        background: #0d1117;
+        border: 1px solid #30363d;
+        border-radius: 6px;
+        padding: 12px;
+        overflow-x: auto;
+        font-size: 0.82rem;
+        color: #c9d1d9;
+        margin-top: 12px;
+        line-height: 1.5;
+      }
+      code .kw {
+        color: #ff7b72;
+      }
+      code .str {
+        color: #a5d6ff;
+      }
+      code .cmt {
+        color: #8b949e;
+      }
+      code .fn {
+        color: #d2a8ff;
+      }
       footer {
         margin-top: auto;
         padding: 40px 0 20px;
@@ -94,32 +109,54 @@
   <body>
     <h1>⚡ MegaCollection</h1>
     <p class="subtitle">
-      High-performance search, filter &amp; sort engine for
-      <strong>10 M+</strong> item collections
+      Tree-shakeable search, filter &amp; sort engine for
+      <strong>10 M+</strong> item collections — import only what you need
     </p>
 
     <div class="cards">
-      <a class="card" href="search.html">
+      <div class="card">
         <div class="icon">🔍</div>
-        <h2>Text Search</h2>
+        <h2>Search</h2>
         <p>
           Trigram-accelerated substring search, plus O(1) exact key lookup via
           hash-map indexes.
         </p>
         <span class="tag">O(1) exact · trigram contains</span>
-      </a>
+        <pre><code><span class="kw">import</span> { Indexer, TextSearchEngine }
+  <span class="kw">from</span> <span class="str">"@devisfuture/mega-collection/search"</span>;
 
-      <a class="card" href="filter.html">
+<span class="kw">const</span> indexer = <span class="kw">new</span> <span class="fn">Indexer</span>();
+indexer.<span class="fn">buildIndex</span>(users, <span class="str">"city"</span>);
+indexer.<span class="fn">getByValue</span>(<span class="str">"city"</span>, <span class="str">"Kyiv"</span>); <span class="cmt">// O(1)</span>
+
+<span class="kw">const</span> search = <span class="kw">new</span> <span class="fn">TextSearchEngine</span>();
+search.<span class="fn">buildIndex</span>(users, <span class="str">"name"</span>);
+search.<span class="fn">search</span>(<span class="str">"name"</span>, <span class="str">"john"</span>);</code></pre>
+      </div>
+
+      <div class="card">
         <div class="icon">☑️</div>
-        <h2>Multi-Filter</h2>
+        <h2>Filter</h2>
         <p>
-          Multi-criteria AND filtering with checkboxes. Uses indexed lookups
-          when available, Set-based fallback otherwise.
+          Multi-criteria AND filtering. Uses indexed lookups when available,
+          Set-based fallback otherwise.
         </p>
         <span class="tag">O(k) indexed · AND logic</span>
-      </a>
+        <pre><code><span class="kw">import</span> { FilterEngine, Indexer }
+  <span class="kw">from</span> <span class="str">"@devisfuture/mega-collection/filter"</span>;
 
-      <a class="card" href="sort.html">
+<span class="kw">const</span> indexer = <span class="kw">new</span> <span class="fn">Indexer</span>();
+indexer.<span class="fn">buildIndex</span>(users, <span class="str">"city"</span>);
+indexer.<span class="fn">buildIndex</span>(users, <span class="str">"age"</span>);
+
+<span class="kw">const</span> filter = <span class="kw">new</span> <span class="fn">FilterEngine</span>(indexer);
+filter.<span class="fn">filter</span>(users, [
+  { field: <span class="str">"city"</span>, values: [<span class="str">"Kyiv"</span>] },
+  { field: <span class="str">"age"</span>,  values: [25, 30] },
+]);</code></pre>
+      </div>
+
+      <div class="card">
         <div class="icon">↕️</div>
         <h2>Sort</h2>
         <p>
@@ -127,12 +164,21 @@
           comparators and numeric index-sort optimisation.
         </p>
         <span class="tag">O(n log n) · multi-field</span>
-      </a>
+        <pre><code><span class="kw">import</span> { SortEngine }
+  <span class="kw">from</span> <span class="str">"@devisfuture/mega-collection/sort"</span>;
+
+<span class="kw">const</span> sorter = <span class="kw">new</span> <span class="fn">SortEngine</span>();
+sorter.<span class="fn">sort</span>(users, [
+  { field: <span class="str">"age"</span>,  direction: <span class="str">"asc"</span> },
+  { field: <span class="str">"name"</span>, direction: <span class="str">"desc"</span> },
+]);</code></pre>
+      </div>
     </div>
 
     <footer>
-      <strong>mega-collection</strong> · npm-ready TypeScript package ·
-      <a href="https://github.com">GitHub</a>
+      <strong>@devisfuture/mega-collection</strong> · tree-shakeable TypeScript
+      package ·
+      <a href="https://github.com/devisfuture/mega-collection">GitHub</a>
     </footer>
   </body>
 </html>
