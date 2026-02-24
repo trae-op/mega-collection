@@ -2,8 +2,8 @@
  * FilterEngine — multi-criteria filtering optimised for 10 M+ rows.
  *
  * Strategy:
- *  1. If hash-map indexes exist (from Indexer), use O(1) lookups per value
- *     and intersect results across fields.  This is the *fast path*.
+ *  1. If hash-map indexes exist (built via buildIndex), use O(1) lookups per
+ *     value and intersect results across fields.  This is the *fast path*.
  *
  *  2. If no index is available for a field, fall back to a single-pass linear
  *     scan using a `Set` for each criterion (O(n) but with O(1) membership
@@ -19,8 +19,28 @@ import { Indexer } from "../indexer";
 export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;
 
-  constructor(indexer: Indexer<T>) {
-    this.indexer = indexer;
+  constructor() {
+    this.indexer = new Indexer<T>();
+  }
+
+  /**
+   * Build a hash-map index for a field to enable O(1) fast-path filtering.
+   * Call this for every field you plan to filter on before calling `filter()`.
+   *
+   * @param data  - The full dataset.
+   * @param field - The field to index.
+   * @returns `this` for chaining.
+   */
+  buildIndex(data: T[], field: keyof T & string): this {
+    this.indexer.buildIndex(data, field);
+    return this;
+  }
+
+  /**
+   * Free all index memory.
+   */
+  clearIndexes(): void {
+    this.indexer.clear();
   }
 
   /**

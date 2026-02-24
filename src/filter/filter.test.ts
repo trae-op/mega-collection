@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { Indexer } from "../indexer";
 import { FilterEngine } from "./filter";
 
 type User = {
@@ -21,8 +20,7 @@ const users: User[] = [
 
 describe("FilterEngine", () => {
   it("returns input data when criteria is empty", () => {
-    const indexer = new Indexer<User>();
-    const engine = new FilterEngine<User>(indexer);
+    const engine = new FilterEngine<User>();
 
     const result = engine.filter(users, []);
 
@@ -30,11 +28,10 @@ describe("FilterEngine", () => {
   });
 
   it("filters via indexed criteria with AND logic", () => {
-    const indexer = new Indexer<User>();
-    indexer.buildIndex(users, "city");
-    indexer.buildIndex(users, "age");
+    const engine = new FilterEngine<User>()
+      .buildIndex(users, "city")
+      .buildIndex(users, "age");
 
-    const engine = new FilterEngine<User>(indexer);
     const result = engine.filter(users, [
       { field: "city", values: ["Kyiv", "Lviv"] },
       { field: "age", values: [30] },
@@ -44,10 +41,8 @@ describe("FilterEngine", () => {
   });
 
   it("supports mixed path: indexed pre-filter + linear criteria", () => {
-    const indexer = new Indexer<User>();
-    indexer.buildIndex(users, "city");
+    const engine = new FilterEngine<User>().buildIndex(users, "city");
 
-    const engine = new FilterEngine<User>(indexer);
     const result = engine.filter(users, [
       { field: "city", values: ["Kyiv", "Lviv"] },
       { field: "active", values: [true] },
@@ -57,8 +52,7 @@ describe("FilterEngine", () => {
   });
 
   it("supports pure linear filtering when no indexes exist", () => {
-    const indexer = new Indexer<User>();
-    const engine = new FilterEngine<User>(indexer);
+    const engine = new FilterEngine<User>();
 
     const result = engine.filter(users, [
       { field: "city", values: ["Kyiv", "Odesa"] },

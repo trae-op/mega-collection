@@ -3,12 +3,11 @@
  *
  * Tree-shakeable: import only the module you need.
  *
- * - `@devisfuture/mega-collection/search` — Indexer + TextSearchEngine
- * - `@devisfuture/mega-collection/filter`  — FilterEngine + Indexer
+ * - `@devisfuture/mega-collection/search` — TextSearchEngine
+ * - `@devisfuture/mega-collection/filter`  — FilterEngine
  * - `@devisfuture/mega-collection/sort`    — SortEngine
  */
 
-export { Indexer } from "./indexer";
 export { TextSearchEngine } from "./search/text-search";
 export { FilterEngine } from "./filter/filter";
 export { SortEngine } from "./sort/sorter";

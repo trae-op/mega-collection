@@ -8,7 +8,7 @@ Zero dependencies. Tree-shakeable. Import only what you need.
 
 | Capability                 | Strategy                              | Complexity                         |
 | -------------------------- | ------------------------------------- | ---------------------------------- |
-| **Exact key lookup**       | Hash-Map index (`Map<value, T[]>`)    | **O(1)**                           |
+| **Indexed filter**         | Hash-Map index (`Map<value, T[]>`)    | **O(1)**                           |
 | **Multi-value filter**     | Index intersection + `Set` membership | **O(k)** indexed / **O(n)** linear |
 | **Text search** (contains) | Trigram inverted index + verify       | **O(candidates)**                  |
 | **Sorting**                | V8 TimSort / index-sort for numerics  | **O(n log n)**                     |
@@ -35,11 +35,7 @@ interface User {
 ### Search only
 
 ```ts
-import { Indexer, TextSearchEngine } from "@devisfuture/mega-collection/search";
-
-const indexer = new Indexer<User>();
-indexer.buildIndex(users, "city");
-indexer.getByValue("city", "Kyiv"); // O(1) exact lookup
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 
 const search = new TextSearchEngine<User>();
 search.buildIndex(users, "name");
@@ -49,13 +45,12 @@ search.search("name", "john");
 ### Filter only
 
 ```ts
-import { FilterEngine, Indexer } from "@devisfuture/mega-collection/filter";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
 
-const indexer = new Indexer<User>();
-indexer.buildIndex(users, "city");
-indexer.buildIndex(users, "age");
+const filter = new FilterEngine<User>()
+  .buildIndex(users, "city")
+  .buildIndex(users, "age");
 
-const filter = new FilterEngine<User>(indexer);
 filter.filter(users, [
   { field: "city", values: ["Kyiv", "Lviv"] },
   { field: "age", values: [25, 30, 35] },
@@ -76,18 +71,6 @@ const sorted = sorter.sort(users, [
 
 ## API Reference
 
-### `Indexer<T>` (search module)
-
-Hash-map index engine for O(1) exact-key lookups.
-
-| Method                       | Description                   |
-| ---------------------------- | ----------------------------- |
-| `buildIndex(data, field)`    | Build index for a field. O(n) |
-| `getByValue(field, value)`   | O(1) single-value lookup      |
-| `getByValues(field, values)` | O(k) multi-value lookup       |
-| `hasIndex(field)`            | Check whether an index exists |
-| `clear()`                    | Free all index memory         |
-
 ### `TextSearchEngine<T>` (search module)
 
 Trigram-based text search engine.
@@ -103,9 +86,11 @@ Trigram-based text search engine.
 
 Multi-criteria AND filter with index-accelerated fast path.
 
-| Method                   | Description           |
-| ------------------------ | --------------------- |
-| `filter(data, criteria)` | Apply filter criteria |
+| Method                    | Description                           |
+| ------------------------- | ------------------------------------- |
+| `buildIndex(data, field)` | Build hash-map index for a field O(n) |
+| `filter(data, criteria)`  | Apply filter criteria                 |
+| `clearIndexes()`          | Free all index memory                 |
 
 ### `SortEngine<T>` (sort module)
 
@@ -136,12 +121,12 @@ import type {
 ```
 src/
   types.ts               — Shared type definitions
-  indexer.ts              — Hash-Map index engine (O(1) lookups)
+  indexer.ts              — Hash-Map index engine (internal, O(1) lookups)
   search/
     text-search.ts       — Trigram inverted index engine
     index.ts             — Search module entry point
   filter/
-    filter.ts            — Multi-criteria filter engine
+    filter.ts            — Multi-criteria filter engine (owns Indexer internally)
     index.ts             — Filter module entry point
   sort/
     sorter.ts            — Sort engine (TimSort + index-sort)
