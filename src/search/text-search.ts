@@ -39,6 +39,22 @@ function getOrCreatePostingList(
   return newPostingList;
 }
 
+export interface TextSearchEngineOptions {
+  /**
+   * Minimum number of characters required before a search is executed.
+   * Queries shorter than this return an empty array immediately.
+   *
+   * Why this matters: a single-character query uses 1-grams whose posting
+   * lists can span the majority of the dataset (e.g. "a" matches 70–80 % of
+   * names/cities), forcing `String.includes` verification over tens of
+   * thousands of candidates.  Setting this to 2 or 3 dramatically reduces
+   * the candidate set and keeps searches fast even with 100 k+ items.
+   *
+   * @default 1  (backwards-compatible; set to 2 or 3 for better perf)
+   */
+  minQueryLength?: number;
+}
+
 export class TextSearchEngine<T extends CollectionItem> {
   /**
    * field → ngram → Set<index in data[]>
@@ -48,6 +64,13 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   /** Reference to the full dataset (set once via `buildIndex`). */
   private data: T[] = [];
+
+  /** Minimum query length before the engine executes a search. */
+  private readonly minQueryLength: number;
+
+  constructor(options: TextSearchEngineOptions = {}) {
+    this.minQueryLength = options.minQueryLength ?? 1;
+  }
 
   /**
    * Build n-gram index (1..3 chars) for one field. O(n·L).
@@ -113,6 +136,7 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     const lowerQuery = query.trim().toLowerCase();
     if (!lowerQuery) return [];
+    if (lowerQuery.length < this.minQueryLength) return [];
 
     // -- Step 1: collect posting lists for each unique query gram --
     // Single loop replaces Array.from → Set → map → filter chain,
