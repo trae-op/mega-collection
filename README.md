@@ -6,12 +6,12 @@ Zero dependencies. Tree-shakeable. Import only what you need.
 
 ## Features
 
-| Capability                 | Strategy                              | Complexity                         |
-| -------------------------- | ------------------------------------- | ---------------------------------- |
-| **Indexed filter**         | Hash-Map index (`Map<value, T[]>`)    | **O(1)**                           |
-| **Multi-value filter**     | Index intersection + `Set` membership | **O(k)** indexed / **O(n)** linear |
-| **Text search** (contains) | Trigram inverted index + verify       | **O(candidates)**                  |
-| **Sorting**                | V8 TimSort / index-sort for numerics  | **O(n log n)**                     |
+| Capability                 | Strategy                               | Complexity                         |
+| -------------------------- | -------------------------------------- | ---------------------------------- |
+| **Indexed filter**         | Hash-Map index (`Map<value, T[]>`)     | **O(1)**                           |
+| **Multi-value filter**     | Index intersection + `Set` membership  | **O(k)** indexed / **O(n)** linear |
+| **Text search** (contains) | Trigram inverted index + verify        | **O(candidates)**                  |
+| **Sorting**                | Pre-sorted index (cached) / V8 TimSort | **O(n)** cached / **O(n log n)**   |
 
 ## Install
 
@@ -62,8 +62,12 @@ filter.filter(users, [
 ```ts
 import { SortEngine } from "@devisfuture/mega-collection/sort";
 
-const sorter = new SortEngine<User>();
-const sorted = sorter.sort(users, [
+// With index: first sort O(n log n), every repeat O(n)
+const sorter = new SortEngine<User>().buildIndex(users, "age");
+const sorted = sorter.sort(users, [{ field: "age", direction: "asc" }]);
+
+// Without index (multi-field): always O(n log n)
+const sorted2 = sorter.sort(users, [
   { field: "age", direction: "asc" },
   { field: "name", direction: "desc" },
 ]);
@@ -94,11 +98,13 @@ Multi-criteria AND filter with index-accelerated fast path.
 
 ### `SortEngine<T>` (sort module)
 
-High-performance sorting with pre-compiled comparators.
+High-performance sorting with pre-compiled comparators and cached sort indexes.
 
-| Method                              | Description      |
-| ----------------------------------- | ---------------- |
-| `sort(data, descriptors, inPlace?)` | Multi-field sort |
+| Method                              | Description                                 |
+| ----------------------------------- | ------------------------------------------- |
+| `buildIndex(data, field)`           | Pre-sort index for a field. O(n log n) once |
+| `sort(data, descriptors, inPlace?)` | Sort — O(n) with index, O(n log n) without  |
+| `clearIndexes()`                    | Free all cached indexes                     |
 
 ## Types
 

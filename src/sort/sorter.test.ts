@@ -67,4 +67,67 @@ describe("SortEngine", () => {
     expect(result).toBe(inPlaceUsers);
     expect(inPlaceUsers.map((item) => item.id)).toEqual([2, 4, 3, 1]);
   });
+
+  describe("buildIndex (cached fast path)", () => {
+    it("sorts ascending via cached index — O(n)", () => {
+      const engine = new SortEngine<User>().buildIndex(users, "age");
+
+      const result = engine.sort(users, [{ field: "age", direction: "asc" }]);
+
+      expect(result.map((item) => item.id)).toEqual([2, 3, 1, 4]);
+      expect(result).not.toBe(users);
+    });
+
+    it("sorts descending via cached index — O(n) reverse", () => {
+      const engine = new SortEngine<User>().buildIndex(users, "age");
+
+      const result = engine.sort(users, [{ field: "age", direction: "desc" }]);
+
+      expect(result.map((item) => item.id)).toEqual([4, 1, 3, 2]);
+    });
+
+    it("sorts string field via cached index", () => {
+      const engine = new SortEngine<User>().buildIndex(users, "name");
+
+      const result = engine.sort(users, [{ field: "name", direction: "asc" }]);
+
+      expect(result.map((item) => item.id)).toEqual([2, 4, 3, 1]);
+    });
+
+    it("skips cache when data reference changes", () => {
+      const engine = new SortEngine<User>().buildIndex(users, "age");
+      const otherUsers = [
+        ...users,
+        { id: 5, name: "Zara", city: "Dnipro", age: 20 },
+      ];
+
+      const result = engine.sort(otherUsers, [
+        { field: "age", direction: "asc" },
+      ]);
+
+      expect(result.map((item) => item.id)).toEqual([5, 2, 3, 1, 4]);
+    });
+
+    it("clearIndexes frees the cache", () => {
+      const engine = new SortEngine<User>().buildIndex(users, "age");
+      engine.clearIndexes();
+
+      // After clearing, still works (falls back to radix sort)
+      const result = engine.sort(users, [{ field: "age", direction: "asc" }]);
+
+      expect(result.map((item) => item.id)).toEqual([2, 3, 1, 4]);
+    });
+
+    it("supports chaining buildIndex for multiple fields", () => {
+      const engine = new SortEngine<User>()
+        .buildIndex(users, "age")
+        .buildIndex(users, "name");
+
+      const byAge = engine.sort(users, [{ field: "age", direction: "desc" }]);
+      const byName = engine.sort(users, [{ field: "name", direction: "asc" }]);
+
+      expect(byAge.map((item) => item.id)).toEqual([4, 1, 3, 2]);
+      expect(byName.map((item) => item.id)).toEqual([2, 4, 3, 1]);
+    });
+  });
 });

@@ -26,7 +26,7 @@
     <ul id="results"></ul>
 
     <script type="module">
-      import { FilterEngine, Indexer } from "./dist/filter/index.mjs";
+      import { FilterEngine } from "./dist/filter/index.mjs";
 
       const cityPool = ["Kyiv", "Lviv", "Odesa", "Dnipro", "Kharkiv"];
       const agePool = [20, 25, 30, 35, 40];
@@ -41,11 +41,9 @@
         };
       });
 
-      const indexer = new Indexer();
-      indexer.buildIndex(users, "city");
-      indexer.buildIndex(users, "age");
-
-      const filter = new FilterEngine(indexer);
+      const filter = new FilterEngine()
+        .buildIndex(users, "city")
+        .buildIndex(users, "age");
 
       const cityCheckboxes = Array.from(
         document.querySelectorAll('input[name="city"]'),

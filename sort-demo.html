@@ -36,7 +36,10 @@
         };
       });
 
-      const sorter = new SortEngine();
+      const sorter = new SortEngine()
+        .buildIndex(users, "id")
+        .buildIndex(users, "name")
+        .buildIndex(users, "age");
 
       const sortFieldSelect = document.getElementById("sortField");
       const sortDirectionSelect = document.getElementById("sortDirection");
