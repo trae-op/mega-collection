@@ -61,4 +61,42 @@ describe("FilterEngine", () => {
 
     expect(result.map((item) => item.id)).toEqual([1, 4]);
   });
+
+  describe("constructor shorthand (data + fields)", () => {
+    it("builds indexes automatically when data and fields are provided", () => {
+      const engine = new FilterEngine<User>({
+        data: users,
+        fields: ["city", "age"],
+      });
+
+      // Exercises the indexed fast path — no runtime error means indexes were built.
+      const result = engine.filter(users, [
+        { field: "city", values: ["Kyiv"] },
+      ]);
+
+      expect(result.map((item) => item.id)).toEqual([1, 3]);
+    });
+
+    it("buildIndex(field) reuses constructor data", () => {
+      const engine = new FilterEngine<User>({ data: users });
+      engine.buildIndex("city");
+
+      const result = engine.filter(users, [
+        { field: "city", values: ["Lviv"] },
+      ]);
+
+      expect(result.map((item) => item.id)).toEqual([2, 5]);
+    });
+
+    it("buildIndex(field) throws when no dataset is in memory", () => {
+      const engine = new FilterEngine<User>();
+      let caughtMessage = "";
+      try {
+        engine.buildIndex("city");
+      } catch (err) {
+        caughtMessage = err instanceof Error ? err.message : String(err);
+      }
+      expect(caughtMessage).toContain("no dataset in memory");
+    });
+  });
 });

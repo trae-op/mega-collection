@@ -16,23 +16,76 @@
 import { CollectionItem, FilterCriterion } from "../types";
 import { Indexer } from "../indexer";
 
+export interface FilterEngineOptions<
+  T extends CollectionItem = CollectionItem,
+> {
+  /**
+   * The dataset to index. When provided together with `fields`, all indexes
+   * are built automatically inside the constructor — no manual `buildIndex`
+   * calls needed.
+   *
+   * @example
+   * ```ts
+   * const engine = new FilterEngine<User>({ data: users, fields: ["city", "age"] });
+   * engine.filter(users, [{ field: "city", values: ["Kyiv"] }]);
+   * ```
+   */
+  data?: T[];
+
+  /**
+   * Fields to build a hash-map index for. Requires `data` to be set as well.
+   * When both are present, `buildIndex` is called for each field in the constructor.
+   */
+  fields?: (keyof T & string)[];
+}
+
 export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;
 
-  constructor() {
+  /** Reference to the full dataset (set via the constructor or `buildIndex`). */
+  private data: T[] = [];
+
+  constructor(options: FilterEngineOptions<T> = {}) {
     this.indexer = new Indexer<T>();
+
+    if (options.data) {
+      this.data = options.data;
+
+      if (options.fields?.length) {
+        for (const field of options.fields) {
+          this.buildIndex(options.data, field);
+        }
+      }
+    }
   }
 
   /**
    * Build a hash-map index for a field to enable O(1) fast-path filtering.
-   * Call this for every field you plan to filter on before calling `filter()`.
    *
-   * @param data  - The full dataset.
-   * @param field - The field to index.
+   * Two call signatures are supported:
+   *  - `buildIndex(data, field)` — explicit dataset (original API)
+   *  - `buildIndex(field)`       — reuses the dataset supplied in the constructor
+   *
    * @returns `this` for chaining.
    */
-  buildIndex(data: T[], field: keyof T & string): this {
-    this.indexer.buildIndex(data, field);
+  buildIndex(data: T[], field: keyof T & string): this;
+  buildIndex(field: keyof T & string): this;
+  buildIndex(
+    dataOrField: T[] | (keyof T & string),
+    field?: keyof T & string,
+  ): this {
+    if (Array.isArray(dataOrField)) {
+      this.data = dataOrField;
+      this.indexer.buildIndex(dataOrField, field!);
+    } else {
+      if (!this.data.length) {
+        throw new Error(
+          "FilterEngine: no dataset in memory. " +
+            "Either pass `data` in the constructor options, or call buildIndex(data, field).",
+        );
+      }
+      this.indexer.buildIndex(this.data, dataOrField);
+    }
     return this;
   }
 

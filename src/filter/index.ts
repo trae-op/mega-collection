@@ -9,9 +9,8 @@
  * ```ts
  * import { FilterEngine } from '@devisfuture/mega-collection/filter';
  *
- * const filter = new FilterEngine<User>()
- *   .buildIndex(users, 'city')
- *   .buildIndex(users, 'age');
+ * // Pass data and fields upfront — no manual buildIndex calls needed.
+ * const filter = new FilterEngine<User>({ data: users, fields: ['city', 'age'] });
  *
  * filter.filter(users, [
  *   { field: 'city', values: ['Kyiv', 'Lviv'] },
@@ -21,5 +20,6 @@
  */
 
 export { FilterEngine } from "./filter";
+export type { FilterEngineOptions } from "./filter";
 
 export type { CollectionItem, IndexableKey, FilterCriterion } from "../types";

@@ -8,9 +8,10 @@
  * ```ts
  * import { TextSearchEngine } from '@devisfuture/mega-collection/search';
  *
- * const search = new TextSearchEngine<User>();
- * search.buildIndex(users, 'name');
- * search.search('name', 'john');
+ * // Pass data and fields upfront — no manual buildIndex calls needed.
+ * const search = new TextSearchEngine<User>({ data: users, fields: ['name', 'city'] });
+ * search.search('john');           // searches all fields, deduplicated
+ * search.search('name', 'john');   // searches a single field
  * ```
  */
 

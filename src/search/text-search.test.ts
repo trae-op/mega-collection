@@ -83,4 +83,76 @@ describe("TextSearchEngine", () => {
     expect(matches).toHaveLength(1);
     expect(matches[0].city).toBe("Dnipro");
   });
+
+  describe("constructor shorthand (data + fields)", () => {
+    it("builds indexes automatically when data and fields are provided", () => {
+      const engine = new TextSearchEngine<CardItem>({
+        data: cityCards,
+        fields: ["city"],
+      });
+
+      expect(engine.hasIndex("city")).toBe(true);
+    });
+
+    it("search(query) returns results across all indexed fields", () => {
+      const engine = new TextSearchEngine<CardItem>({
+        data: cityCards,
+        fields: ["city", "title"],
+      });
+
+      // "Kyiv" is only in city; "Noah" is only in title
+      const byCityQuery = engine.search("Kyiv");
+      const byTitleQuery = engine.search("Noah");
+
+      expect(byCityQuery).toHaveLength(1);
+      expect(byCityQuery[0].city).toBe("Kyiv");
+
+      expect(byTitleQuery).toHaveLength(1);
+      expect(byTitleQuery[0].title).toBe("Noah 5");
+    });
+
+    it("search(query) deduplicates items that match multiple fields", () => {
+      const overlappingCards: CardItem[] = [
+        {
+          id: 1,
+          title: "Kyiv city guide",
+          description: "",
+          tag: "",
+          city: "Kyiv",
+        },
+        { id: 2, title: "Lviv guide", description: "", tag: "", city: "Lviv" },
+      ];
+
+      const engine = new TextSearchEngine<CardItem>({
+        data: overlappingCards,
+        fields: ["city", "title"],
+      });
+
+      // Item 1 matches both "city" and "title" for query "Kyiv"
+      const results = engine.search("Kyiv");
+      const uniqueIds = new Set(results.map((item) => item.id));
+
+      expect(uniqueIds.size).toBe(results.length);
+    });
+
+    it("buildIndex(field) reuses constructor data", () => {
+      const engine = new TextSearchEngine<CardItem>({ data: cityCards });
+      engine.buildIndex("city");
+
+      const matches = engine.search("city", "Dnipro");
+      expect(matches).toHaveLength(1);
+    });
+
+    it("buildIndex(field) throws when no dataset is in memory", () => {
+      const engine = new TextSearchEngine<CardItem>();
+      // No data supplied — field-only shorthand must reject.
+      let caughtMessage = "";
+      try {
+        engine.buildIndex("title");
+      } catch (err) {
+        caughtMessage = err instanceof Error ? err.message : String(err);
+      }
+      expect(caughtMessage).toContain("no dataset in memory");
+    });
+  });
 });

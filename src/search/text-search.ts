@@ -39,7 +39,28 @@ function getOrCreatePostingList(
   return newPostingList;
 }
 
-export interface TextSearchEngineOptions {
+export interface TextSearchEngineOptions<
+  T extends CollectionItem = CollectionItem,
+> {
+  /**
+   * The dataset to index. When provided together with `fields`, all indexes
+   * are built automatically inside the constructor — no manual `buildIndex`
+   * calls needed.
+   *
+   * @example
+   * ```ts
+   * const engine = new TextSearchEngine<User>({ data: users, fields: ["name", "city"] });
+   * engine.search("john"); // searches both fields, deduplicated
+   * ```
+   */
+  data?: T[];
+
+  /**
+   * Fields to build a trigram index for. Requires `data` to be set as well.
+   * When both are present, `buildIndex` is called for each field in the constructor.
+   */
+  fields?: (keyof T & string)[];
+
   /**
    * Minimum number of characters required before a search is executed.
    * Queries shorter than this return an empty array immediately.
@@ -62,18 +83,34 @@ export class TextSearchEngine<T extends CollectionItem> {
    */
   private ngramIndexes = new Map<string, Map<string, Set<number>>>();
 
-  /** Reference to the full dataset (set once via `buildIndex`). */
+  /** Reference to the full dataset (set once via `buildIndex` or the constructor). */
   private data: T[] = [];
 
   /** Minimum query length before the engine executes a search. */
   private readonly minQueryLength: number;
 
-  constructor(options: TextSearchEngineOptions = {}) {
+  constructor(options: TextSearchEngineOptions<T> = {}) {
     this.minQueryLength = options.minQueryLength ?? 1;
+
+    if (options.data) {
+      // Always store the dataset so buildIndex(field) can reuse it later,
+      // even when `fields` is not specified in the constructor.
+      this.data = options.data;
+
+      if (options.fields?.length) {
+        for (const field of options.fields) {
+          this.buildIndex(options.data, field);
+        }
+      }
+    }
   }
 
   /**
    * Build n-gram index (1..3 chars) for one field. O(n·L).
+   *
+   * Two call signatures are supported:
+   *  - `buildIndex(data, field)` — explicit dataset (original API)
+   *  - `buildIndex(field)`       — reuses the dataset supplied in the constructor
    *
    * Trigram extraction is inlined to avoid allocating a temporary array
    * and a deduplication Set per item.  Posting lists are `Set<number>`,
@@ -83,7 +120,29 @@ export class TextSearchEngine<T extends CollectionItem> {
    * For 10 M+ items this eliminates ~20 M transient object allocations
    * and dramatically reduces GC pressure.
    */
-  buildIndex(data: T[], field: keyof T & string): this {
+  buildIndex(data: T[], field: keyof T & string): this;
+  buildIndex(field: keyof T & string): this;
+  buildIndex(
+    dataOrField: T[] | (keyof T & string),
+    field?: keyof T & string,
+  ): this {
+    let data: T[];
+    let resolvedField: keyof T & string;
+
+    if (Array.isArray(dataOrField)) {
+      data = dataOrField;
+      resolvedField = field!;
+    } else {
+      if (!this.data.length) {
+        throw new Error(
+          "TextSearchEngine: no dataset in memory. " +
+            "Either pass `data` in the constructor options, or call buildIndex(data, field).",
+        );
+      }
+      data = this.data;
+      resolvedField = dataOrField;
+    }
+
     this.data = data;
 
     const ngramMap = new Map<string, Set<number>>();
@@ -93,7 +152,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       itemIndex < dataLength;
       itemIndex++
     ) {
-      const rawValue = data[itemIndex][field];
+      const rawValue = data[itemIndex][resolvedField];
       if (typeof rawValue !== "string") continue;
 
       const lower = rawValue.toLowerCase();
@@ -122,15 +181,54 @@ export class TextSearchEngine<T extends CollectionItem> {
       }
     }
 
-    this.ngramIndexes.set(field as string, ngramMap);
+    this.ngramIndexes.set(resolvedField as string, ngramMap);
     return this;
   }
 
   /**
    * Search items by substring (contains) using the trigram index.
-   * Returns matching items.
+   *
+   * Two call signatures are supported:
+   *  - `search(query)`        — searches **all** indexed fields and returns a
+   *                             deduplicated union (preserves field order).
+   *  - `search(field, query)` — searches a single specific field.
+   *
+   * Both paths return only items whose field value actually contains the query
+   * (trigram candidates are verified with `String.includes`).
    */
-  search(field: keyof T & string, query: string): T[] {
+  search(query: string): T[];
+  search(field: keyof T & string, query: string): T[];
+  search(fieldOrQuery: string, maybeQuery?: string): T[] {
+    if (maybeQuery === undefined) {
+      // search(query) — across all indexed fields
+      return this.searchAllFields(fieldOrQuery);
+    }
+    // search(field, query) — specific field only
+    return this.searchField(fieldOrQuery as keyof T & string, maybeQuery);
+  }
+
+  /** Search across every indexed field and return a deduplicated union. */
+  private searchAllFields(query: string): T[] {
+    const fields = [...this.ngramIndexes.keys()] as (keyof T & string)[];
+    if (!fields.length) return [];
+
+    const seenIds = new Set<CollectionItem["id"]>();
+    const combined: T[] = [];
+
+    for (const field of fields) {
+      for (const item of this.searchField(field, query)) {
+        if (!seenIds.has(item.id)) {
+          seenIds.add(item.id);
+          combined.push(item);
+        }
+      }
+    }
+
+    return combined;
+  }
+
+  /** Core search implementation for a single field. */
+  private searchField(field: keyof T & string, query: string): T[] {
     const ngramMap = this.ngramIndexes.get(field as string);
     if (!ngramMap) return [];
 

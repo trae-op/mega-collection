@@ -130,4 +130,39 @@ describe("SortEngine", () => {
       expect(byName.map((item) => item.id)).toEqual([2, 4, 3, 1]);
     });
   });
+
+  describe("constructor shorthand (data + fields)", () => {
+    it("builds indexes automatically when data and fields are provided", () => {
+      const engine = new SortEngine<User>({
+        data: users,
+        fields: ["age", "name"],
+      });
+
+      const byAge = engine.sort(users, [{ field: "age", direction: "asc" }]);
+      const byName = engine.sort(users, [{ field: "name", direction: "asc" }]);
+
+      expect(byAge.map((item) => item.id)).toEqual([2, 3, 1, 4]);
+      expect(byName.map((item) => item.id)).toEqual([2, 4, 3, 1]);
+    });
+
+    it("buildIndex(field) reuses constructor data", () => {
+      const engine = new SortEngine<User>({ data: users });
+      engine.buildIndex("age");
+
+      const result = engine.sort(users, [{ field: "age", direction: "desc" }]);
+
+      expect(result.map((item) => item.id)).toEqual([4, 1, 3, 2]);
+    });
+
+    it("buildIndex(field) throws when no dataset is in memory", () => {
+      const engine = new SortEngine<User>();
+      let caughtMessage = "";
+      try {
+        engine.buildIndex("age");
+      } catch (err) {
+        caughtMessage = err instanceof Error ? err.message : String(err);
+      }
+      expect(caughtMessage).toContain("no dataset in memory");
+    });
+  });
 });

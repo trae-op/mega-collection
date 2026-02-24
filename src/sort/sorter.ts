@@ -31,25 +31,87 @@ interface SortIndex<T> {
   dataRef: T[];
 }
 
+export interface SortEngineOptions<T extends CollectionItem = CollectionItem> {
+  /**
+   * The dataset to index. When provided together with `fields`, all indexes
+   * are built automatically inside the constructor — no manual `buildIndex`
+   * calls needed.
+   *
+   * @example
+   * ```ts
+   * const engine = new SortEngine<User>({ data: users, fields: ["age", "name", "city"] });
+   * engine.sort(users, [{ field: "age", direction: "asc" }]);
+   * ```
+   */
+  data?: T[];
+
+  /**
+   * Fields to pre-sort and cache. Requires `data` to be set as well.
+   * When both are present, `buildIndex` is called for each field in the constructor.
+   */
+  fields?: (keyof T & string)[];
+}
+
 export class SortEngine<T extends CollectionItem> {
   /** field → cached ascending sort index */
   private cache = new Map<string, SortIndex<T>>();
 
+  /** Reference to the full dataset (set via the constructor or `buildIndex`). */
+  private data: T[] = [];
+
+  constructor(options: SortEngineOptions<T> = {}) {
+    if (options.data) {
+      this.data = options.data;
+
+      if (options.fields?.length) {
+        for (const field of options.fields) {
+          this.buildIndex(options.data, field);
+        }
+      }
+    }
+  }
+
   /**
    * Pre-compute and cache a sorted index for a field.
+   *
+   * Two call signatures are supported:
+   *  - `buildIndex(data, field)` — explicit dataset (original API)
+   *  - `buildIndex(field)`       — reuses the dataset supplied in the constructor
+   *
    * Call this once per field; all subsequent `sort` calls on that field
    * will use the cache — O(n) instead of O(n log n).
    *
-   * @param data  - The full dataset.
-   * @param field - The field to index.
    * @returns `this` for chaining.
    */
-  buildIndex(data: T[], field: keyof T & string): this {
+  buildIndex(data: T[], field: keyof T & string): this;
+  buildIndex(field: keyof T & string): this;
+  buildIndex(
+    dataOrField: T[] | (keyof T & string),
+    field?: keyof T & string,
+  ): this {
+    let data: T[];
+    let resolvedField: keyof T & string;
+
+    if (Array.isArray(dataOrField)) {
+      data = dataOrField;
+      resolvedField = field!;
+    } else {
+      if (!this.data.length) {
+        throw new Error(
+          "SortEngine: no dataset in memory. " +
+            "Either pass `data` in the constructor options, or call buildIndex(data, field).",
+        );
+      }
+      data = this.data;
+      resolvedField = dataOrField;
+    }
+
+    this.data = data;
     const itemCount = data.length;
     const indexes = new Uint32Array(itemCount);
     for (let i = 0; i < itemCount; i++) indexes[i] = i;
 
-    const fieldValues = data.map((item) => item[field]);
+    const fieldValues = data.map((item) => item[resolvedField]);
     const firstValue = fieldValues[0];
 
     if (typeof firstValue === "number") {
@@ -67,7 +129,7 @@ export class SortEngine<T extends CollectionItem> {
       });
     }
 
-    this.cache.set(field, { indexes, dataRef: data });
+    this.cache.set(resolvedField as string, { indexes, dataRef: data });
     return this;
   }
 
