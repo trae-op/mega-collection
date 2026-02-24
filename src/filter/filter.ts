@@ -47,15 +47,13 @@ export class FilterEngine<T extends CollectionItem> {
 
   constructor(options: FilterEngineOptions<T> = {}) {
     this.indexer = new Indexer<T>();
+    if (!options.data) return;
 
-    if (options.data) {
-      this.data = options.data;
+    this.data = options.data;
+    if (!options.fields?.length) return;
 
-      if (options.fields?.length) {
-        for (const field of options.fields) {
-          this.buildIndex(options.data, field);
-        }
-      }
+    for (const field of options.fields) {
+      this.buildIndex(options.data, field);
     }
   }
 
@@ -74,18 +72,20 @@ export class FilterEngine<T extends CollectionItem> {
     dataOrField: T[] | (keyof T & string),
     field?: keyof T & string,
   ): this {
-    if (Array.isArray(dataOrField)) {
-      this.data = dataOrField;
-      this.indexer.buildIndex(dataOrField, field!);
-    } else {
+    if (!Array.isArray(dataOrField)) {
       if (!this.data.length) {
         throw new Error(
           "FilterEngine: no dataset in memory. " +
             "Either pass `data` in the constructor options, or call buildIndex(data, field).",
         );
       }
+
       this.indexer.buildIndex(this.data, dataOrField);
+      return this;
     }
+
+    this.data = dataOrField;
+    this.indexer.buildIndex(dataOrField, field!);
     return this;
   }
 

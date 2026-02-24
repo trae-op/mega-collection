@@ -111,16 +111,15 @@ export class TextSearchEngine<T extends CollectionItem> {
   constructor(options: TextSearchEngineOptions<T> = {}) {
     this.minQueryLength = options.minQueryLength ?? 1;
 
-    if (options.data) {
-      // Always store the dataset so buildIndex(field) can reuse it later,
-      // even when `fields` is not specified in the constructor.
-      this.data = options.data;
+    if (!options.data) return;
 
-      if (options.fields?.length) {
-        for (const field of options.fields) {
-          this.buildIndex(options.data, field);
-        }
-      }
+    // Always store the dataset so buildIndex(field) can reuse it later,
+    // even when `fields` is not specified in the constructor.
+    this.data = options.data;
+    if (!options.fields?.length) return;
+
+    for (const field of options.fields) {
+      this.buildIndex(options.data, field);
     }
   }
 
@@ -148,18 +147,19 @@ export class TextSearchEngine<T extends CollectionItem> {
     let data: T[];
     let resolvedField: keyof T & string;
 
-    if (Array.isArray(dataOrField)) {
-      data = dataOrField;
-      resolvedField = field!;
-    } else {
+    if (!Array.isArray(dataOrField)) {
       if (!this.data.length) {
         throw new Error(
           "TextSearchEngine: no dataset in memory. " +
             "Either pass `data` in the constructor options, or call buildIndex(data, field).",
         );
       }
+
       data = this.data;
       resolvedField = dataOrField;
+    } else {
+      data = dataOrField;
+      resolvedField = field!;
     }
 
     this.data = data;
