@@ -154,12 +154,31 @@ export class FilterEngine<T extends CollectionItem> {
     );
     const criterionFields = criteria.map(({ field }) => field);
 
-    // Single-pass filter: each criterion is an O(1) Set lookup, not a nested scan
-    return data.filter((item) =>
-      criterionFields.every((field) =>
-        acceptableValuesByField.get(field)!.has(item[field]),
-      ),
-    );
+    // Single-pass filter with early exit per item.
+    const result: T[] = [];
+
+    for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
+      const item = data[itemIndex];
+      let matchesAllCriteria = true;
+
+      for (
+        let fieldIndex = 0;
+        fieldIndex < criterionFields.length;
+        fieldIndex++
+      ) {
+        const field = criterionFields[fieldIndex];
+        if (!acceptableValuesByField.get(field)!.has(item[field])) {
+          matchesAllCriteria = false;
+          break;
+        }
+      }
+
+      if (matchesAllCriteria) {
+        result.push(item);
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -205,12 +224,35 @@ export class FilterEngine<T extends CollectionItem> {
     );
     const remainingFields = Array.from(remainingValuesByField.keys());
 
-    // Single-pass filter over candidates: O(1) Set check per criterion
-    return candidateItems.filter((item) =>
-      remainingFields.every((field) =>
-        remainingValuesByField.get(field)!.has(item[field]),
-      ),
-    );
+    // Single-pass filter over candidates with early exit per item.
+    const result: T[] = [];
+
+    for (
+      let candidateIndex = 0;
+      candidateIndex < candidateItems.length;
+      candidateIndex++
+    ) {
+      const item = candidateItems[candidateIndex];
+      let matchesAllRemainingCriteria = true;
+
+      for (
+        let fieldIndex = 0;
+        fieldIndex < remainingFields.length;
+        fieldIndex++
+      ) {
+        const field = remainingFields[fieldIndex];
+        if (!remainingValuesByField.get(field)!.has(item[field])) {
+          matchesAllRemainingCriteria = false;
+          break;
+        }
+      }
+
+      if (matchesAllRemainingCriteria) {
+        result.push(item);
+      }
+    }
+
+    return result;
   }
 
   /**

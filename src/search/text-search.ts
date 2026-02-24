@@ -14,6 +14,7 @@
 import { CollectionItem } from "../types";
 
 const MAXIMUM_NGRAM_LENGTH = 3;
+const MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION = 12;
 
 /** Extract query grams using the longest available gram length (1..3). */
 function extractQueryGrams(input: string): string[] {
@@ -25,6 +26,24 @@ function extractQueryGrams(input: string): string[] {
     queryGrams[index] = lower.substring(index, index + gramLength);
   }
   return queryGrams;
+}
+
+function buildIntersectionQueryGrams(lowerQuery: string): ReadonlySet<string> {
+  const allGrams = extractQueryGrams(lowerQuery);
+  if (allGrams.length <= MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION) {
+    return new Set(allGrams);
+  }
+
+  const selected = new Set<string>();
+  const maxIndex = allGrams.length - 1;
+  const steps = MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION - 1;
+
+  for (let step = 0; step <= steps; step++) {
+    const index = Math.round((step * maxIndex) / steps);
+    selected.add(allGrams[index]);
+  }
+
+  return selected;
 }
 
 function getOrCreatePostingList(
@@ -212,11 +231,22 @@ export class TextSearchEngine<T extends CollectionItem> {
     const fields = [...this.ngramIndexes.keys()] as (keyof T & string)[];
     if (!fields.length) return [];
 
+    const lowerQuery = query.trim().toLowerCase();
+    if (!lowerQuery) return [];
+    if (lowerQuery.length < this.minQueryLength) return [];
+
+    const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
+    if (!uniqueQueryGrams.size) return [];
+
     const seenIds = new Set<CollectionItem["id"]>();
     const combined: T[] = [];
 
     for (const field of fields) {
-      for (const item of this.searchField(field, query)) {
+      for (const item of this.searchFieldWithPreparedQuery(
+        field,
+        lowerQuery,
+        uniqueQueryGrams,
+      )) {
         if (!seenIds.has(item.id)) {
           seenIds.add(item.id);
           combined.push(item);
@@ -229,17 +259,31 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   /** Core search implementation for a single field. */
   private searchField(field: keyof T & string, query: string): T[] {
-    const ngramMap = this.ngramIndexes.get(field as string);
-    if (!ngramMap) return [];
-
     const lowerQuery = query.trim().toLowerCase();
     if (!lowerQuery) return [];
     if (lowerQuery.length < this.minQueryLength) return [];
 
+    const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
+    if (!uniqueQueryGrams.size) return [];
+
+    return this.searchFieldWithPreparedQuery(
+      field,
+      lowerQuery,
+      uniqueQueryGrams,
+    );
+  }
+
+  private searchFieldWithPreparedQuery(
+    field: keyof T & string,
+    lowerQuery: string,
+    uniqueQueryGrams: ReadonlySet<string>,
+  ): T[] {
+    const ngramMap = this.ngramIndexes.get(field as string);
+    if (!ngramMap) return [];
+
     // -- Step 1: collect posting lists for each unique query gram --
     // Single loop replaces Array.from → Set → map → filter chain,
     // eliminating 3 intermediate array allocations.
-    const uniqueQueryGrams = new Set(extractQueryGrams(lowerQuery));
     const postingLists: Set<number>[] = [];
 
     for (const queryGram of uniqueQueryGrams) {
