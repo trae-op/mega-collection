@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TextSearchEngine Demo</title>
+  </head>
+  <body>
+    <h1>TextSearchEngine demo (100 items)</h1>
+
+    <label for="query">Search by name:</label>
+    <input id="query" type="text" value="" placeholder="Type a name..." />
+
+    <p id="count"></p>
+    <ul id="results"></ul>
+
+    <script type="module">
+      import { TextSearchEngine } from "./dist/search/index.mjs";
+
+      /** @typedef {{ id: number; name: string }} User */
+
+      /** @type {User[]} */
+      const users = Array.from({ length: 100 }, (_, index) => {
+        const id = index + 1;
+
+        if (id % 10 === 0) {
+          return { id, name: `John ${id}` };
+        }
+
+        if (id % 7 === 0) {
+          return { id, name: `Johnny ${id}` };
+        }
+
+        return { id, name: `User ${id}` };
+      });
+
+      const search = new TextSearchEngine();
+      search.buildIndex(users, "name");
+      /// let matches = search.search("name", "");
+
+      const queryInput = document.getElementById("query");
+      const countNode = document.getElementById("count");
+      const resultList = document.getElementById("results");
+
+      function render(list) {
+        countNode.textContent = `Found: ${list.length}`;
+        resultList.innerHTML = "";
+
+        for (const user of list) {
+          const item = document.createElement("li");
+          item.textContent = `${user.id}. ${user.name}`;
+          resultList.appendChild(item);
+        }
+      }
+
+      render(users);
+
+      queryInput.addEventListener("input", (event) => {
+        const query = event.target.value;
+        const trimmed = query.trim();
+
+        if (!trimmed) {
+          render(users);
+          return;
+        }
+
+        const matches = search.search("name", query);
+        render(matches);
+      });
+    </script>
+  </body>
+</html>
