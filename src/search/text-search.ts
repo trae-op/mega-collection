@@ -60,7 +60,7 @@ export class TextSearchEngine<T extends CollectionItem> {
    * For 10 M+ items this eliminates ~20 M transient object allocations
    * and dramatically reduces GC pressure.
    */
-  buildIndex(data: T[], field: keyof T & string): void {
+  buildIndex(data: T[], field: keyof T & string): this {
     this.data = data;
 
     const ngramMap = new Map<string, Set<number>>();
@@ -100,6 +100,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     }
 
     this.ngramIndexes.set(field as string, ngramMap);
+    return this;
   }
 
   /**
