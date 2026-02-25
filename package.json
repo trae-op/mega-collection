@@ -4,69 +4,39 @@
   "description": "High-performance search, filter & sort engine for 10M+ item collections in JavaScript/TypeScript",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/index.d.mts",
-        "default": "./dist/index.mjs"
-      },
-      "require": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      }
+      "types": "./dist/index.d.mts",
+      "default": "./dist/index.mjs"
     },
     "./search": {
-      "import": {
-        "types": "./dist/search/index.d.mts",
-        "default": "./dist/search/index.mjs"
-      },
-      "require": {
-        "types": "./dist/search/index.d.ts",
-        "default": "./dist/search/index.js"
-      }
+      "types": "./dist/search/index.d.mts",
+      "default": "./dist/search/index.mjs"
     },
     "./filter": {
-      "import": {
-        "types": "./dist/filter/index.d.mts",
-        "default": "./dist/filter/index.mjs"
-      },
-      "require": {
-        "types": "./dist/filter/index.d.ts",
-        "default": "./dist/filter/index.js"
-      }
+      "types": "./dist/filter/index.d.mts",
+      "default": "./dist/filter/index.mjs"
     },
     "./sort": {
-      "import": {
-        "types": "./dist/sort/index.d.mts",
-        "default": "./dist/sort/index.mjs"
-      },
-      "require": {
-        "types": "./dist/sort/index.d.ts",
-        "default": "./dist/sort/index.js"
-      }
+      "types": "./dist/sort/index.d.mts",
+      "default": "./dist/sort/index.mjs"
     },
     "./merge": {
-      "import": {
-        "types": "./dist/merge/index.d.mts",
-        "default": "./dist/merge/index.mjs"
-      },
-      "require": {
-        "types": "./dist/merge/index.d.ts",
-        "default": "./dist/merge/index.js"
-      }
+      "types": "./dist/merge/index.d.mts",
+      "default": "./dist/merge/index.mjs"
     }
   },
   "typesVersions": {
     "*": {
       "search": [
-        "./dist/search/index.d.ts"
+        "./dist/search/index.d.mts"
       ],
       "filter": [
-        "./dist/filter/index.d.ts"
+        "./dist/filter/index.d.mts"
       ],
       "sort": [
-        "./dist/sort/index.d.ts"
+        "./dist/sort/index.d.mts"
       ],
       "merge": [
-        "./dist/merge/index.d.ts"
+        "./dist/merge/index.d.mts"
       ]
     }
   },

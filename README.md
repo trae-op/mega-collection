@@ -251,7 +251,7 @@ src/
 
 ```bash
 npm install
-npm run build          # Build CJS + ESM + declarations
+npm run build          # Build ESM + declarations
 npm run typecheck      # Type-check without emitting
 npm run dev            # Watch mode
 ```
