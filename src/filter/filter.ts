@@ -59,6 +59,9 @@ export class FilterEngine<T extends CollectionItem> {
   /** Last filter output used as the next input in sequential mode. */
   private previousResult: T[] | null = null;
 
+  /** Last criteria used in sequential mode. */
+  private previousCriteria: FilterCriterion<T>[] | null = null;
+
   constructor(options: FilterEngineOptions<T> = {}) {
     this.indexer = new Indexer<T>();
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
@@ -101,6 +104,7 @@ export class FilterEngine<T extends CollectionItem> {
 
     this.data = dataOrField;
     this.previousResult = null;
+    this.previousCriteria = null;
     this.indexer.buildIndex(dataOrField, field!);
     return this;
   }
@@ -120,6 +124,7 @@ export class FilterEngine<T extends CollectionItem> {
    */
   resetFilterState(): void {
     this.previousResult = null;
+    this.previousCriteria = null;
   }
 
   /**
@@ -137,10 +142,12 @@ export class FilterEngine<T extends CollectionItem> {
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] {
+    const usesStoredData = criteria === undefined;
+
     let sourceData: T[];
     let resolvedCriteria: FilterCriterion<T>[];
 
-    if (criteria === undefined) {
+    if (usesStoredData) {
       // filter(criteria) — use stored data
       if (!this.data.length) {
         throw new Error(
@@ -150,11 +157,15 @@ export class FilterEngine<T extends CollectionItem> {
       }
 
       resolvedCriteria = dataOrCriteria as FilterCriterion<T>[];
-      sourceData =
+      const canReusePreviousResult =
         this.filterByPreviousResult &&
-        this.previousResult &&
-        resolvedCriteria.length > 0
-          ? this.previousResult
+        this.previousResult !== null &&
+        this.previousCriteria !== null &&
+        this.isNarrowingCriteriaChange(this.previousCriteria, resolvedCriteria);
+
+      sourceData =
+        canReusePreviousResult && resolvedCriteria.length > 0
+          ? this.previousResult!
           : this.data;
     } else {
       sourceData = dataOrCriteria as T[];
@@ -162,10 +173,11 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     if (resolvedCriteria.length === 0) {
-      if (this.filterByPreviousResult) {
-        this.previousResult = sourceData;
+      if (this.filterByPreviousResult && usesStoredData) {
+        this.previousResult = null;
+        this.previousCriteria = null;
       }
-      return sourceData;
+      return usesStoredData ? this.data : sourceData;
     }
 
     // --- Separate indexed vs. non-indexed criteria ---
@@ -192,8 +204,9 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (indexedCriteria.length > 0 && linearCriteria.length === 0) {
       result = this.filterViaIndex(indexedCriteria, sourceData);
-      if (this.filterByPreviousResult) {
+      if (this.filterByPreviousResult && usesStoredData) {
         this.previousResult = result;
+        this.previousCriteria = this.cloneCriteria(resolvedCriteria);
       }
       return result;
     }
@@ -203,18 +216,58 @@ export class FilterEngine<T extends CollectionItem> {
     if (indexedCriteria.length > 0 && linearCriteria.length > 0) {
       const candidates = this.filterViaIndex(indexedCriteria, sourceData);
       result = this.linearFilter(candidates, linearCriteria);
-      if (this.filterByPreviousResult) {
+      if (this.filterByPreviousResult && usesStoredData) {
         this.previousResult = result;
+        this.previousCriteria = this.cloneCriteria(resolvedCriteria);
       }
       return result;
     }
 
     // --- Pure linear path (no indexes available) ---
     result = this.linearFilter(sourceData, resolvedCriteria);
-    if (this.filterByPreviousResult) {
+    if (this.filterByPreviousResult && usesStoredData) {
       this.previousResult = result;
+      this.previousCriteria = this.cloneCriteria(resolvedCriteria);
     }
     return result;
+  }
+
+  private cloneCriteria(criteria: FilterCriterion<T>[]): FilterCriterion<T>[] {
+    return criteria.map(({ field, values }) => ({
+      field,
+      values: [...values],
+    }));
+  }
+
+  /**
+   * Returns true when the next criteria can only narrow (or keep) the previous result.
+   * If the next criteria broadens selection, we must recalculate from the full dataset.
+   */
+  private isNarrowingCriteriaChange(
+    previousCriteria: FilterCriterion<T>[],
+    nextCriteria: FilterCriterion<T>[],
+  ): boolean {
+    const previousByField = new Map<string, Set<any>>(
+      previousCriteria.map(({ field, values }) => [field, new Set(values)]),
+    );
+    const nextByField = new Map<string, Set<any>>(
+      nextCriteria.map(({ field, values }) => [field, new Set(values)]),
+    );
+
+    for (const [field, previousValues] of previousByField) {
+      const nextValues = nextByField.get(field);
+      if (!nextValues) {
+        return false;
+      }
+
+      for (const value of nextValues) {
+        if (!previousValues.has(value)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   /**
