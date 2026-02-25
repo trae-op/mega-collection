@@ -174,9 +174,9 @@ Multi-criteria AND filter with index-accelerated fast path.
 
 Constructor option highlights:
 
-| Option                   | Type      | Description                                                            |
-| ------------------------ | --------- | ---------------------------------------------------------------------- |
-| `filterByPreviousResult` | `boolean` | When `true`, each `filter(criteria)` call filters from previous result |
+| Option                   | Type      | Description                                                                                                                               |
+| ------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `filterByPreviousResult` | `boolean` | When `true`, each `filter(criteria)` call filters from previous result. Defaults to `false` (each call starts from the original dataset). |
 
 | Method                   | Description                                          |
 | ------------------------ | ---------------------------------------------------- |
