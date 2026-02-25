@@ -60,7 +60,7 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behaviour may be
 reported to the community leaders responsible for enforcement at
-**[devisfuture@gmail.com]**.
+**[development.is.the.future@gmail.com]**.
 
 All complaints will be reviewed and investigated promptly and fairly.
 
