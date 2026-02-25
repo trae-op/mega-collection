@@ -62,6 +62,9 @@ export class FilterEngine<T extends CollectionItem> {
   /** Last criteria used in sequential mode. */
   private previousCriteria: FilterCriterion<T>[] | null = null;
 
+  /** Dataset reference used to compute previous sequential result. */
+  private previousBaseData: T[] | null = null;
+
   constructor(options: FilterEngineOptions<T> = {}) {
     this.indexer = new Indexer<T>();
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
@@ -105,6 +108,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.data = dataOrField;
     this.previousResult = null;
     this.previousCriteria = null;
+    this.previousBaseData = null;
     this.indexer.buildIndex(dataOrField, field!);
     return this;
   }
@@ -125,6 +129,7 @@ export class FilterEngine<T extends CollectionItem> {
   resetFilterState(): void {
     this.previousResult = null;
     this.previousCriteria = null;
+    this.previousBaseData = null;
   }
 
   /**
@@ -146,6 +151,7 @@ export class FilterEngine<T extends CollectionItem> {
 
     let sourceData: T[];
     let resolvedCriteria: FilterCriterion<T>[];
+    let executionCriteria: FilterCriterion<T>[];
 
     if (usesStoredData) {
       // filter(criteria) — use stored data
@@ -157,31 +163,96 @@ export class FilterEngine<T extends CollectionItem> {
       }
 
       resolvedCriteria = dataOrCriteria as FilterCriterion<T>[];
-      const canReusePreviousResult =
+
+      if (
         this.filterByPreviousResult &&
         this.previousResult !== null &&
         this.previousCriteria !== null &&
-        this.isNarrowingCriteriaChange(this.previousCriteria, resolvedCriteria);
+        this.previousBaseData === this.data
+      ) {
+        const hasAdditions = this.hasCriteriaAdditions(
+          this.previousCriteria,
+          resolvedCriteria,
+        );
+        const hasRemovals = this.hasCriteriaRemovals(
+          this.previousCriteria,
+          resolvedCriteria,
+        );
 
-      sourceData =
-        canReusePreviousResult && resolvedCriteria.length > 0
-          ? this.previousResult!
-          : this.data;
+        // No criteria change — return cached sequential result.
+        if (!hasAdditions && !hasRemovals) {
+          return this.previousResult;
+        }
+
+        // Additions only: apply only newly added criteria on previous result.
+        if (hasAdditions && !hasRemovals) {
+          sourceData = this.previousResult;
+          executionCriteria = this.getAddedCriteria(
+            this.previousCriteria,
+            resolvedCriteria,
+          );
+        } else {
+          // Any removal (or mixed add/remove): recalculate from full dataset.
+          sourceData = this.data;
+          executionCriteria = resolvedCriteria;
+        }
+      } else {
+        sourceData = this.data;
+        executionCriteria = resolvedCriteria;
+      }
     } else {
-      sourceData = dataOrCriteria as T[];
       resolvedCriteria = criteria;
+      sourceData = dataOrCriteria as T[];
+
+      if (
+        this.filterByPreviousResult &&
+        this.previousResult !== null &&
+        this.previousCriteria !== null &&
+        this.previousBaseData === sourceData
+      ) {
+        const hasAdditions = this.hasCriteriaAdditions(
+          this.previousCriteria,
+          resolvedCriteria,
+        );
+        const hasRemovals = this.hasCriteriaRemovals(
+          this.previousCriteria,
+          resolvedCriteria,
+        );
+
+        if (!hasAdditions && !hasRemovals) {
+          return this.previousResult;
+        }
+
+        if (hasAdditions && !hasRemovals) {
+          sourceData = this.previousResult;
+          executionCriteria = this.getAddedCriteria(
+            this.previousCriteria,
+            resolvedCriteria,
+          );
+        } else {
+          executionCriteria = resolvedCriteria;
+        }
+      } else {
+        executionCriteria = resolvedCriteria;
+      }
     }
 
     if (resolvedCriteria.length === 0) {
-      if (this.filterByPreviousResult && usesStoredData) {
+      if (this.filterByPreviousResult) {
         this.previousResult = null;
         this.previousCriteria = null;
+        this.previousBaseData = null;
       }
       return usesStoredData ? this.data : sourceData;
     }
 
+    // In stored-data mode executionCriteria is always set above.
+    if (usesStoredData && !executionCriteria) {
+      executionCriteria = resolvedCriteria;
+    }
+
     // --- Separate indexed vs. non-indexed criteria ---
-    const { indexedCriteria, linearCriteria } = resolvedCriteria.reduce(
+    const { indexedCriteria, linearCriteria } = executionCriteria.reduce(
       (
         accumulator: {
           indexedCriteria: FilterCriterion<T>[];
@@ -204,9 +275,12 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (indexedCriteria.length > 0 && linearCriteria.length === 0) {
       result = this.filterViaIndex(indexedCriteria, sourceData);
-      if (this.filterByPreviousResult && usesStoredData) {
+      if (this.filterByPreviousResult) {
         this.previousResult = result;
         this.previousCriteria = this.cloneCriteria(resolvedCriteria);
+        this.previousBaseData = usesStoredData
+          ? this.data
+          : (dataOrCriteria as T[]);
       }
       return result;
     }
@@ -216,18 +290,24 @@ export class FilterEngine<T extends CollectionItem> {
     if (indexedCriteria.length > 0 && linearCriteria.length > 0) {
       const candidates = this.filterViaIndex(indexedCriteria, sourceData);
       result = this.linearFilter(candidates, linearCriteria);
-      if (this.filterByPreviousResult && usesStoredData) {
+      if (this.filterByPreviousResult) {
         this.previousResult = result;
         this.previousCriteria = this.cloneCriteria(resolvedCriteria);
+        this.previousBaseData = usesStoredData
+          ? this.data
+          : (dataOrCriteria as T[]);
       }
       return result;
     }
 
     // --- Pure linear path (no indexes available) ---
-    result = this.linearFilter(sourceData, resolvedCriteria);
-    if (this.filterByPreviousResult && usesStoredData) {
+    result = this.linearFilter(sourceData, executionCriteria);
+    if (this.filterByPreviousResult) {
       this.previousResult = result;
       this.previousCriteria = this.cloneCriteria(resolvedCriteria);
+      this.previousBaseData = usesStoredData
+        ? this.data
+        : (dataOrCriteria as T[]);
     }
     return result;
   }
@@ -239,11 +319,34 @@ export class FilterEngine<T extends CollectionItem> {
     }));
   }
 
-  /**
-   * Returns true when the next criteria can only narrow (or keep) the previous result.
-   * If the next criteria broadens selection, we must recalculate from the full dataset.
-   */
-  private isNarrowingCriteriaChange(
+  private hasCriteriaAdditions(
+    previousCriteria: FilterCriterion<T>[],
+    nextCriteria: FilterCriterion<T>[],
+  ): boolean {
+    const previousByField = new Map<string, Set<any>>(
+      previousCriteria.map(({ field, values }) => [field, new Set(values)]),
+    );
+    const nextByField = new Map<string, Set<any>>(
+      nextCriteria.map(({ field, values }) => [field, new Set(values)]),
+    );
+
+    for (const [field, nextValues] of nextByField) {
+      const previousValues = previousByField.get(field);
+      if (!previousValues) {
+        return true;
+      }
+
+      for (const value of nextValues) {
+        if (!previousValues.has(value)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private hasCriteriaRemovals(
     previousCriteria: FilterCriterion<T>[],
     nextCriteria: FilterCriterion<T>[],
   ): boolean {
@@ -257,17 +360,43 @@ export class FilterEngine<T extends CollectionItem> {
     for (const [field, previousValues] of previousByField) {
       const nextValues = nextByField.get(field);
       if (!nextValues) {
-        return false;
+        return true;
       }
 
-      for (const value of nextValues) {
-        if (!previousValues.has(value)) {
-          return false;
+      for (const value of previousValues) {
+        if (!nextValues.has(value)) {
+          return true;
         }
       }
     }
 
-    return true;
+    return false;
+  }
+
+  private getAddedCriteria(
+    previousCriteria: FilterCriterion<T>[],
+    nextCriteria: FilterCriterion<T>[],
+  ): FilterCriterion<T>[] {
+    const previousByField = new Map<string, Set<any>>(
+      previousCriteria.map(({ field, values }) => [field, new Set(values)]),
+    );
+
+    const addedCriteria: FilterCriterion<T>[] = [];
+
+    for (const { field, values } of nextCriteria) {
+      const previousValues = previousByField.get(field);
+      if (!previousValues) {
+        addedCriteria.push({ field, values: [...values] });
+        continue;
+      }
+
+      const addedValues = values.filter((value) => !previousValues.has(value));
+      if (addedValues.length > 0) {
+        addedCriteria.push({ field, values: addedValues });
+      }
+    }
+
+    return addedCriteria;
   }
 
   /**
