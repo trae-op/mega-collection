@@ -4,6 +4,11 @@
 
 Zero dependencies. Tree-shakeable. Import only what you need.
 
+Each engine lives in its own entry point (`/search`, `/filter`, `/sort`).
+Importing just `@devisfuture/mega-collection/search` or the other sub-modules means
+only that code ends up in your bundle — unused engines stay out. For example, if
+you only pull in `TextSearchEngine` the filter and sort logic won’t be included.
+
 ## Features
 
 | Capability                 | Strategy                               | Complexity                         |
