@@ -4,23 +4,6 @@
 
 ---
 
-## Table of Contents
-
-1. [Overview & When to Use](#overview)
-2. [Set — Core Concepts](#set-core)
-3. [Set — Best Practices](#set-best-practices)
-4. [Set — Performance Patterns](#set-performance)
-5. [Map — Core Concepts](#map-core)
-6. [Map — Best Practices](#map-best-practices)
-7. [Map — Performance Patterns](#map-performance)
-8. [Set vs Map vs Array vs Object](#comparison)
-9. [Advanced Patterns](#advanced)
-10. [TypeScript Integration](#typescript)
-11. [Common Mistakes to Avoid](#mistakes)
-12. [Using Set & Map Inside Loops — Complexity Deep Dive](#loops)
-
----
-
 ## 1. Overview & When to Use <a name="overview"></a>
 
 | Structure | Best For                                                                 |
