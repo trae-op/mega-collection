@@ -2,6 +2,12 @@
 
 > Search, filter & sort engine for **50 K+** item collections in JavaScript / TypeScript.
 
+What does this package solve?
+
+Sometimes in projects, you need to iterate through huge collections (20,000, 40,000, 80,000 elements in an array) that have come from the server. Usually, the most common features are searching, filtering, and sorting.
+So, this package helps to perform searching, filtering, and sorting of large collections faster than standard JavaScript methods. This operation is performed before rendering the UI content.
+I have described how to render huge data, for example in React, below.
+
 Zero dependencies. Tree-shakeable. Import only what you need.
 
 Each engine lives in its own entry point (`/search`, `/filter`, `/sort`).
