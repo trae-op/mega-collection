@@ -37,16 +37,31 @@ export interface FilterEngineOptions<
    * When both are present, `buildIndex` is called for each field in the constructor.
    */
   fields?: (keyof T & string)[];
+
+  /**
+   * Enables sequential filtering by the previous filter result.
+   *
+   * When `true`, each call to `filter(criteria)` (without explicit `data`)
+   * uses the previous filter output as the next input dataset.
+   *
+   * @default false
+   */
+  filterByPreviousResult?: boolean;
 }
 
 export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;
+  private readonly filterByPreviousResult: boolean;
 
   /** Reference to the full dataset (set via the constructor or `buildIndex`). */
   private data: T[] = [];
 
+  /** Last filter output used as the next input in sequential mode. */
+  private previousResult: T[] | null = null;
+
   constructor(options: FilterEngineOptions<T> = {}) {
     this.indexer = new Indexer<T>();
+    this.filterByPreviousResult = options.filterByPreviousResult ?? false;
     if (!options.data) return;
 
     this.data = options.data;
@@ -85,6 +100,7 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     this.data = dataOrField;
+    this.previousResult = null;
     this.indexer.buildIndex(dataOrField, field!);
     return this;
   }
@@ -94,6 +110,16 @@ export class FilterEngine<T extends CollectionItem> {
    */
   clearIndexes(): void {
     this.indexer.clear();
+  }
+
+  /**
+   * Reset sequential filtering state.
+   *
+   * Useful when `filterByPreviousResult` is enabled and you want
+   * the next `filter(criteria)` call to start from the full dataset.
+   */
+  resetFilterState(): void {
+    this.previousResult = null;
   }
 
   /**
@@ -111,7 +137,7 @@ export class FilterEngine<T extends CollectionItem> {
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] {
-    let data: T[];
+    let sourceData: T[];
     let resolvedCriteria: FilterCriterion<T>[];
 
     if (criteria === undefined) {
@@ -123,14 +149,24 @@ export class FilterEngine<T extends CollectionItem> {
         );
       }
 
-      data = this.data;
       resolvedCriteria = dataOrCriteria as FilterCriterion<T>[];
+      sourceData =
+        this.filterByPreviousResult &&
+        this.previousResult &&
+        resolvedCriteria.length > 0
+          ? this.previousResult
+          : this.data;
     } else {
-      data = dataOrCriteria as T[];
+      sourceData = dataOrCriteria as T[];
       resolvedCriteria = criteria;
     }
 
-    if (resolvedCriteria.length === 0) return data;
+    if (resolvedCriteria.length === 0) {
+      if (this.filterByPreviousResult) {
+        this.previousResult = sourceData;
+      }
+      return sourceData;
+    }
 
     // --- Separate indexed vs. non-indexed criteria ---
     const { indexedCriteria, linearCriteria } = resolvedCriteria.reduce(
@@ -152,19 +188,33 @@ export class FilterEngine<T extends CollectionItem> {
     );
 
     // --- Fast path: all criteria are indexed ---
+    let result: T[];
+
     if (indexedCriteria.length > 0 && linearCriteria.length === 0) {
-      return this.filterViaIndex(indexedCriteria);
+      result = this.filterViaIndex(indexedCriteria, sourceData);
+      if (this.filterByPreviousResult) {
+        this.previousResult = result;
+      }
+      return result;
     }
 
     // --- Mixed path: use indexes to narrow candidates, then linear scan ---
     // This avoids O(n) full-dataset scans when indexes can pre-filter.
     if (indexedCriteria.length > 0 && linearCriteria.length > 0) {
-      const candidates = this.filterViaIndex(indexedCriteria);
-      return this.linearFilter(candidates, linearCriteria);
+      const candidates = this.filterViaIndex(indexedCriteria, sourceData);
+      result = this.linearFilter(candidates, linearCriteria);
+      if (this.filterByPreviousResult) {
+        this.previousResult = result;
+      }
+      return result;
     }
 
     // --- Pure linear path (no indexes available) ---
-    return this.linearFilter(data, resolvedCriteria);
+    result = this.linearFilter(sourceData, resolvedCriteria);
+    if (this.filterByPreviousResult) {
+      this.previousResult = result;
+    }
+    return result;
   }
 
   /**
@@ -215,10 +265,19 @@ export class FilterEngine<T extends CollectionItem> {
    *  3. Pre-index remaining criteria values into Sets for O(1) checks.
    *  4. Single-pass filter over candidates — no nested collection iteration.
    */
-  private filterViaIndex(criteria: FilterCriterion<T>[]): T[] {
+  private filterViaIndex(criteria: FilterCriterion<T>[], sourceData: T[]): T[] {
+    const isFilteringFromSubset = sourceData !== this.data;
+    const allowedItems = isFilteringFromSubset ? new Set(sourceData) : null;
+
     // For a single criterion, just grab from the index
     if (criteria.length === 1) {
-      return this.indexer.getByValues(criteria[0].field, criteria[0].values);
+      const indexedResult = this.indexer.getByValues(
+        criteria[0].field,
+        criteria[0].values,
+      );
+      if (!allowedItems) return indexedResult;
+
+      return indexedResult.filter((item) => allowedItems.has(item));
     }
 
     // Estimate candidate-set sizes and sort smallest first for faster pruning
@@ -270,6 +329,14 @@ export class FilterEngine<T extends CollectionItem> {
           matchesAllRemainingCriteria = false;
           break;
         }
+      }
+
+      if (
+        matchesAllRemainingCriteria &&
+        allowedItems &&
+        !allowedItems.has(item)
+      ) {
+        matchesAllRemainingCriteria = false;
       }
 
       if (matchesAllRemainingCriteria) {

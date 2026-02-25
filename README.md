@@ -45,7 +45,7 @@ const engine = new MergeEngines<User>({
   imports: [TextSearchEngine, SortEngine, FilterEngine],
   data: users,
   search: { fields: ["name", "city"], minQueryLength: 2 },
-  filter: { fields: ["city", "age"] },
+  filter: { fields: ["city", "age"], filterByPreviousResult: true },
   sort: { fields: ["age", "name", "city"] },
 });
 
@@ -80,12 +80,19 @@ import { FilterEngine } from "@devisfuture/mega-collection/filter";
 const filter = new FilterEngine<User>({
   data: users,
   fields: ["city", "age"],
+  filterByPreviousResult: true,
 });
 
 filter.filter([
   { field: "city", values: ["Kyiv", "Lviv"] },
   { field: "age", values: [25, 30, 35] },
 ]);
+
+// Sequential mode example:
+// 1) First call filters by city
+const byCity = filter.filter([{ field: "city", values: ["Dnipro"] }]);
+// 2) Second call filters only inside previous result
+const byCityAndAge = filter.filter([{ field: "age", values: [22] }]);
 ```
 
 ### Sort only
@@ -123,7 +130,7 @@ Unified facade that composes all three engines around a shared dataset.
 | `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to activate                   |
 | `data`    | `T[]`                                                       | Shared dataset — passed once at construction |
 | `search`  | `{ fields, minQueryLength? }`                               | Config for TextSearchEngine                  |
-| `filter`  | `{ fields }`                                                | Config for FilterEngine                      |
+| `filter`  | `{ fields, filterByPreviousResult? }`                       | Config for FilterEngine                      |
 | `sort`    | `{ fields }`                                                | Config for SortEngine                        |
 
 **Methods:**
@@ -159,13 +166,20 @@ Trigram-based text search engine.
 
 Multi-criteria AND filter with index-accelerated fast path.
 
-| Method                    | Description                             |
-| ------------------------- | --------------------------------------- |
-| `buildIndex(data, field)` | Build hash-map index for a field — O(n) |
-| `buildIndex(field)`       | Same, reuses dataset from constructor   |
-| `filter(criteria)`        | Filter using stored dataset             |
-| `filter(data, criteria)`  | Filter with an explicit dataset         |
-| `clearIndexes()`          | Free all index memory                   |
+Constructor option highlights:
+
+| Option                   | Type      | Description                                                            |
+| ------------------------ | --------- | ---------------------------------------------------------------------- |
+| `filterByPreviousResult` | `boolean` | When `true`, each `filter(criteria)` call filters from previous result |
+
+| Method                    | Description                                          |
+| ------------------------- | ---------------------------------------------------- |
+| `buildIndex(data, field)` | Build hash-map index for a field — O(n)              |
+| `buildIndex(field)`       | Same, reuses dataset from constructor                |
+| `filter(criteria)`        | Filter using stored dataset                          |
+| `filter(data, criteria)`  | Filter with an explicit dataset                      |
+| `resetFilterState()`      | Reset previous-result state for sequential filtering |
+| `clearIndexes()`          | Free all index memory                                |
 
 ### `SortEngine<T>` (sort module)
 

@@ -52,6 +52,7 @@ export interface MergeSearchConfig<T extends CollectionItem> {
 /** Filter-specific configuration (excludes `data` — shared at the top level). */
 export interface MergeFilterConfig<T extends CollectionItem> {
   fields: (keyof T & string)[];
+  filterByPreviousResult?: boolean;
 }
 
 /** Sort-specific configuration (excludes `data` — shared at the top level). */
@@ -138,6 +139,7 @@ export class MergeEngines<T extends CollectionItem> {
       ? new FilterEngine<T>({
           data,
           fields: filter?.fields,
+          filterByPreviousResult: filter?.filterByPreviousResult,
         })
       : null;
   }
