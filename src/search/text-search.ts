@@ -329,11 +329,6 @@ export class TextSearchEngine<T extends CollectionItem> {
     return matchedItems;
   }
 
-  /** Check whether a trigram index exists for a field. */
-  hasIndex(field: string): boolean {
-    return this.ngramIndexes.has(field);
-  }
-
   /** Free memory. */
   clear(): void {
     this.ngramIndexes.clear();

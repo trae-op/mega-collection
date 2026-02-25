@@ -147,17 +147,14 @@ Unified facade that composes all three engines around a shared dataset.
 
 **Methods:**
 
-| Method                              | Description                                        |
-| ----------------------------------- | -------------------------------------------------- |
-| `search(query)`                     | Search all indexed fields                          |
-| `search(field, query)`              | Search a specific field                            |
-| `sort(descriptors)`                 | Sort using stored dataset                          |
-| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                      |
-| `filter(criteria)`                  | Filter using stored dataset                        |
-| `filter(data, criteria)`            | Filter with an explicit dataset                    |
-| `getSearchEngine()`                 | Access the underlying `TextSearchEngine` or `null` |
-| `getSortEngine()`                   | Access the underlying `SortEngine` or `null`       |
-| `getFilterEngine()`                 | Access the underlying `FilterEngine` or `null`     |
+| Method                              | Description                     |
+| ----------------------------------- | ------------------------------- |
+| `search(query)`                     | Search all indexed fields       |
+| `search(field, query)`              | Search a specific field         |
+| `sort(descriptors)`                 | Sort using stored dataset       |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset   |
+| `filter(criteria)`                  | Filter using stored dataset     |
+| `filter(data, criteria)`            | Filter with an explicit dataset |
 
 ---
 
@@ -169,7 +166,6 @@ Trigram-based text search engine.
 | ---------------------- | --------------------------------------- |
 | `search(query)`        | Search all indexed fields, deduplicated |
 | `search(field, query)` | Search a specific indexed field         |
-| `hasIndex(field)`      | Check whether a trigram index exists    |
 | `clear()`              | Free memory                             |
 
 ### `FilterEngine<T>` (filter module)

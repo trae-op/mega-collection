@@ -231,23 +231,4 @@ export class MergeEngines<T extends CollectionItem> {
 
     return this.filterEngine.filter(dataOrCriteria as T[], criteria);
   }
-
-  // -----------------------------------------------------------------------
-  // Accessors — direct access to sub-engines when advanced API is needed
-  // -----------------------------------------------------------------------
-
-  /** Returns the underlying TextSearchEngine, or `null` if not imported. */
-  getSearchEngine(): TextSearchEngine<T> | null {
-    return this.searchEngine;
-  }
-
-  /** Returns the underlying SortEngine, or `null` if not imported. */
-  getSortEngine(): SortEngine<T> | null {
-    return this.sortEngine;
-  }
-
-  /** Returns the underlying FilterEngine, or `null` if not imported. */
-  getFilterEngine(): FilterEngine<T> | null {
-    return this.filterEngine;
-  }
 }
