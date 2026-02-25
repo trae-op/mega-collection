@@ -238,7 +238,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
     if (!uniqueQueryGrams.size) return [];
 
-    const seenIds = new Set<CollectionItem["id"]>();
+    const seenItems = new Set<T>();
     const combined: T[] = [];
 
     for (const field of fields) {
@@ -247,8 +247,8 @@ export class TextSearchEngine<T extends CollectionItem> {
         lowerQuery,
         uniqueQueryGrams,
       )) {
-        if (!seenIds.has(item.id)) {
-          seenIds.add(item.id);
+        if (!seenItems.has(item)) {
+          seenItems.add(item);
           combined.push(item);
         }
       }
