@@ -108,6 +108,32 @@ describe("SortEngine", () => {
       expect(result.map((item) => item.id)).toEqual([5, 2, 3, 1, 4]);
     });
 
+    it("skips cache when indexed array length changes in place", () => {
+      const mutableUsers = users.map((user) => ({ ...user }));
+      const engine = new SortEngine<User>().buildIndex(mutableUsers, "age");
+
+      mutableUsers.push({ id: 5, name: "Zara", city: "Dnipro", age: 20 });
+
+      const result = engine.sort(mutableUsers, [
+        { field: "age", direction: "asc" },
+      ]);
+
+      expect(result.map((item) => item.id)).toEqual([5, 2, 3, 1, 4]);
+    });
+
+    it("skips cache when indexed field values change in place", () => {
+      const mutableUsers = users.map((user) => ({ ...user }));
+      const engine = new SortEngine<User>().buildIndex(mutableUsers, "age");
+
+      mutableUsers[0].age = 18;
+
+      const result = engine.sort(mutableUsers, [
+        { field: "age", direction: "asc" },
+      ]);
+
+      expect(result.map((item) => item.id)).toEqual([1, 2, 3, 4]);
+    });
+
     it("clearIndexes frees the cache", () => {
       const engine = new SortEngine<User>().buildIndex(users, "age");
       engine.clearIndexes();

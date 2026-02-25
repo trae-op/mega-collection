@@ -29,6 +29,10 @@ interface SortIndex<T> {
   indexes: Uint32Array;
   /** Reference to the dataset this index was built from. */
   dataRef: T[];
+  /** Dataset size at indexing time. */
+  itemCount: number;
+  /** Field values snapshot at indexing time. */
+  fieldSnapshot: unknown[];
 }
 
 export interface SortEngineOptions<T extends CollectionItem = CollectionItem> {
@@ -129,7 +133,12 @@ export class SortEngine<T extends CollectionItem> {
       });
     }
 
-    this.cache.set(resolvedField as string, { indexes, dataRef: data });
+    this.cache.set(resolvedField as string, {
+      indexes,
+      dataRef: data,
+      itemCount,
+      fieldSnapshot: fieldValues,
+    });
     return this;
   }
 
@@ -160,7 +169,12 @@ export class SortEngine<T extends CollectionItem> {
       const { field, direction } = descriptors[0];
       const cached = this.cache.get(field as string);
 
-      if (cached && cached.dataRef === data) {
+      if (
+        cached &&
+        cached.dataRef === data &&
+        cached.itemCount === data.length &&
+        this.isFieldSnapshotValid(data, field, cached.fieldSnapshot)
+      ) {
         return this.reconstructFromIndex(data, cached.indexes, direction);
       }
     }
@@ -206,6 +220,18 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     return result;
+  }
+
+  private isFieldSnapshotValid(
+    data: T[],
+    field: keyof T & string,
+    snapshot: unknown[],
+  ): boolean {
+    for (let index = 0; index < data.length; index++) {
+      if (data[index][field] !== snapshot[index]) return false;
+    }
+
+    return true;
   }
 
   /**
