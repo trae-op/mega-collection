@@ -72,6 +72,8 @@
     "tree-shakeable",
     "esm",
     "indexer",
+    "50k",
+    "100k",
     "text-search",
     "multi-filter",
     "sort-engine",
