@@ -1,6 +1,6 @@
 # @devisfuture/mega-collection
 
-> High-performance search, filter & sort engine for **10 M+** item collections in JavaScript / TypeScript.
+> High-performance search, filter & sort engine for **50 K+** item collections in JavaScript / TypeScript.
 
 Zero dependencies. Tree-shakeable. Import only what you need.
 
