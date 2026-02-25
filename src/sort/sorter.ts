@@ -86,9 +86,9 @@ export class SortEngine<T extends CollectionItem> {
    *
    * @returns `this` for chaining.
    */
-  buildIndex(data: T[], field: keyof T & string): this;
-  buildIndex(field: keyof T & string): this;
-  buildIndex(
+  private buildIndex(data: T[], field: keyof T & string): this;
+  private buildIndex(field: keyof T & string): this;
+  private buildIndex(
     dataOrField: T[] | (keyof T & string),
     field?: keyof T & string,
   ): this {

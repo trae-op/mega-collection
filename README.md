@@ -1,6 +1,6 @@
 # @devisfuture/mega-collection
 
-> High-performance search, filter & sort engine for **50 K+** item collections in JavaScript / TypeScript.
+> Search, filter & sort engine for **50 K+** item collections in JavaScript / TypeScript.
 
 Zero dependencies. Tree-shakeable. Import only what you need.
 
@@ -153,14 +153,12 @@ Unified facade that composes all three engines around a shared dataset.
 
 Trigram-based text search engine.
 
-| Method                    | Description                              |
-| ------------------------- | ---------------------------------------- |
-| `buildIndex(data, field)` | Build trigram index for a field — O(n·L) |
-| `buildIndex(field)`       | Same, reuses dataset from constructor    |
-| `search(query)`           | Search all indexed fields, deduplicated  |
-| `search(field, query)`    | Search a specific indexed field          |
-| `hasIndex(field)`         | Check whether a trigram index exists     |
-| `clear()`                 | Free memory                              |
+| Method                 | Description                             |
+| ---------------------- | --------------------------------------- |
+| `search(query)`        | Search all indexed fields, deduplicated |
+| `search(field, query)` | Search a specific indexed field         |
+| `hasIndex(field)`      | Check whether a trigram index exists    |
+| `clear()`              | Free memory                             |
 
 ### `FilterEngine<T>` (filter module)
 
@@ -172,26 +170,22 @@ Constructor option highlights:
 | ------------------------ | --------- | ---------------------------------------------------------------------- |
 | `filterByPreviousResult` | `boolean` | When `true`, each `filter(criteria)` call filters from previous result |
 
-| Method                    | Description                                          |
-| ------------------------- | ---------------------------------------------------- |
-| `buildIndex(data, field)` | Build hash-map index for a field — O(n)              |
-| `buildIndex(field)`       | Same, reuses dataset from constructor                |
-| `filter(criteria)`        | Filter using stored dataset                          |
-| `filter(data, criteria)`  | Filter with an explicit dataset                      |
-| `resetFilterState()`      | Reset previous-result state for sequential filtering |
-| `clearIndexes()`          | Free all index memory                                |
+| Method                   | Description                                          |
+| ------------------------ | ---------------------------------------------------- |
+| `filter(criteria)`       | Filter using stored dataset                          |
+| `filter(data, criteria)` | Filter with an explicit dataset                      |
+| `resetFilterState()`     | Reset previous-result state for sequential filtering |
+| `clearIndexes()`         | Free all index memory                                |
 
 ### `SortEngine<T>` (sort module)
 
-High-performance sorting with pre-compiled comparators and cached sort indexes.
+Sorting with pre-compiled comparators and cached sort indexes.
 
-| Method                              | Description                             |
-| ----------------------------------- | --------------------------------------- |
-| `buildIndex(data, field)`           | Pre-sort index for a field — O(n log n) |
-| `buildIndex(field)`                 | Same, reuses dataset from constructor   |
-| `sort(descriptors)`                 | Sort using stored dataset               |
-| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset           |
-| `clearIndexes()`                    | Free all cached indexes                 |
+| Method                              | Description                   |
+| ----------------------------------- | ----------------------------- |
+| `sort(descriptors)`                 | Sort using stored dataset     |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset |
+| `clearIndexes()`                    | Free all cached indexes       |
 
 ---
 
