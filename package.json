@@ -3,6 +3,16 @@
   "version": "1.0.0",
   "description": "High-performance search, filter & sort engine for 10M+ item collections in JavaScript/TypeScript",
   "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
     "./search": {
       "import": {
         "types": "./dist/search/index.d.mts",
@@ -32,6 +42,16 @@
         "types": "./dist/sort/index.d.ts",
         "default": "./dist/sort/index.js"
       }
+    },
+    "./merge": {
+      "import": {
+        "types": "./dist/merge/index.d.mts",
+        "default": "./dist/merge/index.mjs"
+      },
+      "require": {
+        "types": "./dist/merge/index.d.ts",
+        "default": "./dist/merge/index.js"
+      }
     }
   },
   "typesVersions": {
@@ -44,6 +64,9 @@
       ],
       "sort": [
         "./dist/sort/index.d.ts"
+      ],
+      "merge": [
+        "./dist/merge/index.d.ts"
       ]
     }
   },

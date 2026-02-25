@@ -36,10 +36,10 @@
         };
       });
 
-      const sorter = new SortEngine()
-        .buildIndex(users, "id")
-        .buildIndex(users, "name")
-        .buildIndex(users, "age");
+      const sorter = new SortEngine({
+        data: users,
+        fields: ["id", "name", "age"],
+      });
 
       const sortFieldSelect = document.getElementById("sortField");
       const sortDirectionSelect = document.getElementById("sortDirection");
@@ -61,7 +61,7 @@
         const field = sortFieldSelect.value;
         const direction = sortDirectionSelect.value;
 
-        const sorted = sorter.sort(users, [{ field, direction }]);
+        const sorted = sorter.sort([{ field, direction }]);
         render(sorted);
       }
 

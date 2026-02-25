@@ -99,16 +99,41 @@ export class FilterEngine<T extends CollectionItem> {
   /**
    * Apply multiple filter criteria (AND logic).
    *
-   * @param data    - The full dataset.
-   * @param criteria - Array of {field, values} objects. An item passes a
-   *                   criterion if `item[field]` is in `criterion.values`.
+   * Two call signatures:
+   *  - `filter(criteria)`       — uses the dataset supplied in the constructor.
+   *  - `filter(data, criteria)` — explicit dataset (original API).
+   *
    * @returns Filtered array.
    */
-  filter(data: T[], criteria: FilterCriterion<T>[]): T[] {
-    if (criteria.length === 0) return data;
+  filter(criteria: FilterCriterion<T>[]): T[];
+  filter(data: T[], criteria: FilterCriterion<T>[]): T[];
+  filter(
+    dataOrCriteria: T[] | FilterCriterion<T>[],
+    criteria?: FilterCriterion<T>[],
+  ): T[] {
+    let data: T[];
+    let resolvedCriteria: FilterCriterion<T>[];
+
+    if (criteria === undefined) {
+      // filter(criteria) — use stored data
+      if (!this.data.length) {
+        throw new Error(
+          "FilterEngine: no dataset in memory. " +
+            "Either pass `data` in the constructor options, or call filter(data, criteria).",
+        );
+      }
+
+      data = this.data;
+      resolvedCriteria = dataOrCriteria as FilterCriterion<T>[];
+    } else {
+      data = dataOrCriteria as T[];
+      resolvedCriteria = criteria;
+    }
+
+    if (resolvedCriteria.length === 0) return data;
 
     // --- Separate indexed vs. non-indexed criteria ---
-    const { indexedCriteria, linearCriteria } = criteria.reduce(
+    const { indexedCriteria, linearCriteria } = resolvedCriteria.reduce(
       (
         accumulator: {
           indexedCriteria: FilterCriterion<T>[];
@@ -139,7 +164,7 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     // --- Pure linear path (no indexes available) ---
-    return this.linearFilter(data, criteria);
+    return this.linearFilter(data, resolvedCriteria);
   }
 
   /**

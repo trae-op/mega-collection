@@ -41,9 +41,10 @@
         };
       });
 
-      const filter = new FilterEngine()
-        .buildIndex(users, "city")
-        .buildIndex(users, "age");
+      const filter = new FilterEngine({
+        data: users,
+        fields: ["city", "age"],
+      });
 
       const cityCheckboxes = Array.from(
         document.querySelectorAll('input[name="city"]'),
@@ -88,7 +89,7 @@
           return;
         }
 
-        const filtered = filter.filter(users, criteria);
+        const filtered = filter.filter(criteria);
         render(filtered);
       }
 

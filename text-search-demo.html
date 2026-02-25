@@ -31,8 +31,11 @@
         return { id, name: `User ${id}` };
       });
 
-      const search = new TextSearchEngine();
-      search.buildIndex(users, "name");
+      const search = new TextSearchEngine({
+        data: users,
+        fields: ["name"],
+        minQueryLength: 2,
+      });
 
       const queryInput = document.getElementById("query");
       const countNode = document.getElementById("count");
@@ -60,7 +63,7 @@
           return;
         }
 
-        const matches = search.search("name", query);
+        const matches = search.search(trimmed);
         render(matches);
       });
     </script>

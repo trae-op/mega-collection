@@ -152,21 +152,47 @@ export class SortEngine<T extends CollectionItem> {
   /**
    * Sort items by one or more fields.
    *
+   * Two call signatures:
+   *  - `sort(descriptors)`            — uses the dataset supplied in the constructor.
+   *  - `sort(data, descriptors)`       — explicit dataset (original API).
+   *
    * If `buildIndex` was called for the leading sort field and the dataset
    * reference matches, sorting is O(n) via cached indexes regardless of
    * direction. Otherwise falls back to O(n log n) TimSort.
    *
-   * @param data        - The dataset to sort.
-   * @param descriptors - Ordered list of {field, direction} pairs.
-   * @param inPlace     - If true, sorts the array in place (only for fallback path).
    * @returns The sorted array.
    */
-  sort(data: T[], descriptors: SortDescriptor<T>[], inPlace = false): T[] {
-    if (descriptors.length === 0 || data.length === 0) return data;
+  sort(descriptors: SortDescriptor<T>[]): T[];
+  sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
+  sort(
+    dataOrDescriptors: T[] | SortDescriptor<T>[],
+    descriptors?: SortDescriptor<T>[],
+    inPlace = false,
+  ): T[] {
+    let data: T[];
+    let resolvedDescriptors: SortDescriptor<T>[];
+
+    if (descriptors === undefined) {
+      // sort(descriptors) — use stored data
+      if (!this.data.length) {
+        throw new Error(
+          "SortEngine: no dataset in memory. " +
+            "Either pass `data` in the constructor options, or call sort(data, descriptors).",
+        );
+      }
+
+      data = this.data;
+      resolvedDescriptors = dataOrDescriptors as SortDescriptor<T>[];
+    } else {
+      data = dataOrDescriptors as T[];
+      resolvedDescriptors = descriptors;
+    }
+
+    if (resolvedDescriptors.length === 0 || data.length === 0) return data;
 
     // --- Cached fast path: single-field sort with a pre-built index ---
-    if (descriptors.length === 1) {
-      const { field, direction } = descriptors[0];
+    if (resolvedDescriptors.length === 1) {
+      const { field, direction } = resolvedDescriptors[0];
       const cached = this.cache.get(field as string);
 
       if (
@@ -183,19 +209,19 @@ export class SortEngine<T extends CollectionItem> {
 
     // Optimised path: single numeric field → radix sort
     if (
-      descriptors.length === 1 &&
+      resolvedDescriptors.length === 1 &&
       data.length > 0 &&
-      typeof data[0][descriptors[0].field] === "number"
+      typeof data[0][resolvedDescriptors[0].field] === "number"
     ) {
       return this.radixSortNumeric(
         sortableItems,
-        descriptors[0].field,
-        descriptors[0].direction,
+        resolvedDescriptors[0].field,
+        resolvedDescriptors[0].direction,
       );
     }
 
     // General path: build a comparator for multi-field sort
-    const comparator = this.buildComparator(descriptors);
+    const comparator = this.buildComparator(resolvedDescriptors);
     sortableItems.sort(comparator);
     return sortableItems;
   }

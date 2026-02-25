@@ -21,8 +21,6 @@ npm install @devisfuture/mega-collection
 
 ## Quick Start
 
-Import only the module you need — like `lodash`, each sub-module is fully independent:
-
 ```ts
 interface User {
   id: number;
@@ -32,14 +30,46 @@ interface User {
 }
 ```
 
+### All-in-one: `MergeEngines`
+
+Use `MergeEngines` to combine search, filter and sort around a single shared dataset.
+Declare which engines you need in `imports` — only those are initialised.
+
+```ts
+import { MergeEngines } from "@devisfuture/mega-collection";
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+import { SortEngine } from "@devisfuture/mega-collection/sort";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const engine = new MergeEngines<User>({
+  imports: [TextSearchEngine, SortEngine, FilterEngine],
+  data: users,
+  search: { fields: ["name", "city"], minQueryLength: 2 },
+  filter: { fields: ["city", "age"] },
+  sort: { fields: ["age", "name", "city"] },
+});
+
+// dataset is passed once at init — no need to repeat it in every call
+engine.search("john");
+engine.sort([{ field: "age", direction: "asc" }]);
+engine.filter([{ field: "city", values: ["Kyiv", "Lviv"] }]);
+```
+
+---
+
 ### Search only
 
 ```ts
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 
-const search = new TextSearchEngine<User>();
-search.buildIndex(users, "name");
-search.search("name", "john");
+const search = new TextSearchEngine<User>({
+  data: users,
+  fields: ["name", "city"],
+  minQueryLength: 2,
+});
+
+search.search("john"); // searches all indexed fields, deduplicated
+search.search("name", "john"); // searches a specific field
 ```
 
 ### Filter only
@@ -47,11 +77,12 @@ search.search("name", "john");
 ```ts
 import { FilterEngine } from "@devisfuture/mega-collection/filter";
 
-const filter = new FilterEngine<User>()
-  .buildIndex(users, "city")
-  .buildIndex(users, "age");
+const filter = new FilterEngine<User>({
+  data: users,
+  fields: ["city", "age"],
+});
 
-filter.filter(users, [
+filter.filter([
   { field: "city", values: ["Kyiv", "Lviv"] },
   { field: "age", values: [25, 30, 35] },
 ]);
@@ -62,53 +93,110 @@ filter.filter(users, [
 ```ts
 import { SortEngine } from "@devisfuture/mega-collection/sort";
 
-// With index: first sort O(n log n), every repeat O(n)
-const sorter = new SortEngine<User>().buildIndex(users, "age");
-const sorted = sorter.sort(users, [{ field: "age", direction: "asc" }]);
+const sorter = new SortEngine<User>({
+  data: users,
+  fields: ["age", "name", "city"],
+});
 
-// Without index (multi-field): always O(n log n)
-const sorted2 = sorter.sort(users, [
+// Single-field sort — O(n) via cached index
+sorter.sort([{ field: "age", direction: "asc" }]);
+
+// Multi-field sort — O(n log n)
+sorter.sort([
   { field: "age", direction: "asc" },
   { field: "name", direction: "desc" },
 ]);
 ```
 
+---
+
 ## API Reference
+
+### `MergeEngines<T>` (root module)
+
+Unified facade that composes all three engines around a shared dataset.
+
+**Constructor options:**
+
+| Option    | Type                                                        | Description                                  |
+| --------- | ----------------------------------------------------------- | -------------------------------------------- |
+| `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to activate                   |
+| `data`    | `T[]`                                                       | Shared dataset — passed once at construction |
+| `search`  | `{ fields, minQueryLength? }`                               | Config for TextSearchEngine                  |
+| `filter`  | `{ fields }`                                                | Config for FilterEngine                      |
+| `sort`    | `{ fields }`                                                | Config for SortEngine                        |
+
+**Methods:**
+
+| Method                              | Description                                        |
+| ----------------------------------- | -------------------------------------------------- |
+| `search(query)`                     | Search all indexed fields                          |
+| `search(field, query)`              | Search a specific field                            |
+| `sort(descriptors)`                 | Sort using stored dataset                          |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                      |
+| `filter(criteria)`                  | Filter using stored dataset                        |
+| `filter(data, criteria)`            | Filter with an explicit dataset                    |
+| `getSearchEngine()`                 | Access the underlying `TextSearchEngine` or `null` |
+| `getSortEngine()`                   | Access the underlying `SortEngine` or `null`       |
+| `getFilterEngine()`                 | Access the underlying `FilterEngine` or `null`     |
+
+---
 
 ### `TextSearchEngine<T>` (search module)
 
 Trigram-based text search engine.
 
-| Method                    | Description                             |
-| ------------------------- | --------------------------------------- |
-| `buildIndex(data, field)` | Build trigram index for a field. O(n·L) |
-| `search(field, query)`    | Trigram-accelerated search              |
-| `hasIndex(field)`         | Check whether index exists              |
-| `clear()`                 | Free memory                             |
+| Method                    | Description                              |
+| ------------------------- | ---------------------------------------- |
+| `buildIndex(data, field)` | Build trigram index for a field — O(n·L) |
+| `buildIndex(field)`       | Same, reuses dataset from constructor    |
+| `search(query)`           | Search all indexed fields, deduplicated  |
+| `search(field, query)`    | Search a specific indexed field          |
+| `hasIndex(field)`         | Check whether a trigram index exists     |
+| `clear()`                 | Free memory                              |
 
 ### `FilterEngine<T>` (filter module)
 
 Multi-criteria AND filter with index-accelerated fast path.
 
-| Method                    | Description                           |
-| ------------------------- | ------------------------------------- |
-| `buildIndex(data, field)` | Build hash-map index for a field O(n) |
-| `filter(data, criteria)`  | Apply filter criteria                 |
-| `clearIndexes()`          | Free all index memory                 |
+| Method                    | Description                             |
+| ------------------------- | --------------------------------------- |
+| `buildIndex(data, field)` | Build hash-map index for a field — O(n) |
+| `buildIndex(field)`       | Same, reuses dataset from constructor   |
+| `filter(criteria)`        | Filter using stored dataset             |
+| `filter(data, criteria)`  | Filter with an explicit dataset         |
+| `clearIndexes()`          | Free all index memory                   |
 
 ### `SortEngine<T>` (sort module)
 
 High-performance sorting with pre-compiled comparators and cached sort indexes.
 
-| Method                              | Description                                 |
-| ----------------------------------- | ------------------------------------------- |
-| `buildIndex(data, field)`           | Pre-sort index for a field. O(n log n) once |
-| `sort(data, descriptors, inPlace?)` | Sort — O(n) with index, O(n log n) without  |
-| `clearIndexes()`                    | Free all cached indexes                     |
+| Method                              | Description                             |
+| ----------------------------------- | --------------------------------------- |
+| `buildIndex(data, field)`           | Pre-sort index for a field — O(n log n) |
+| `buildIndex(field)`                 | Same, reuses dataset from constructor   |
+| `sort(descriptors)`                 | Sort using stored dataset               |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset           |
+| `clearIndexes()`                    | Free all cached indexes                 |
+
+---
 
 ## Types
 
-All types are exported from the main package and from each sub-module:
+All types are exported from the root package and from each sub-module:
+
+```ts
+import type {
+  CollectionItem,
+  IndexableKey,
+  FilterCriterion,
+  SortDescriptor,
+  SortDirection,
+  MergeEnginesOptions,
+} from "@devisfuture/mega-collection";
+```
+
+Or from individual sub-modules:
 
 ```ts
 import type {
@@ -122,12 +210,14 @@ import type {
 } from "@devisfuture/mega-collection/sort";
 ```
 
+---
+
 ## Architecture
 
 ```
 src/
   types.ts               — Shared type definitions
-  indexer.ts              — Hash-Map index engine (internal, O(1) lookups)
+  indexer.ts             — Hash-Map index engine (internal, O(1) lookups)
   search/
     text-search.ts       — Trigram inverted index engine
     index.ts             — Search module entry point
@@ -137,7 +227,10 @@ src/
   sort/
     sorter.ts            — Sort engine (TimSort + index-sort)
     index.ts             — Sort module entry point
-  index.ts               — Barrel export
+  merge/
+    merge-engines.ts     — MergeEngines unified facade
+    index.ts             — Merge module entry point
+  index.ts               — Root barrel export
 ```
 
 ## Build
