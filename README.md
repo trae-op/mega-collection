@@ -19,6 +19,8 @@ Zero dependencies. Tree-shakeable. Import only what you need.
 npm install @devisfuture/mega-collection
 ```
 
+_This package is framework-agnostic and works in all popular front‑end frameworks including React, Angular, Vue and so on._
+
 ## Quick Start
 
 ```ts
