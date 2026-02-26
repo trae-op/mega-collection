@@ -1,14 +1,39 @@
-# Ignore everything except dist and docs
-node_modules/
+# Source files
 src/
-*.html
-tsup.config.ts
+
+# Tests
+**/__tests__/
+**/__mocks__/
+*.test.ts
+*.test.js
+*.spec.ts
+*.spec.js
+
+# Config files
 tsconfig.json
-.git/
+tsconfig.tests.json
+vitest.config.ts
+tsup.config.ts
+.gitignore
 .github/
-.vscode/
-.eslintrc*
-.prettierrc*
-CONTRIBUTING.md
+node_modules/
+
+# Documentation
+*.md
+!README.md
 CODE_OF_CONDUCT.md
-SECURITY.md
+CONTRIBUTING.md
+plan-lazy.md
+
+# Coverage
+coverage/
+
+# Development
+.agents/
+.vscode/
+.DS_Store
+illustration.png
+
+# Logs
+*.log
+npm-debug.log*
