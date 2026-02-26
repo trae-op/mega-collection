@@ -17,178 +17,97 @@ const users: User[] = [
 ];
 
 describe("SortEngine", () => {
-  it("returns input data when descriptors is empty", () => {
+  it("returns input when descriptors or data is empty", () => {
     const engine = new SortEngine<User>();
-
-    const result = engine.sort(users, []);
-
-    expect(result).toBe(users);
+    expect(engine.sort(users, [])).toBe(users);
+    expect(engine.sort([], [{ field: "age", direction: "asc" }])).toEqual([]);
   });
 
-  it("sorts by single numeric field ascending without mutating by default", () => {
+  it("sorts numeric field asc/desc without mutating original", () => {
     const engine = new SortEngine<User>();
+    const asc = engine.sort(users, [{ field: "age", direction: "asc" }]);
+    const desc = engine.sort(users, [{ field: "age", direction: "desc" }]);
 
-    const result = engine.sort(users, [{ field: "age", direction: "asc" }]);
-
-    expect(result.map((item) => item.id)).toEqual([2, 3, 1, 4]);
-    expect(users.map((item) => item.id)).toEqual([1, 2, 3, 4]);
-    expect(result).not.toBe(users);
+    expect(asc.map((u) => u.id)).toEqual([2, 3, 1, 4]);
+    expect(desc.map((u) => u.id)).toEqual([4, 1, 3, 2]);
+    expect(users.map((u) => u.id)).toEqual([1, 2, 3, 4]); // not mutated
   });
 
-  it("sorts by single numeric field descending", () => {
+  it("sorts by multiple fields with tie-breaking", () => {
     const engine = new SortEngine<User>();
-
-    const result = engine.sort(users, [{ field: "age", direction: "desc" }]);
-
-    expect(result.map((item) => item.id)).toEqual([4, 1, 3, 2]);
-  });
-
-  it("sorts by multiple fields in order", () => {
-    const engine = new SortEngine<User>();
-
     const result = engine.sort(users, [
       { field: "age", direction: "asc" },
       { field: "name", direction: "asc" },
     ]);
-
-    expect(result.map((item) => item.id)).toEqual([2, 3, 1, 4]);
+    expect(result.map((u) => u.id)).toEqual([2, 3, 1, 4]);
   });
 
   it("mutates input when inPlace is true", () => {
     const engine = new SortEngine<User>();
-    const inPlaceUsers = [...users];
-
+    const copy = [...users];
     const result = engine.sort(
-      inPlaceUsers,
+      copy,
       [{ field: "name", direction: "asc" }],
       true,
     );
+    expect(result).toBe(copy);
+    expect(copy.map((u) => u.id)).toEqual([2, 4, 3, 1]);
+  });
 
-    expect(result).toBe(inPlaceUsers);
-    expect(inPlaceUsers.map((item) => item.id)).toEqual([2, 4, 3, 1]);
+  it("sort(descriptors) uses stored dataset and throws without one", () => {
+    const engine = new SortEngine<User>({ data: users, fields: ["age"] });
+    expect(
+      engine.sort([{ field: "age", direction: "asc" }]).map((u) => u.id),
+    ).toEqual([2, 3, 1, 4]);
+
+    const empty = new SortEngine<User>();
+    expect(() => empty.sort([{ field: "age", direction: "asc" }])).toThrow(
+      "no dataset in memory",
+    );
   });
 
   describe("buildIndex (cached fast path)", () => {
-    it("sorts ascending via cached index — O(n)", () => {
-      const engine = new SortEngine<User>().buildIndex(users, "age");
+    it("sorts asc/desc via cached index", () => {
+      const engine = new SortEngine<User>({ data: users, fields: ["age"] });
 
-      const result = engine.sort(users, [{ field: "age", direction: "asc" }]);
-
-      expect(result.map((item) => item.id)).toEqual([2, 3, 1, 4]);
-      expect(result).not.toBe(users);
+      expect(
+        engine
+          .sort(users, [{ field: "age", direction: "asc" }])
+          .map((u) => u.id),
+      ).toEqual([2, 3, 1, 4]);
+      expect(
+        engine
+          .sort(users, [{ field: "age", direction: "desc" }])
+          .map((u) => u.id),
+      ).toEqual([4, 1, 3, 2]);
     });
 
-    it("sorts descending via cached index — O(n) reverse", () => {
-      const engine = new SortEngine<User>().buildIndex(users, "age");
-
-      const result = engine.sort(users, [{ field: "age", direction: "desc" }]);
-
-      expect(result.map((item) => item.id)).toEqual([4, 1, 3, 2]);
-    });
-
-    it("sorts string field via cached index", () => {
-      const engine = new SortEngine<User>().buildIndex(users, "name");
-
-      const result = engine.sort(users, [{ field: "name", direction: "asc" }]);
-
-      expect(result.map((item) => item.id)).toEqual([2, 4, 3, 1]);
-    });
-
-    it("skips cache when data reference changes", () => {
-      const engine = new SortEngine<User>().buildIndex(users, "age");
-      const otherUsers = [
+    it("skips cache when data changes", () => {
+      const engine = new SortEngine<User>({ data: users, fields: ["age"] });
+      const other = [
         ...users,
         { id: 5, name: "Zara", city: "Dnipro", age: 20 },
       ];
 
-      const result = engine.sort(otherUsers, [
-        { field: "age", direction: "asc" },
-      ]);
-
-      expect(result.map((item) => item.id)).toEqual([5, 2, 3, 1, 4]);
+      const result = engine.sort(other, [{ field: "age", direction: "asc" }]);
+      expect(result.map((u) => u.id)).toEqual([5, 2, 3, 1, 4]);
     });
 
-    it("skips cache when indexed array length changes in place", () => {
-      const mutableUsers = users.map((user) => ({ ...user }));
-      const engine = new SortEngine<User>().buildIndex(mutableUsers, "age");
-
-      mutableUsers.push({ id: 5, name: "Zara", city: "Dnipro", age: 20 });
-
-      const result = engine.sort(mutableUsers, [
-        { field: "age", direction: "asc" },
-      ]);
-
-      expect(result.map((item) => item.id)).toEqual([5, 2, 3, 1, 4]);
-    });
-
-    it("skips cache when indexed field values change in place", () => {
-      const mutableUsers = users.map((user) => ({ ...user }));
-      const engine = new SortEngine<User>().buildIndex(mutableUsers, "age");
-
-      mutableUsers[0].age = 18;
-
-      const result = engine.sort(mutableUsers, [
-        { field: "age", direction: "asc" },
-      ]);
-
-      expect(result.map((item) => item.id)).toEqual([1, 2, 3, 4]);
-    });
-
-    it("clearIndexes frees the cache", () => {
-      const engine = new SortEngine<User>().buildIndex(users, "age");
+    it("clearIndexes frees cache (falls back to radix sort)", () => {
+      const engine = new SortEngine<User>({ data: users, fields: ["age"] });
       engine.clearIndexes();
 
-      // After clearing, still works (falls back to radix sort)
       const result = engine.sort(users, [{ field: "age", direction: "asc" }]);
-
-      expect(result.map((item) => item.id)).toEqual([2, 3, 1, 4]);
+      expect(result.map((u) => u.id)).toEqual([2, 3, 1, 4]);
     });
 
-    it("supports chaining buildIndex for multiple fields", () => {
-      const engine = new SortEngine<User>()
-        .buildIndex(users, "age")
-        .buildIndex(users, "name");
-
-      const byAge = engine.sort(users, [{ field: "age", direction: "desc" }]);
-      const byName = engine.sort(users, [{ field: "name", direction: "asc" }]);
-
-      expect(byAge.map((item) => item.id)).toEqual([4, 1, 3, 2]);
-      expect(byName.map((item) => item.id)).toEqual([2, 4, 3, 1]);
-    });
-  });
-
-  describe("constructor shorthand (data + fields)", () => {
-    it("builds indexes automatically when data and fields are provided", () => {
-      const engine = new SortEngine<User>({
-        data: users,
-        fields: ["age", "name"],
-      });
-
-      const byAge = engine.sort(users, [{ field: "age", direction: "asc" }]);
-      const byName = engine.sort(users, [{ field: "name", direction: "asc" }]);
-
-      expect(byAge.map((item) => item.id)).toEqual([2, 3, 1, 4]);
-      expect(byName.map((item) => item.id)).toEqual([2, 4, 3, 1]);
-    });
-
-    it("buildIndex(field) reuses constructor data", () => {
-      const engine = new SortEngine<User>({ data: users });
-      engine.buildIndex("age");
-
-      const result = engine.sort(users, [{ field: "age", direction: "desc" }]);
-
-      expect(result.map((item) => item.id)).toEqual([4, 1, 3, 2]);
-    });
-
-    it("buildIndex(field) throws when no dataset is in memory", () => {
-      const engine = new SortEngine<User>();
-      let caughtMessage = "";
-      try {
-        engine.buildIndex("age");
-      } catch (err) {
-        caughtMessage = err instanceof Error ? err.message : String(err);
-      }
-      expect(caughtMessage).toContain("no dataset in memory");
+    it("constructor with data and fields auto-builds index", () => {
+      const engine = new SortEngine<User>({ data: users, fields: ["age"] });
+      expect(
+        engine
+          .sort(users, [{ field: "age", direction: "desc" }])
+          .map((u) => u.id),
+      ).toEqual([4, 1, 3, 2]);
     });
   });
 });

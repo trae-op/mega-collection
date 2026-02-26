@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { FilterEngine } from "./filter";
 
@@ -21,37 +21,35 @@ const users: User[] = [
 describe("FilterEngine", () => {
   it("returns input data when criteria is empty", () => {
     const engine = new FilterEngine<User>();
-
-    const result = engine.filter(users, []);
-
-    expect(result).toBe(users);
+    expect(engine.filter(users, [])).toBe(users);
   });
 
-  it("filters via indexed criteria with AND logic", () => {
-    const engine = new FilterEngine<User>()
-      .buildIndex(users, "city")
-      .buildIndex(users, "age");
+  it("filters via indexed criteria (AND logic)", () => {
+    const engine = new FilterEngine<User>({
+      data: users,
+      fields: ["city", "age"],
+    });
 
     const result = engine.filter(users, [
       { field: "city", values: ["Kyiv", "Lviv"] },
       { field: "age", values: [30] },
     ]);
 
-    expect(result.map((item) => item.id)).toEqual([2, 3]);
+    expect(result.map((u) => u.id)).toEqual([2, 3]);
   });
 
-  it("supports mixed path: indexed pre-filter + linear criteria", () => {
-    const engine = new FilterEngine<User>().buildIndex(users, "city");
+  it("mixed path: indexed pre-filter + linear criteria", () => {
+    const engine = new FilterEngine<User>({ data: users, fields: ["city"] });
 
     const result = engine.filter(users, [
       { field: "city", values: ["Kyiv", "Lviv"] },
       { field: "active", values: [true] },
     ]);
 
-    expect(result.map((item) => item.id)).toEqual([1, 3, 5]);
+    expect(result.map((u) => u.id)).toEqual([1, 3, 5]);
   });
 
-  it("supports pure linear filtering when no indexes exist", () => {
+  it("pure linear filtering when no indexes exist", () => {
     const engine = new FilterEngine<User>();
 
     const result = engine.filter(users, [
@@ -59,44 +57,70 @@ describe("FilterEngine", () => {
       { field: "age", values: [25] },
     ]);
 
-    expect(result.map((item) => item.id)).toEqual([1, 4]);
+    expect(result.map((u) => u.id)).toEqual([1, 4]);
   });
 
-  describe("constructor shorthand (data + fields)", () => {
-    it("builds indexes automatically when data and fields are provided", () => {
-      const engine = new FilterEngine<User>({
+  it("filter(criteria) uses stored dataset and throws without one", () => {
+    const engine = new FilterEngine<User>({ data: users, fields: ["city"] });
+    expect(
+      engine.filter([{ field: "city", values: ["Odesa"] }]).map((u) => u.id),
+    ).toEqual([4]);
+
+    const empty = new FilterEngine<User>();
+    expect(() => empty.filter([{ field: "city", values: ["Kyiv"] }])).toThrow(
+      "no dataset in memory",
+    );
+  });
+
+  it("constructor with data and fields auto-builds index", () => {
+    const engine = new FilterEngine<User>({ data: users, fields: ["city"] });
+    expect(
+      engine
+        .filter(users, [{ field: "city", values: ["Lviv"] }])
+        .map((u) => u.id),
+    ).toEqual([2, 5]);
+  });
+
+  describe("filterByPreviousResult (sequential mode)", () => {
+    let engine: FilterEngine<User>;
+
+    beforeEach(() => {
+      engine = new FilterEngine<User>({
         data: users,
-        fields: ["city", "age"],
+        fields: ["city"],
+        filterByPreviousResult: true,
       });
+    });
 
-      // Exercises the indexed fast path — no runtime error means indexes were built.
-      const result = engine.filter(users, [
+    it("returns cached result when criteria have not changed", () => {
+      const first = engine.filter([{ field: "city", values: ["Kyiv"] }]);
+      const second = engine.filter([{ field: "city", values: ["Kyiv"] }]);
+      expect(second).toBe(first);
+    });
+
+    it("narrows result when criteria are added", () => {
+      engine.filter([{ field: "city", values: ["Kyiv", "Lviv"] }]);
+      const result = engine.filter([
+        { field: "city", values: ["Kyiv", "Lviv"] },
+        { field: "age", values: [30] },
+      ]);
+      expect(result).toHaveLength(2);
+    });
+
+    it("recalculates from full dataset when a criterion is removed", () => {
+      engine.filter([
         { field: "city", values: ["Kyiv"] },
+        { field: "age", values: [25] },
       ]);
-
-      expect(result.map((item) => item.id)).toEqual([1, 3]);
+      const result = engine.filter([{ field: "city", values: ["Kyiv"] }]);
+      expect(result).toHaveLength(2);
     });
 
-    it("buildIndex(field) reuses constructor data", () => {
-      const engine = new FilterEngine<User>({ data: users });
-      engine.buildIndex("city");
-
-      const result = engine.filter(users, [
-        { field: "city", values: ["Lviv"] },
-      ]);
-
-      expect(result.map((item) => item.id)).toEqual([2, 5]);
-    });
-
-    it("buildIndex(field) throws when no dataset is in memory", () => {
-      const engine = new FilterEngine<User>();
-      let caughtMessage = "";
-      try {
-        engine.buildIndex("city");
-      } catch (err) {
-        caughtMessage = err instanceof Error ? err.message : String(err);
-      }
-      expect(caughtMessage).toContain("no dataset in memory");
+    it("resetFilterState clears sequential cache", () => {
+      engine.filter([{ field: "city", values: ["Kyiv"] }]);
+      engine.resetFilterState();
+      const result = engine.filter([{ field: "city", values: ["Lviv"] }]);
+      expect(result.map((u) => u.id)).toEqual(expect.arrayContaining([2, 5]));
     });
   });
 });

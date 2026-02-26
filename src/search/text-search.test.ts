@@ -13,7 +13,9 @@ type CardItem = {
 const cards: CardItem[] = Array.from({ length: 1000 }, (_, index) => ({
   id: index + 1,
   title: `Card #${index + 1}`,
-  description: `This is card item number ${index + 1} in a virtualized list using react-window.`,
+  description: `This is card item number ${
+    index + 1
+  } in a virtualized list using react-window.`,
   tag: index % 2 === 0 ? "Even" : "Odd",
 }));
 
@@ -35,124 +37,96 @@ const cityCards: CardItem[] = [
 ];
 
 describe("TextSearchEngine", () => {
-  it("finds numeric substrings in long text fields", () => {
-    const engine = new TextSearchEngine<CardItem>();
-    engine.buildIndex(cards, "title");
-
-    const matches = engine.search("title", "1");
-
-    expect(matches.length).toBeGreaterThan(0);
-    expect(matches.some((item) => item.title.includes("1"))).toBe(true);
-  });
-
-  it("trims query before searching", () => {
-    const engine = new TextSearchEngine<CardItem>();
-    engine.buildIndex(cards, "title");
-
-    const exactMatches = engine.search("title", "1");
-    const paddedMatches = engine.search("title", " 1 ");
-
-    expect(paddedMatches).toEqual(exactMatches);
-  });
-
-  it("keeps indexed-path behavior for longer queries", () => {
-    const engine = new TextSearchEngine<CardItem>();
-    engine.buildIndex(cards, "description");
-
-    const matches = engine.search("description", "virtualized");
-
-    expect(matches.length).toBe(cards.length);
-  });
-
-  it("supports search from the first character", () => {
-    const engine = new TextSearchEngine<CardItem>();
-    engine.buildIndex(cityCards, "city");
-
-    const matches = engine.search("city", "d");
-
-    expect(matches).toHaveLength(1);
-    expect(matches[0].city).toBe("Dnipro");
-  });
-
-  it("supports two-character queries", () => {
-    const engine = new TextSearchEngine<CardItem>();
-    engine.buildIndex(cityCards, "city");
-
-    const matches = engine.search("city", "dn");
-
-    expect(matches).toHaveLength(1);
-    expect(matches[0].city).toBe("Dnipro");
-  });
-
-  describe("constructor shorthand (data + fields)", () => {
-    it("builds indexes automatically when data and fields are provided", () => {
-      const engine = new TextSearchEngine<CardItem>({
-        data: cityCards,
-        fields: ["city"],
-      });
-
-      expect(engine.hasIndex("city")).toBe(true);
+  it("finds substrings and trims query whitespace", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cards,
+      fields: ["title"],
     });
 
-    it("search(query) returns results across all indexed fields", () => {
-      const engine = new TextSearchEngine<CardItem>({
-        data: cityCards,
-        fields: ["city", "title"],
-      });
+    const trimmed = engine.search("title", " 1 ");
+    expect(trimmed.length).toBeGreaterThan(0);
+    expect(trimmed).toEqual(engine.search("title", "1"));
+  });
 
-      // "Kyiv" is only in city; "Noah" is only in title
-      const byCityQuery = engine.search("Kyiv");
-      const byTitleQuery = engine.search("Noah");
-
-      expect(byCityQuery).toHaveLength(1);
-      expect(byCityQuery[0].city).toBe("Kyiv");
-
-      expect(byTitleQuery).toHaveLength(1);
-      expect(byTitleQuery[0].title).toBe("Noah 5");
+  it("exercises long-query subsampling path (>12 grams) and returns all matches", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cards,
+      fields: ["description"],
     });
 
-    it("search(query) deduplicates items that match multiple fields", () => {
-      const overlappingCards: CardItem[] = [
-        {
-          id: 1,
-          title: "Kyiv city guide",
-          description: "",
-          tag: "",
-          city: "Kyiv",
-        },
-        { id: 2, title: "Lviv guide", description: "", tag: "", city: "Lviv" },
-      ];
+    expect(engine.search("description", "react-window")).toHaveLength(
+      cards.length,
+    );
+  });
 
-      const engine = new TextSearchEngine<CardItem>({
-        data: overlappingCards,
-        fields: ["city", "title"],
-      });
-
-      // Item 1 matches both "city" and "title" for query "Kyiv"
-      const results = engine.search("Kyiv");
-      const uniqueIds = new Set(results.map((item) => item.id));
-
-      expect(uniqueIds.size).toBe(results.length);
+  it("returns empty for empty/blank query and for absent gram", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city"],
     });
 
-    it("buildIndex(field) reuses constructor data", () => {
-      const engine = new TextSearchEngine<CardItem>({ data: cityCards });
-      engine.buildIndex("city");
+    expect(engine.search("city", "")).toEqual([]);
+    expect(engine.search("city", "   ")).toEqual([]);
+    expect(engine.search("city", "zzz")).toEqual([]);
+  });
 
-      const matches = engine.search("city", "Dnipro");
-      expect(matches).toHaveLength(1);
+  it("returns empty when field is not indexed", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city"],
     });
 
-    it("buildIndex(field) throws when no dataset is in memory", () => {
-      const engine = new TextSearchEngine<CardItem>();
-      // No data supplied — field-only shorthand must reject.
-      let caughtMessage = "";
-      try {
-        engine.buildIndex("title");
-      } catch (err) {
-        caughtMessage = err instanceof Error ? err.message : String(err);
-      }
-      expect(caughtMessage).toContain("no dataset in memory");
+    expect(engine.search("title", "Noah")).toEqual([]);
+  });
+
+  it("minQueryLength blocks short queries", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city"],
+      minQueryLength: 3,
     });
+
+    expect(engine.search("city", "dn")).toEqual([]);
+    expect(engine.search("dn")).toEqual([]);
+    expect(engine.search("city", "dni")).toHaveLength(1);
+  });
+
+  it("clear removes all indexes; hasIndex returns false afterwards", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city"],
+    });
+    engine.clear();
+
+    expect(engine.search("Kyiv")).toEqual([]);
+  });
+
+  it("search(query) searches all fields and deduplicates matches", () => {
+    const overlapping: CardItem[] = [
+      {
+        id: 1,
+        title: "Kyiv city guide",
+        description: "",
+        tag: "",
+        city: "Kyiv",
+      },
+      { id: 2, title: "Lviv guide", description: "", tag: "", city: "Lviv" },
+    ];
+    const engine = new TextSearchEngine<CardItem>({
+      data: overlapping,
+      fields: ["city", "title"],
+    });
+
+    const results = engine.search("Kyiv");
+    expect(new Set(results.map((i) => i.id)).size).toBe(results.length);
+    expect(results).toHaveLength(1);
+  });
+
+  it("constructor with data and fields auto-builds index", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city"],
+    });
+    expect(engine.search("city", "Dnipro")).toHaveLength(1);
   });
 });

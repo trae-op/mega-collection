@@ -52,6 +52,8 @@
     "build:watch": "tsup --watch",
     "dev": "tsup --watch",
     "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit"
@@ -93,6 +95,7 @@
     "node": ">=16.0.0"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
     "tsup": "^8.0.0",
     "typescript": "^5.3.0",
     "vitest": "^3.2.4"
