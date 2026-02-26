@@ -2,7 +2,7 @@
   <img src="./illustration.png" alt="electron-modular illustration" width="640" />
 </p>
 
-[![codecov](https://codecov.io/gh/trae-op/mega-collection/graph/badge.svg?token=MZHSKKPV79)](https://codecov.io/gh/trae-op/mega-collection) [![TypeScript](https://img.shields.io/badge/TypeScript-%233178C6.svg?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Coverage](https://img.shields.io/codecov/c/github/trae-op/mega-collection/main)](https://codecov.io/gh/trae-op/mega-collection) [![codecov](https://codecov.io/gh/trae-op/mega-collection/branch/main/graph/badge.svg?token=MZHSKKPV79)](https://codecov.io/gh/trae-op/mega-collection) [![TypeScript](https://img.shields.io/badge/TypeScript-%233178C6.svg?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 # @devisfuture/mega-collection
 
