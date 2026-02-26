@@ -41,10 +41,7 @@
     }
   },
   "files": [
-    "dist",
-    "README.md",
-    "LICENSE",
-    "CHANGELOG.md"
+    "dist"
   ],
   "sideEffects": false,
   "scripts": {
