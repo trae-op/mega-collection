@@ -1,3 +1,5 @@
+[![codecov](https://codecov.io/gh/trae-op/mega-collection/graph/badge.svg?token=MZHSKKPV79)](https://codecov.io/gh/trae-op/mega-collection) [![TypeScript](https://img.shields.io/badge/TypeScript-%233178C6.svg?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
 # @devisfuture/mega-collection
 
 > Search, filter & sort engine for **50 K+** item collections in JavaScript / TypeScript.
