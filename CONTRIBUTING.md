@@ -2,16 +2,6 @@
 
 Thank you for your interest in contributing! This document provides guidelines and instructions for contributing to this project.
 
-## Table of Contents
-
-- [Code of Conduct](#code-of-conduct)
-- [Getting Started](#getting-started)
-- [Development Setup](#development-setup)
-- [Project Structure](#project-structure)
-- [Making Changes](#making-changes)
-- [Pull Request Process](#pull-request-process)
-- [Coding Guidelines](#coding-guidelines)
-
 ## Code of Conduct
 
 This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
@@ -55,15 +45,18 @@ src/
   sort/
     sorter.ts            — Sort engine (TimSort + index-sort)
     index.ts             — Sort module barrel export
-  mega-collection.ts     — Main API facade
+  merge/
+    merge-engines.ts     — Unified facade composing search, filter, sort
+    index.ts             — Merge module barrel export
+  mega-collection.ts     — Main API facade (re-exports MergeEngines)
   index.ts               — Main barrel export
 ```
 
-The package is organised into three independent modules (`search`, `filter`, `sort`) that can be imported individually for optimal tree-shaking:
+The package is organised into three independent modules (`search`, `filter`, `sort`) plus a lightweight `merge` wrapper that composes them around a shared dataset. Each engine can be imported individually for optimal tree‑shaking:
 
 ```ts
-// Full package
-import { MegaCollection } from "@devisfuture/mega-collection";
+// Full package (includes MergeEngines facade)
+import { MegaCollection, MergeEngines } from "@devisfuture/mega-collection";
 
 // Individual modules
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
@@ -75,16 +68,16 @@ import { SortEngine } from "@devisfuture/mega-collection/sort";
 
 ### Adding a New Feature
 
-1. Decide which module the feature belongs to (`search`, `filter`, `sort`, or the core facade).
+1. Decide which module the feature belongs to (`search`, `filter`, `sort`, `merge`, or the core facade).
 2. Write the implementation in the appropriate module directory.
 3. Export it from the module's `index.ts` barrel file.
-4. If it's a public API, also export from `src/index.ts`.
+4. If it's a public API, also export from `src/index.ts` and, when applicable, from `merge/index.ts`.
 5. Update types in `src/types.ts` if necessary.
-6. Update the README with usage examples.
+6. Update the README with usage examples — include Quick Start snippets for the single-engine and `MergeEngines` workflows.
 
 ### Performance Considerations
 
-This library is designed for **10 M+** item collections. When contributing, please:
+This library is designed for **50k+** item collections. When contributing, please:
 
 - Prefer `for` loops over `.forEach()` / `.map()` / `.filter()` in hot paths.
 - Use typed arrays (`Float64Array`, `Uint32Array`) where appropriate for numeric data.
@@ -119,7 +112,3 @@ This library is designed for **10 M+** item collections. When contributing, plea
   - Constants: `UPPER_SNAKE_CASE`
 - **No `any` in public APIs**: Use proper generics and type constraints.
 - **Exports**: Every module has a barrel `index.ts` that re-exports only the public API.
-
-## Questions?
-
-Open an issue on GitHub and we'll be happy to help.

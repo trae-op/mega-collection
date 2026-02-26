@@ -88,14 +88,14 @@ engine.filter([{ field: "city", values: ["Kyiv", "Lviv"] }]);
 ```ts
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 
-const search = new TextSearchEngine<User>({
+const engine = new TextSearchEngine<User>({
   data: users,
   fields: ["name", "city"],
   minQueryLength: 2,
 });
 
-search.search("john"); // searches all indexed fields, deduplicated
-search.search("name", "john"); // searches a specific field
+engine.search("john"); // searches all indexed fields, deduplicated
+engine.search("name", "john"); // searches a specific field
 ```
 
 ### Filter only
@@ -103,22 +103,22 @@ search.search("name", "john"); // searches a specific field
 ```ts
 import { FilterEngine } from "@devisfuture/mega-collection/filter";
 
-const filter = new FilterEngine<User>({
+const engine = new FilterEngine<User>({
   data: users,
   fields: ["city", "age"],
   filterByPreviousResult: true,
 });
 
-filter.filter([
+engine.filter([
   { field: "city", values: ["Kyiv", "Lviv"] },
   { field: "age", values: [25, 30, 35] },
 ]);
 
 // Sequential mode example:
 // 1) First call filters by city
-const byCity = filter.filter([{ field: "city", values: ["Dnipro"] }]);
+const byCity = engine.filter([{ field: "city", values: ["Dnipro"] }]);
 // 2) Second call filters only inside previous result
-const byCityAndAge = filter.filter([{ field: "age", values: [22] }]);
+const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
 ```
 
 ### Sort only
@@ -126,16 +126,16 @@ const byCityAndAge = filter.filter([{ field: "age", values: [22] }]);
 ```ts
 import { SortEngine } from "@devisfuture/mega-collection/sort";
 
-const sorter = new SortEngine<User>({
+const engine = new SortEngine<User>({
   data: users,
   fields: ["age", "name", "city"],
 });
 
 // Single-field sort — O(n) via cached index
-sorter.sort([{ field: "age", direction: "asc" }]);
+engine.sort([{ field: "age", direction: "asc" }]);
 
 // Multi-field sort — O(n log n)
-sorter.sort([
+engine.sort([
   { field: "age", direction: "asc" },
   { field: "name", direction: "desc" },
 ]);
