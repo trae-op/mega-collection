@@ -29,6 +29,14 @@ you only pull in `TextSearchEngine` the filter and sort logic won’t be include
 | **Text search** (contains) | Trigram inverted index + verify        | **O(candidates)**                  |
 | **Sorting**                | Pre-sorted index (cached) / V8 TimSort | **O(n)** cached / **O(n log n)**   |
 
+## React demo
+
+A small repository demonstrates using `@devisfuture/mega-collection` in a React project:
+
+https://github.com/trae-op/quick-start_react_mega-collection
+
+The example shows search, filter, sort and merge all modules setups with a minimal UI.
+
 ## Install
 
 ```bash
