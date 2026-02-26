@@ -6,7 +6,7 @@
 
 # @devisfuture/mega-collection
 
-> Search, filter & sort engine for **50 K+** item collections in JavaScript / TypeScript.
+> Search, filter & sort engine for **100K+** item collections in JavaScript / TypeScript.
 
 What does this package solve?
 
@@ -31,11 +31,10 @@ you only pull in `TextSearchEngine` the filter and sort logic won’t be include
 
 ## React demo
 
-A small repository demonstrates using `@devisfuture/mega-collection` in a React project:
-
-https://github.com/trae-op/quick-start_react_mega-collection
-
+A small [repository](https://github.com/trae-op/quick-start_react_mega-collection) demonstrates using `@devisfuture/mega-collection` in a React project.
 The example shows search, filter, sort and merge all modules setups with a minimal UI.
+
+A live build of the React app is available at [demo](https://trae-op.github.io/quick-start_react_mega-collection/), showcasing how the package works in a real application.
 
 ## Install
 
