@@ -87,12 +87,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/devisfuture/mega-collection.git"
+    "url": "git+https://github.com/trae-op/mega-collection.git"
   },
   "bugs": {
-    "url": "https://github.com/devisfuture/mega-collection/issues"
+    "url": "https://github.com/trae-op/mega-collection/issues"
   },
-  "homepage": "https://github.com/devisfuture/mega-collection#readme",
+  "homepage": "https://github.com/trae-op/mega-collection#readme",
   "engines": {
     "node": ">=16.0.0"
   },
