@@ -14,8 +14,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    env:
-      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -26,18 +24,6 @@ jobs:
         with:
           node-version: "20.x"
           registry-url: "https://registry.npmjs.org"
-          scope: "@devisfuture"
-          always-auth: true
-
-      - name: Configure npm authentication
-        run: |
-          if [ -z "$NPM_TOKEN" ]; then
-            echo "::error::NPM_TOKEN is empty or unavailable for this workflow run"
-            exit 1
-          fi
-          CLEAN_TOKEN="$(echo "$NPM_TOKEN" | tr -d '\r\n')"
-          echo "//registry.npmjs.org/:_authToken=${CLEAN_TOKEN}" > "$HOME/.npmrc"
-          echo "always-auth=true" >> "$HOME/.npmrc"
 
       - name: Clean before install
         run: |
@@ -53,12 +39,7 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify npm authentication
-        run: |
-          npm config get registry
-          npm whoami --registry=https://registry.npmjs.org
-
       - name: Publish to npm
         run: npm publish --access public --provenance
         env:
-          NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
