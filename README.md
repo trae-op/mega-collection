@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./illustration.png" alt="electron-modular illustration" width="640" />
+</p>
+
 [![codecov](https://codecov.io/gh/trae-op/mega-collection/graph/badge.svg?token=MZHSKKPV79)](https://codecov.io/gh/trae-op/mega-collection) [![TypeScript](https://img.shields.io/badge/TypeScript-%233178C6.svg?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
 # @devisfuture/mega-collection
