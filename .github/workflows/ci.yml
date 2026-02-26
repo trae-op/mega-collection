@@ -42,10 +42,12 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: trae-op/mega-collection
           files: ./coverage/lcov.info
           flags: unittests
           name: codecov-umbrella
-        continue-on-error: true
+          fail_ci_if_error: true
+          verbose: true
 
   required-check:
     runs-on: ubuntu-latest
