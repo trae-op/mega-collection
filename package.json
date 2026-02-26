@@ -1,6 +1,6 @@
 {
   "name": "@devisfuture/mega-collection",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "High-performance search, filter & sort engine for 10M+ item collections in JavaScript/TypeScript",
   "exports": {
     ".": {
@@ -81,9 +81,13 @@
     "o1-lookup"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/devisfuture/mega-collection.git"
+    "url": "git+https://github.com/devisfuture/mega-collection.git"
   },
   "bugs": {
     "url": "https://github.com/devisfuture/mega-collection/issues"
