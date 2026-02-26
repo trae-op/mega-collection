@@ -1,6 +1,6 @@
 {
   "name": "@devisfuture/mega-collection",
-  "version": "1.0.12",
+  "version": "1.0.14",
   "description": "High-performance search, filter & sort engine for 100K+ item collections in JavaScript/TypeScript",
   "exports": {
     ".": {
@@ -87,7 +87,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/trae-op/mega-collection.git"
+    "url": "https://github.com/trae-op/mega-collection.git"
   },
   "bugs": {
     "url": "https://github.com/trae-op/mega-collection/issues"
