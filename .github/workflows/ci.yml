@@ -42,6 +42,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          slug: trae-op/mega-collection
           files: ./coverage/lcov.info
           flags: unittests
           name: codecov-umbrella
