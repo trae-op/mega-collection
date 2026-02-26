@@ -1,66 +1,26 @@
 /**
- * SortEngine — high-performance sorting for 10 M+ rows.
- *
- * Strategy:
- *  1. **Pre-sorted index cache** (fastest): `buildIndex` pre-computes a sorted
- *     `Uint32Array` of item positions once — O(n log n). Every subsequent
- *     `sort` call on that field is O(n) reconstruction (no comparison at all).
- *     Reversing direction is also O(n) — just walk the index backwards.
- *
- *  2. **In-place sort** using the native V8 TimSort (`Array.prototype.sort`)
- *     which is O(n log n) and very cache-friendly for large arrays.
- *
- *  3. **Pre-compiled comparator**: we build a single comparator function that
- *     handles multi-field sorting with correct direction, avoiding per-compare
- *     overhead of dynamic field resolution.
- *
- *  4. **Typed-array radix sort** (fallback for single numeric field):
- *     O(n) index-sort using `Float64Array` for extreme speed on numeric data.
- *
- *  5. Returns a **new array** by default to keep the original intact.
- *     Pass `inPlace: true` to mutate.
+ * SortEngine class for sorting large datasets using pre-built indexes
+ * for O(n) performance or fallback to in-place sorting.
  */
 
 import { CollectionItem, SortDescriptor, SortDirection } from "../types";
 
-/** Cached sort state for a single field. */
 interface SortIndex<T> {
-  /** Sorted positions in ascending order. */
   indexes: Uint32Array;
-  /** Reference to the dataset this index was built from. */
   dataRef: T[];
-  /** Dataset size at indexing time. */
   itemCount: number;
-  /** Field values snapshot at indexing time. */
   fieldSnapshot: unknown[];
 }
 
 export interface SortEngineOptions<T extends CollectionItem = CollectionItem> {
-  /**
-   * The dataset to index. When provided together with `fields`, all indexes
-   * are built automatically inside the constructor — no manual `buildIndex`
-   * calls needed.
-   *
-   * @example
-   * ```ts
-   * const engine = new SortEngine<User>({ data: users, fields: ["age", "name", "city"] });
-   * engine.sort(users, [{ field: "age", direction: "asc" }]);
-   * ```
-   */
   data?: T[];
 
-  /**
-   * Fields to pre-sort and cache. Requires `data` to be set as well.
-   * When both are present, `buildIndex` is called for each field in the constructor.
-   */
   fields?: (keyof T & string)[];
 }
 
 export class SortEngine<T extends CollectionItem> {
-  /** field → cached ascending sort index */
   private cache = new Map<string, SortIndex<T>>();
 
-  /** Reference to the full dataset (set via the constructor or `buildIndex`). */
   private data: T[] = [];
 
   constructor(options: SortEngineOptions<T> = {}) {
@@ -74,18 +34,6 @@ export class SortEngine<T extends CollectionItem> {
     }
   }
 
-  /**
-   * Pre-compute and cache a sorted index for a field.
-   *
-   * Two call signatures are supported:
-   *  - `buildIndex(data, field)` — explicit dataset (original API)
-   *  - `buildIndex(field)`       — reuses the dataset supplied in the constructor
-   *
-   * Call this once per field; all subsequent `sort` calls on that field
-   * will use the cache — O(n) instead of O(n log n).
-   *
-   * @returns `this` for chaining.
-   */
   private buildIndex(data: T[], field: keyof T & string): this;
   private buildIndex(field: keyof T & string): this;
   private buildIndex(
@@ -119,13 +67,11 @@ export class SortEngine<T extends CollectionItem> {
     const firstValue = fieldValues[0];
 
     if (typeof firstValue === "number") {
-      // Numeric: sort by raw number value
       const numericValues = new Float64Array(itemCount);
       for (let i = 0; i < itemCount; i++)
         numericValues[i] = fieldValues[i] as number;
       indexes.sort((a, b) => numericValues[a] - numericValues[b]);
     } else {
-      // String / other: use locale-aware comparison
       indexes.sort((a, b) => {
         const av = fieldValues[a] as string;
         const bv = fieldValues[b] as string;
@@ -142,26 +88,10 @@ export class SortEngine<T extends CollectionItem> {
     return this;
   }
 
-  /**
-   * Free all cached sort indexes.
-   */
   clearIndexes(): void {
     this.cache.clear();
   }
 
-  /**
-   * Sort items by one or more fields.
-   *
-   * Two call signatures:
-   *  - `sort(descriptors)`            — uses the dataset supplied in the constructor.
-   *  - `sort(data, descriptors)`       — explicit dataset (original API).
-   *
-   * If `buildIndex` was called for the leading sort field and the dataset
-   * reference matches, sorting is O(n) via cached indexes regardless of
-   * direction. Otherwise falls back to O(n log n) TimSort.
-   *
-   * @returns The sorted array.
-   */
   sort(descriptors: SortDescriptor<T>[]): T[];
   sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
   sort(
@@ -173,7 +103,6 @@ export class SortEngine<T extends CollectionItem> {
     let resolvedDescriptors: SortDescriptor<T>[];
 
     if (descriptors === undefined) {
-      // sort(descriptors) — use stored data
       if (!this.data.length) {
         throw new Error(
           "SortEngine: no dataset in memory. " +
@@ -190,7 +119,6 @@ export class SortEngine<T extends CollectionItem> {
 
     if (resolvedDescriptors.length === 0 || data.length === 0) return data;
 
-    // --- Cached fast path: single-field sort with a pre-built index ---
     if (resolvedDescriptors.length === 1) {
       const { field, direction } = resolvedDescriptors[0];
       const cached = this.cache.get(field as string);
@@ -207,7 +135,6 @@ export class SortEngine<T extends CollectionItem> {
 
     const sortableItems = inPlace ? data : data.slice();
 
-    // Optimised path: single numeric field → radix sort
     if (
       resolvedDescriptors.length === 1 &&
       data.length > 0 &&
@@ -220,16 +147,11 @@ export class SortEngine<T extends CollectionItem> {
       );
     }
 
-    // General path: build a comparator for multi-field sort
     const comparator = this.buildComparator(resolvedDescriptors);
     sortableItems.sort(comparator);
     return sortableItems;
   }
 
-  /**
-   * Reconstruct a sorted array from a pre-built ascending index.
-   * O(n) — no comparisons, just array reads.
-   */
   private reconstructFromIndex(
     data: T[],
     indexes: Uint32Array,
@@ -260,14 +182,9 @@ export class SortEngine<T extends CollectionItem> {
     return true;
   }
 
-  /**
-   * Build a single comparator function for multi-field sorting.
-   * Captures field names and direction multipliers in closure for speed.
-   */
   private buildComparator(
     descriptors: SortDescriptor<T>[],
   ): (a: T, b: T) => number {
-    // Pre-compute fields and direction multipliers via map (no manual loop)
     const fields = descriptors.map(({ field }) => field);
     const directionMultipliers = descriptors.map(({ direction }) =>
       direction === "asc" ? 1 : -1,
@@ -282,20 +199,11 @@ export class SortEngine<T extends CollectionItem> {
 
         if (leftValue < rightValue) return -directionMultipliers[fieldIndex];
         if (leftValue > rightValue) return directionMultipliers[fieldIndex];
-        // equal → continue to next field
       }
       return 0;
     };
   }
 
-  /**
-   * Radix sort for a single numeric field.
-   * Uses index-array approach: sort an auxiliary index array by the numeric
-   * values, then reorder items by those indexes.
-   * O(n) time for integers; O(n) for floats via float-to-int encoding.
-   *
-   * Falls back to native sort if the range is too large (sparse data).
-   */
   private radixSortNumeric(
     data: T[],
     field: string,
@@ -303,22 +211,16 @@ export class SortEngine<T extends CollectionItem> {
   ): T[] {
     const itemCount = data.length;
 
-    // Extract values into a Float64Array for cache-friendly access
     const values = new Float64Array(itemCount);
     for (let index = 0; index < itemCount; index++) {
       values[index] = data[index][field] as number;
     }
 
-    // Build index array
     const indexes = new Uint32Array(itemCount);
     for (let index = 0; index < itemCount; index++) indexes[index] = index;
 
-    // For very large datasets, native sort on index array with numeric comparison
-    // is actually faster than a full radix sort on floats in JS (V8 optimises this).
-    // We use the index-sort approach to avoid moving heavy objects during sort.
     indexes.sort((a, b) => values[a] - values[b]);
 
-    // Reconstruct array from sorted indexes
     const result: T[] = new Array(itemCount);
     if (direction === "asc") {
       for (let index = 0; index < itemCount; index++) {

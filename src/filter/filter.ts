@@ -1,16 +1,6 @@
 /**
- * FilterEngine — multi-criteria filtering optimised for 10 M+ rows.
- *
- * Strategy:
- *  1. If hash-map indexes exist (built via buildIndex), use O(1) lookups per
- *     value and intersect results across fields.  This is the *fast path*.
- *
- *  2. If no index is available for a field, fall back to a single-pass linear
- *     scan using a `Set` for each criterion (O(n) but with O(1) membership
- *     test per item).
- *
- *  Multiple criteria are combined with AND logic: an item must satisfy
- *  ALL criteria to be included.
+ * FilterEngine class for filtering collections by multiple criteria,
+ * supporting indexed lookups and linear scans for large datasets.
  */
 
 import { CollectionItem, FilterCriterion } from "../types";
@@ -19,33 +9,10 @@ import { Indexer } from "../indexer";
 export interface FilterEngineOptions<
   T extends CollectionItem = CollectionItem,
 > {
-  /**
-   * The dataset to index. When provided together with `fields`, all indexes
-   * are built automatically inside the constructor — no manual `buildIndex`
-   * calls needed.
-   *
-   * @example
-   * ```ts
-   * const engine = new FilterEngine<User>({ data: users, fields: ["city", "age"] });
-   * engine.filter(users, [{ field: "city", values: ["Kyiv"] }]);
-   * ```
-   */
   data?: T[];
 
-  /**
-   * Fields to build a hash-map index for. Requires `data` to be set as well.
-   * When both are present, `buildIndex` is called for each field in the constructor.
-   */
   fields?: (keyof T & string)[];
 
-  /**
-   * Enables sequential filtering by the previous filter result.
-   *
-   * When `true`, each call to `filter(criteria)` (without explicit `data`)
-   * uses the previous filter output as the next input dataset.
-   *
-   * @default false
-   */
   filterByPreviousResult?: boolean;
 }
 
@@ -53,16 +20,12 @@ export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;
   private readonly filterByPreviousResult: boolean;
 
-  /** Reference to the full dataset (set via the constructor or `buildIndex`). */
   private data: T[] = [];
 
-  /** Last filter output used as the next input in sequential mode. */
   private previousResult: T[] | null = null;
 
-  /** Last criteria used in sequential mode. */
   private previousCriteria: FilterCriterion<T>[] | null = null;
 
-  /** Dataset reference used to compute previous sequential result. */
   private previousBaseData: T[] | null = null;
 
   constructor(options: FilterEngineOptions<T> = {}) {
@@ -78,15 +41,6 @@ export class FilterEngine<T extends CollectionItem> {
     }
   }
 
-  /**
-   * Build a hash-map index for a field to enable O(1) fast-path filtering.
-   *
-   * Two call signatures are supported:
-   *  - `buildIndex(data, field)` — explicit dataset (original API)
-   *  - `buildIndex(field)`       — reuses the dataset supplied in the constructor
-   *
-   * @returns `this` for chaining.
-   */
   private buildIndex(data: T[], field: keyof T & string): this;
   private buildIndex(field: keyof T & string): this;
   private buildIndex(
@@ -113,34 +67,16 @@ export class FilterEngine<T extends CollectionItem> {
     return this;
   }
 
-  /**
-   * Free all index memory.
-   */
   clearIndexes(): void {
     this.indexer.clear();
   }
 
-  /**
-   * Reset sequential filtering state.
-   *
-   * Useful when `filterByPreviousResult` is enabled and you want
-   * the next `filter(criteria)` call to start from the full dataset.
-   */
   resetFilterState(): void {
     this.previousResult = null;
     this.previousCriteria = null;
     this.previousBaseData = null;
   }
 
-  /**
-   * Apply multiple filter criteria (AND logic).
-   *
-   * Two call signatures:
-   *  - `filter(criteria)`       — uses the dataset supplied in the constructor.
-   *  - `filter(data, criteria)` — explicit dataset (original API).
-   *
-   * @returns Filtered array.
-   */
   filter(criteria: FilterCriterion<T>[]): T[];
   filter(data: T[], criteria: FilterCriterion<T>[]): T[];
   filter(
@@ -154,7 +90,6 @@ export class FilterEngine<T extends CollectionItem> {
     let executionCriteria: FilterCriterion<T>[];
 
     if (usesStoredData) {
-      // filter(criteria) — use stored data
       if (!this.data.length) {
         throw new Error(
           "FilterEngine: no dataset in memory. " +
@@ -179,12 +114,10 @@ export class FilterEngine<T extends CollectionItem> {
           resolvedCriteria,
         );
 
-        // No criteria change — return cached sequential result.
         if (!hasAdditions && !hasRemovals) {
           return this.previousResult;
         }
 
-        // Additions only: apply only newly added criteria on previous result.
         if (hasAdditions && !hasRemovals) {
           sourceData = this.previousResult;
           executionCriteria = this.getAddedCriteria(
@@ -192,7 +125,6 @@ export class FilterEngine<T extends CollectionItem> {
             resolvedCriteria,
           );
         } else {
-          // Any removal (or mixed add/remove): recalculate from full dataset.
           sourceData = this.data;
           executionCriteria = resolvedCriteria;
         }
@@ -246,12 +178,10 @@ export class FilterEngine<T extends CollectionItem> {
       return usesStoredData ? this.data : sourceData;
     }
 
-    // In stored-data mode executionCriteria is always set above.
     if (usesStoredData && !executionCriteria) {
       executionCriteria = resolvedCriteria;
     }
 
-    // --- Separate indexed vs. non-indexed criteria ---
     const { indexedCriteria, linearCriteria } = executionCriteria.reduce(
       (
         accumulator: {
@@ -270,7 +200,6 @@ export class FilterEngine<T extends CollectionItem> {
       { indexedCriteria: [], linearCriteria: [] },
     );
 
-    // --- Fast path: all criteria are indexed ---
     let result: T[];
 
     if (indexedCriteria.length > 0 && linearCriteria.length === 0) {
@@ -285,8 +214,6 @@ export class FilterEngine<T extends CollectionItem> {
       return result;
     }
 
-    // --- Mixed path: use indexes to narrow candidates, then linear scan ---
-    // This avoids O(n) full-dataset scans when indexes can pre-filter.
     if (indexedCriteria.length > 0 && linearCriteria.length > 0) {
       const candidates = this.filterViaIndex(indexedCriteria, sourceData);
       result = this.linearFilter(candidates, linearCriteria);
@@ -300,7 +227,6 @@ export class FilterEngine<T extends CollectionItem> {
       return result;
     }
 
-    // --- Pure linear path (no indexes available) ---
     result = this.linearFilter(sourceData, executionCriteria);
     if (this.filterByPreviousResult) {
       this.previousResult = result;
@@ -399,19 +325,12 @@ export class FilterEngine<T extends CollectionItem> {
     return addedCriteria;
   }
 
-  /**
-   * Single-pass linear filter using pre-indexed criteria value Sets.
-   * O(n × k) where n = data.length, k = criteria count.
-   * Each criterion check is O(1) via Map + Set lookup — no nested data iteration.
-   */
   private linearFilter(data: T[], criteria: FilterCriterion<T>[]): T[] {
-    // Pre-index: field → Set<acceptable values> (Rule 1: Index Before Iterate)
     const acceptableValuesByField = new Map<string, Set<any>>(
       criteria.map(({ field, values }) => [field, new Set(values)]),
     );
     const criterionFields = criteria.map(({ field }) => field);
 
-    // Single-pass filter with early exit per item.
     const result: T[] = [];
 
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
@@ -438,20 +357,10 @@ export class FilterEngine<T extends CollectionItem> {
     return result;
   }
 
-  /**
-   * Pure index-based filtering with selectivity-driven pruning.
-   *
-   * Strategy:
-   *  1. Sort criteria by estimated result-set size (smallest first).
-   *  2. Materialise only the most selective criterion via the index.
-   *  3. Pre-index remaining criteria values into Sets for O(1) checks.
-   *  4. Single-pass filter over candidates — no nested collection iteration.
-   */
   private filterViaIndex(criteria: FilterCriterion<T>[], sourceData: T[]): T[] {
     const isFilteringFromSubset = sourceData !== this.data;
     const allowedItems = isFilteringFromSubset ? new Set(sourceData) : null;
 
-    // For a single criterion, just grab from the index
     if (criteria.length === 1) {
       const indexedResult = this.indexer.getByValues(
         criteria[0].field,
@@ -462,7 +371,6 @@ export class FilterEngine<T extends CollectionItem> {
       return indexedResult.filter((item) => allowedItems.has(item));
     }
 
-    // Estimate candidate-set sizes and sort smallest first for faster pruning
     const estimatedCriteria = criteria
       .map((criterion) => ({
         criterion,
@@ -472,7 +380,6 @@ export class FilterEngine<T extends CollectionItem> {
         (leftEstimate, rightEstimate) => leftEstimate.size - rightEstimate.size,
       );
 
-    // Materialise only the most selective criterion via the index
     const { field: mostSelectiveField, values: mostSelectiveValues } =
       estimatedCriteria[0].criterion;
     const candidateItems = this.indexer.getByValues(
@@ -482,7 +389,6 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (candidateItems.length === 0) return [];
 
-    // Pre-index remaining criteria values for O(1) membership checks
     const remainingValuesByField = new Map<string, Set<any>>(
       estimatedCriteria
         .slice(1)
@@ -490,7 +396,6 @@ export class FilterEngine<T extends CollectionItem> {
     );
     const remainingFields = Array.from(remainingValuesByField.keys());
 
-    // Single-pass filter over candidates with early exit per item.
     const result: T[] = [];
 
     for (
@@ -529,10 +434,6 @@ export class FilterEngine<T extends CollectionItem> {
     return result;
   }
 
-  /**
-   * Estimate the number of items an indexed criterion would return.
-   * Used to sort criteria by selectivity for faster intersection.
-   */
   private estimateIndexSize(criterion: FilterCriterion<T>): number {
     const indexMap = this.indexer.getIndexMap(criterion.field);
     if (!indexMap) return Infinity;

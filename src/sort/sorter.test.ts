@@ -30,7 +30,7 @@ describe("SortEngine", () => {
 
     expect(asc.map((u) => u.id)).toEqual([2, 3, 1, 4]);
     expect(desc.map((u) => u.id)).toEqual([4, 1, 3, 2]);
-    expect(users.map((u) => u.id)).toEqual([1, 2, 3, 4]); // not mutated
+    expect(users.map((u) => u.id)).toEqual([1, 2, 3, 4]); 
   });
 
   it("sorts by multiple fields with tie-breaking", () => {
