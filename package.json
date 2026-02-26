@@ -1,6 +1,6 @@
 {
   "name": "@devisfuture/mega-collection",
-  "version": "1.0.14",
+  "version": "1.0.15",
   "description": "High-performance search, filter & sort engine for 100K+ item collections in JavaScript/TypeScript",
   "exports": {
     ".": {
@@ -22,7 +22,8 @@
     "./merge": {
       "types": "./dist/merge/index.d.mts",
       "default": "./dist/merge/index.mjs"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "typesVersions": {
     "*": {
@@ -80,26 +81,18 @@
     "merge-engines",
     "o1-lookup"
   ],
-  "license": "MIT",
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "access": "public"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/trae-op/mega-collection.git"
-  },
-  "bugs": {
-    "url": "https://github.com/trae-op/mega-collection/issues"
-  },
-  "homepage": "https://github.com/trae-op/mega-collection#readme",
-  "engines": {
-    "node": ">=16.0.0"
+    "url": "git+https://github.com/trae-op/mega-collection.git"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.4",
     "tsup": "^8.0.0",
     "typescript": "^5.3.0",
     "vitest": "^3.2.4"
-  }
+  },
+  "license": "MIT"
 }

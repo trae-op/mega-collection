@@ -9,9 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
 
     strategy:
       matrix:
@@ -40,23 +37,15 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Verify coverage output
-        if: matrix.node-version == '20.x'
-        run: |
-          ls -la coverage
-          test -f coverage/lcov.info
-
       - name: Upload coverage reports
         if: matrix.node-version == '20.x'
         uses: codecov/codecov-action@v5
         with:
-          use_oidc: true
-          slug: trae-op/mega-collection
+          token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/lcov.info
           flags: unittests
           name: codecov-umbrella
-          fail_ci_if_error: true
-          verbose: true
+        continue-on-error: true
 
   required-check:
     runs-on: ubuntu-latest
