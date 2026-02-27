@@ -99,8 +99,16 @@ import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 const engine = new TextSearchEngine<User>({
   data: users,
   fields: ["name", "city"],
-  minQueryLength: 2,
+  minQueryLength: 2, // begins searching when query length >= 2
 });
+
+// note: inputs shorter than `minQueryLength` intentionally clear the
+// result set. A one‑character search usually matches most of the dataset,
+// so bypassing that work makes typing feel snappier. When the query length
+// hits the threshold or exceeds it, the indexed search runs and query
+// performance improves dramatically. Empty/blank queries still return an
+// empty array, whereas short nonblank queries return the previous valid
+// result so the UI doesn’t flush on every keystroke.
 
 engine.search("john"); // searches all indexed fields, deduplicated
 engine.search("name", "john"); // searches a specific field
