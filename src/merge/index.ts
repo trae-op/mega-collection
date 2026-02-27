@@ -1,10 +1,7 @@
-
 export { MergeEngines } from "./merge-engines";
 export type {
   MergeEnginesOptions,
-  MergeSearchConfig,
-  MergeFilterConfig,
-  MergeSortConfig,
+  EngineApi,
   EngineConstructor,
 } from "./merge-engines";
 

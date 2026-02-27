@@ -3,101 +3,126 @@
  * sorting, and filtering operations on collections.
  */
 
-import {
-  TextSearchEngine,
-  type TextSearchEngineOptions,
-} from "../search/text-search";
-import { SortEngine } from "../sort/sorter";
-import { FilterEngine } from "../filter/filter";
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
 
-export interface MergeSearchConfig<T extends CollectionItem> {
-  fields: (keyof T & string)[];
-  minQueryLength?: TextSearchEngineOptions<T>["minQueryLength"];
+export interface EngineConstructor {
+  new (options: Record<string, unknown>): object;
+  prototype: object;
+  name: string;
 }
 
-export interface MergeFilterConfig<T extends CollectionItem> {
-  fields: (keyof T & string)[];
-  filterByPreviousResult?: boolean;
+export interface EngineApi {
+  [methodName: string]: ((...args: unknown[]) => unknown) | undefined;
 }
-
-export interface MergeSortConfig<T extends CollectionItem> {
-  fields: (keyof T & string)[];
-}
-
-export type EngineConstructor =
-  | typeof TextSearchEngine
-  | typeof SortEngine
-  | typeof FilterEngine;
 
 export interface MergeEnginesOptions<T extends CollectionItem> {
   imports: EngineConstructor[];
 
   data: T[];
 
-  search?: MergeSearchConfig<T>;
-
-  filter?: MergeFilterConfig<T>;
-
-  sort?: MergeSortConfig<T>;
+  [key: string]: unknown;
 }
 
 export class MergeEngines<T extends CollectionItem> {
-  private readonly searchEngine: TextSearchEngine<T> | null;
-  private readonly sortEngine: SortEngine<T> | null;
-  private readonly filterEngine: FilterEngine<T> | null;
+  private readonly engine: EngineApi | null;
 
   constructor(options: MergeEnginesOptions<T>) {
-    const { imports, data, search, filter, sort } = options;
+    const { imports, data, ...moduleOptions } = options;
 
     const importedEngines = new Set<EngineConstructor>(imports);
 
-    const hasSearchImport = importedEngines.has(TextSearchEngine);
-    const hasSortImport = importedEngines.has(SortEngine);
-    const hasFilterImport = importedEngines.has(FilterEngine);
+    const engine: EngineApi = {};
 
-    this.searchEngine = hasSearchImport
-      ? new TextSearchEngine<T>({
-          data,
-          fields: search?.fields,
-          minQueryLength: search?.minQueryLength,
-        })
-      : null;
+    for (const EngineModule of importedEngines) {
+      const prototype = EngineModule.prototype;
+      const prototypeMethodNames = this.getMethodNames(prototype);
 
-    this.sortEngine = hasSortImport
-      ? new SortEngine<T>({
-          data,
-          fields: sort?.fields,
-        })
-      : null;
+      if (prototypeMethodNames.length === 0) {
+        continue;
+      }
 
-    this.filterEngine = hasFilterImport
-      ? new FilterEngine<T>({
-          data,
-          fields: filter?.fields,
-          filterByPreviousResult: filter?.filterByPreviousResult,
-        })
-      : null;
+      const moduleOptionValue = moduleOptions[EngineModule.name];
+      const currentModuleOptions: Record<string, unknown> = this.isRecord(
+        moduleOptionValue,
+      )
+        ? moduleOptionValue
+        : {};
+
+      const moduleInstance = new EngineModule({
+        data,
+        ...currentModuleOptions,
+      });
+
+      for (const methodName of prototypeMethodNames) {
+        if (engine[methodName]) {
+          continue;
+        }
+
+        if (!this.hasMethod(moduleInstance, methodName)) {
+          continue;
+        }
+
+        engine[methodName] = moduleInstance[methodName].bind(moduleInstance);
+      }
+    }
+
+    this.engine = Object.keys(engine).length > 0 ? engine : null;
+  }
+
+  private getMethodNames(prototype: object): string[] {
+    const prototypeRecord = prototype as Record<string, unknown>;
+
+    return Object.getOwnPropertyNames(prototypeRecord).filter((methodName) => {
+      if (methodName === "constructor") {
+        return false;
+      }
+
+      return typeof prototypeRecord[methodName] === "function";
+    });
+  }
+
+  private hasMethod(
+    value: unknown,
+    method: string,
+  ): value is Record<string, (...args: unknown[]) => unknown> {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      typeof (value as Record<string, unknown>)[method] === "function"
+    );
+  }
+
+  private isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+  }
+
+  private callEngineMethod<TResult>(
+    methodName: string,
+    args: unknown[],
+  ): TResult {
+    const method = this.engine?.[methodName];
+
+    if (!method) {
+      throw new Error(
+        `MergeEngines: Method "${methodName}" is not available. ` +
+          `Add module with method "${methodName}" to the \`imports\` array.`,
+      );
+    }
+
+    return method(...args) as TResult;
   }
 
   search(query: string): T[];
   search(field: keyof T & string, query: string): T[];
   search(fieldOrQuery: string, maybeQuery?: string): T[] {
-    if (!this.searchEngine) {
-      throw new Error(
-        "MergeEngines: TextSearchEngine is not available. " +
-          "Add TextSearchEngine to the `imports` array.",
-      );
-    }
-
     if (maybeQuery === undefined) {
-      return this.searchEngine.search(fieldOrQuery);
+      return this.callEngineMethod<T[]>("search", [fieldOrQuery]);
     }
 
-    return this.searchEngine.search(
+    return this.callEngineMethod<T[]>("search", [
       fieldOrQuery as keyof T & string,
       maybeQuery,
-    );
+    ]);
   }
 
   sort(descriptors: SortDescriptor<T>[]): T[];
@@ -107,18 +132,17 @@ export class MergeEngines<T extends CollectionItem> {
     descriptors?: SortDescriptor<T>[],
     inPlace?: boolean,
   ): T[] {
-    if (!this.sortEngine) {
-      throw new Error(
-        "MergeEngines: SortEngine is not available. " +
-          "Add SortEngine to the `imports` array.",
-      );
-    }
-
     if (descriptors === undefined) {
-      return this.sortEngine.sort(dataOrDescriptors as SortDescriptor<T>[]);
+      return this.callEngineMethod<T[]>("sort", [
+        dataOrDescriptors as SortDescriptor<T>[],
+      ]);
     }
 
-    return this.sortEngine.sort(dataOrDescriptors as T[], descriptors, inPlace);
+    return this.callEngineMethod<T[]>("sort", [
+      dataOrDescriptors as T[],
+      descriptors,
+      inPlace,
+    ]);
   }
 
   filter(criteria: FilterCriterion<T>[]): T[];
@@ -127,17 +151,15 @@ export class MergeEngines<T extends CollectionItem> {
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] {
-    if (!this.filterEngine) {
-      throw new Error(
-        "MergeEngines: FilterEngine is not available. " +
-          "Add FilterEngine to the `imports` array.",
-      );
-    }
-
     if (criteria === undefined) {
-      return this.filterEngine.filter(dataOrCriteria as FilterCriterion<T>[]);
+      return this.callEngineMethod<T[]>("filter", [
+        dataOrCriteria as FilterCriterion<T>[],
+      ]);
     }
 
-    return this.filterEngine.filter(dataOrCriteria as T[], criteria);
+    return this.callEngineMethod<T[]>("filter", [
+      dataOrCriteria as T[],
+      criteria,
+    ]);
   }
 }
