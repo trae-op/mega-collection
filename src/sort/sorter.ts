@@ -23,6 +23,9 @@ export class SortEngine<T extends CollectionItem> {
 
   private data: T[] = [];
 
+  /**
+   * Creates a new SortEngine with optional data and fields to index.
+   */
   constructor(options: SortEngineOptions<T> = {}) {
     if (!options.data) return;
 
@@ -34,6 +37,9 @@ export class SortEngine<T extends CollectionItem> {
     }
   }
 
+  /**
+   * Builds an index for sorting the given field.
+   */
   private buildIndex(data: T[], field: keyof T & string): this;
   private buildIndex(field: keyof T & string): this;
   private buildIndex(
@@ -88,10 +94,16 @@ export class SortEngine<T extends CollectionItem> {
     return this;
   }
 
+  /**
+   * Clears all cached indexes.
+   */
   clearIndexes(): void {
     this.cache.clear();
   }
 
+  /**
+   * Sorts the data based on the given descriptors.
+   */
   sort(descriptors: SortDescriptor<T>[]): T[];
   sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
   sort(
@@ -152,6 +164,9 @@ export class SortEngine<T extends CollectionItem> {
     return sortableItems;
   }
 
+  /**
+   * Reconstructs the sorted array from the cached index.
+   */
   private reconstructFromIndex(
     data: T[],
     indexes: Uint32Array,
@@ -170,6 +185,9 @@ export class SortEngine<T extends CollectionItem> {
     return result;
   }
 
+  /**
+   * Checks if the field snapshot is still valid.
+   */
   private isFieldSnapshotValid(
     data: T[],
     field: keyof T & string,
@@ -182,6 +200,9 @@ export class SortEngine<T extends CollectionItem> {
     return true;
   }
 
+  /**
+   * Builds a comparator function for sorting.
+   */
   private buildComparator(
     descriptors: SortDescriptor<T>[],
   ): (a: T, b: T) => number {
@@ -204,6 +225,9 @@ export class SortEngine<T extends CollectionItem> {
     };
   }
 
+  /**
+   * Sorts numeric data using radix sort.
+   */
   private radixSortNumeric(
     data: T[],
     field: string,

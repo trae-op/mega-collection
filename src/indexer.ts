@@ -8,6 +8,9 @@ import { CollectionItem } from "./types";
 export class Indexer<T extends CollectionItem> {
   private indexes = new Map<string, Map<any, T[]>>();
 
+  /**
+   * Builds an index for the given field and data.
+   */
   buildIndex(data: T[], field: keyof T & string): void {
     const indexMap = new Map<any, T[]>();
 
@@ -31,12 +34,18 @@ export class Indexer<T extends CollectionItem> {
     this.indexes.set(field as string, indexMap);
   }
 
+  /**
+   * Gets items that match the given value for the field.
+   */
   getByValue(field: keyof T & string, value: any): T[] {
     const indexMap = this.indexes.get(field as string);
     if (!indexMap) return [];
     return indexMap.get(value) ?? [];
   }
 
+  /**
+   * Gets items that match any of the given values for the field.
+   */
   getByValues(field: keyof T & string, values: any[]): T[] {
     const indexMap = this.indexes.get(field as string);
     if (!indexMap) return [];

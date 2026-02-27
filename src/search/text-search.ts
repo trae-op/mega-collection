@@ -66,6 +66,9 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   private readonly minQueryLength: number;
 
+  /**
+   * Creates a new TextSearchEngine with optional data and fields to index.
+   */
   constructor(options: TextSearchEngineOptions<T> = {}) {
     this.minQueryLength = options.minQueryLength ?? 1;
 
@@ -79,6 +82,9 @@ export class TextSearchEngine<T extends CollectionItem> {
     }
   }
 
+  /**
+   * Builds an n-gram index for the given field.
+   */
   private buildIndex(data: T[], field: keyof T & string): this;
   private buildIndex(field: keyof T & string): this;
   private buildIndex(
@@ -156,12 +162,18 @@ export class TextSearchEngine<T extends CollectionItem> {
     return query.trim().toLowerCase();
   }
 
+  /**
+   * Checks if the query is long enough to search.
+   */
   private isQuerySearchable(lowerQuery: string): boolean {
     if (!lowerQuery) return false;
     if (lowerQuery.length < this.minQueryLength) return false;
     return true;
   }
 
+  /**
+   * Searches all indexed fields.
+   */
   private searchAllFields(query: string): T[] {
     const fields = [...this.ngramIndexes.keys()] as (keyof T & string)[];
     const lowerQuery = this.normalizeQuery(query);
@@ -193,6 +205,9 @@ export class TextSearchEngine<T extends CollectionItem> {
     return combined;
   }
 
+  /**
+   * Searches a specific field.
+   */
   private searchField(field: keyof T & string, query: string): T[] {
     const lowerQuery = this.normalizeQuery(query);
     if (!this.isQuerySearchable(lowerQuery)) return [];
@@ -211,6 +226,9 @@ export class TextSearchEngine<T extends CollectionItem> {
     );
   }
 
+  /**
+   * Searches a field using prepared query grams.
+   */
   private searchFieldWithPreparedQuery(
     field: keyof T & string,
     lowerQuery: string,
@@ -258,6 +276,9 @@ export class TextSearchEngine<T extends CollectionItem> {
     return matchedItems;
   }
 
+  /**
+   * Searches all fields linearly without index.
+   */
   private searchAllFieldsLinear(lowerQuery: string): T[] {
     if (!this.data.length) return [];
 
@@ -283,6 +304,9 @@ export class TextSearchEngine<T extends CollectionItem> {
     return matchedItems;
   }
 
+  /**
+   * Searches a specific field linearly without index.
+   */
   private searchFieldLinear(field: keyof T & string, lowerQuery: string): T[] {
     if (!this.data.length) return [];
 

@@ -28,6 +28,9 @@ export class FilterEngine<T extends CollectionItem> {
 
   private previousBaseData: T[] | null = null;
 
+  /**
+   * Creates a new FilterEngine with optional data and fields to index.
+   */
   constructor(options: FilterEngineOptions<T> = {}) {
     this.indexer = new Indexer<T>();
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
@@ -41,6 +44,9 @@ export class FilterEngine<T extends CollectionItem> {
     }
   }
 
+  /**
+   * Builds an index for the given field.
+   */
   private buildIndex(data: T[], field: keyof T & string): this;
   private buildIndex(field: keyof T & string): this;
   private buildIndex(
@@ -77,6 +83,9 @@ export class FilterEngine<T extends CollectionItem> {
     this.previousBaseData = null;
   }
 
+  /**
+   * Filters the data based on the given criteria.
+   */
   filter(criteria: FilterCriterion<T>[]): T[];
   filter(data: T[], criteria: FilterCriterion<T>[]): T[];
   filter(
@@ -245,6 +254,9 @@ export class FilterEngine<T extends CollectionItem> {
     }));
   }
 
+  /**
+   * Checks if there are new criteria added.
+   */
   private hasCriteriaAdditions(
     previousCriteria: FilterCriterion<T>[],
     nextCriteria: FilterCriterion<T>[],
@@ -272,6 +284,9 @@ export class FilterEngine<T extends CollectionItem> {
     return false;
   }
 
+  /**
+   * Checks if there are criteria removed.
+   */
   private hasCriteriaRemovals(
     previousCriteria: FilterCriterion<T>[],
     nextCriteria: FilterCriterion<T>[],
@@ -299,6 +314,9 @@ export class FilterEngine<T extends CollectionItem> {
     return false;
   }
 
+  /**
+   * Gets the newly added criteria.
+   */
   private getAddedCriteria(
     previousCriteria: FilterCriterion<T>[],
     nextCriteria: FilterCriterion<T>[],
@@ -325,6 +343,9 @@ export class FilterEngine<T extends CollectionItem> {
     return addedCriteria;
   }
 
+  /**
+   * Filters data linearly without index.
+   */
   private linearFilter(data: T[], criteria: FilterCriterion<T>[]): T[] {
     const acceptableValuesByField = new Map<string, Set<any>>(
       criteria.map(({ field, values }) => [field, new Set(values)]),
@@ -357,6 +378,9 @@ export class FilterEngine<T extends CollectionItem> {
     return result;
   }
 
+  /**
+   * Filters data using the index.
+   */
   private filterViaIndex(criteria: FilterCriterion<T>[], sourceData: T[]): T[] {
     const isFilteringFromSubset = sourceData !== this.data;
     const allowedItems = isFilteringFromSubset ? new Set(sourceData) : null;
@@ -434,6 +458,9 @@ export class FilterEngine<T extends CollectionItem> {
     return result;
   }
 
+  /**
+   * Estimates the size of the index for a criterion.
+   */
   private estimateIndexSize(criterion: FilterCriterion<T>): number {
     const indexMap = this.indexer.getIndexMap(criterion.field);
     if (!indexMap) return Infinity;

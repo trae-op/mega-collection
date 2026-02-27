@@ -26,6 +26,10 @@ export interface MergeEnginesOptions<T extends CollectionItem> {
 export class MergeEngines<T extends CollectionItem> {
   private readonly engine: EngineApi | null;
 
+  /**
+   * Creates a new MergeEngines instance with the given options.
+   * Collects all modules from imports.
+   */
   constructor(options: MergeEnginesOptions<T>) {
     const { imports, data, ...moduleOptions } = options;
 
@@ -68,6 +72,9 @@ export class MergeEngines<T extends CollectionItem> {
     this.engine = Object.keys(engine).length > 0 ? engine : null;
   }
 
+  /**
+   * Gets the initialization options for a module.
+   */
   private getModuleInitOptions(
     moduleName: string,
     methodNames: string[],
@@ -93,6 +100,9 @@ export class MergeEngines<T extends CollectionItem> {
     return initOptions;
   }
 
+  /**
+   * Gets the method names from a prototype.
+   */
   private getMethodNames(prototype: object): string[] {
     const prototypeRecord = prototype as Record<string, unknown>;
 
@@ -105,6 +115,9 @@ export class MergeEngines<T extends CollectionItem> {
     });
   }
 
+  /**
+   * Checks if an object has a specific method.
+   */
   private hasMethod(
     value: unknown,
     method: string,
@@ -120,6 +133,9 @@ export class MergeEngines<T extends CollectionItem> {
     return typeof value === "object" && value !== null;
   }
 
+  /**
+   * Calls a method on the engine.
+   */
   private callEngineMethod<TResult>(
     methodName: string,
     args: unknown[],
