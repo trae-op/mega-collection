@@ -122,6 +122,16 @@ describe("TextSearchEngine", () => {
     expect(results).toHaveLength(1);
   });
 
+  it("works without fields in constructor via linear search fallback", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      minQueryLength: 2,
+    });
+
+    expect(engine.search("Kyiv").map((item) => item.id)).toEqual([2]);
+    expect(engine.search("title", "Noah").map((item) => item.id)).toEqual([1]);
+  });
+
   it("constructor with data and fields auto-builds index", () => {
     const engine = new TextSearchEngine<CardItem>({
       data: cityCards,

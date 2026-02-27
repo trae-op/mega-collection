@@ -152,13 +152,24 @@ export class TextSearchEngine<T extends CollectionItem> {
     return this.searchField(fieldOrQuery as keyof T & string, maybeQuery);
   }
 
+  private normalizeQuery(query: string): string {
+    return query.trim().toLowerCase();
+  }
+
+  private isQuerySearchable(lowerQuery: string): boolean {
+    if (!lowerQuery) return false;
+    if (lowerQuery.length < this.minQueryLength) return false;
+    return true;
+  }
+
   private searchAllFields(query: string): T[] {
     const fields = [...this.ngramIndexes.keys()] as (keyof T & string)[];
-    if (!fields.length) return [];
+    const lowerQuery = this.normalizeQuery(query);
+    if (!this.isQuerySearchable(lowerQuery)) return [];
 
-    const lowerQuery = query.trim().toLowerCase();
-    if (!lowerQuery) return [];
-    if (lowerQuery.length < this.minQueryLength) return [];
+    if (!fields.length) {
+      return this.searchAllFieldsLinear(lowerQuery);
+    }
 
     const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
     if (!uniqueQueryGrams.size) return [];
@@ -183,9 +194,12 @@ export class TextSearchEngine<T extends CollectionItem> {
   }
 
   private searchField(field: keyof T & string, query: string): T[] {
-    const lowerQuery = query.trim().toLowerCase();
-    if (!lowerQuery) return [];
-    if (lowerQuery.length < this.minQueryLength) return [];
+    const lowerQuery = this.normalizeQuery(query);
+    if (!this.isQuerySearchable(lowerQuery)) return [];
+
+    if (!this.ngramIndexes.size) {
+      return this.searchFieldLinear(field, lowerQuery);
+    }
 
     const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
     if (!uniqueQueryGrams.size) return [];
@@ -239,6 +253,46 @@ export class TextSearchEngine<T extends CollectionItem> {
       ) {
         matchedItems.push(this.data[candidateIndex]);
       }
+    }
+
+    return matchedItems;
+  }
+
+  private searchAllFieldsLinear(lowerQuery: string): T[] {
+    if (!this.data.length) return [];
+
+    const matchedItems: T[] = [];
+
+    for (let itemIndex = 0; itemIndex < this.data.length; itemIndex++) {
+      const item = this.data[itemIndex];
+      let hasMatch = false;
+
+      for (const value of Object.values(item)) {
+        if (typeof value !== "string") continue;
+        if (!value.toLowerCase().includes(lowerQuery)) continue;
+
+        hasMatch = true;
+        break;
+      }
+
+      if (hasMatch) {
+        matchedItems.push(item);
+      }
+    }
+
+    return matchedItems;
+  }
+
+  private searchFieldLinear(field: keyof T & string, lowerQuery: string): T[] {
+    if (!this.data.length) return [];
+
+    const matchedItems: T[] = [];
+
+    for (let itemIndex = 0; itemIndex < this.data.length; itemIndex++) {
+      const fieldValue = this.data[itemIndex][field];
+      if (typeof fieldValue !== "string") continue;
+      if (!fieldValue.toLowerCase().includes(lowerQuery)) continue;
+      matchedItems.push(this.data[itemIndex]);
     }
 
     return matchedItems;
