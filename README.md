@@ -60,6 +60,12 @@ interface User {
 Use `MergeEngines` to combine search, filter and sort around a single shared dataset.
 Declare which engines you need in `imports` — only those are initialised.
 
+Each engine accepts an optional `fields` array (set via the `search`,
+`filter` or `sort` option) which tells it which properties should be indexed up
+front. Indexes power the fast paths used throughout the library; you can leave
+these options out and everything still works, but the code will fall back to
+simple linear scans.
+
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
@@ -87,6 +93,9 @@ engine.filter([{ field: "city", values: ["Kyiv", "Lviv"] }]);
 ```ts
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 
+// `fields` tells the engine which properties to index for fast lookups. The
+// index is built once during construction; if you omit `fields` the engine
+// still works but every search will scan the entire dataset.
 const engine = new TextSearchEngine<User>({
   data: users,
   fields: ["name", "city"],
@@ -102,6 +111,10 @@ engine.search("name", "john"); // searches a specific field
 ```ts
 import { FilterEngine } from "@devisfuture/mega-collection/filter";
 
+// `fields` config tells the filter engine which properties should have an
+// index built. Indexed lookups are O(1) per value, so multi-criteria queries
+// can be orders of magnitude faster. Without `fields` the engine still filters
+// correctly but always does a linear scan.
 const engine = new FilterEngine<User>({
   data: users,
   fields: ["city", "age"],
@@ -125,6 +138,11 @@ const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
 ```ts
 import { SortEngine } from "@devisfuture/mega-collection/sort";
 
+// `fields` instructs the engine to pre-build a sorted index for each property.
+// When you later run a single-field sort the result can be pulled directly
+// from that index in linear time. If you leave out `fields` the engine still
+// sorts correctly, it merely falls back to standard `Array.prototype.sort`
+// (O(n log n)).
 const engine = new SortEngine<User>({
   data: users,
   fields: ["age", "name", "city"],
