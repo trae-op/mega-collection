@@ -41,12 +41,11 @@ export class MergeEngines<T extends CollectionItem> {
         continue;
       }
 
-      const moduleOptionValue = moduleOptions[EngineModule.name];
-      const currentModuleOptions: Record<string, unknown> = this.isRecord(
-        moduleOptionValue,
-      )
-        ? moduleOptionValue
-        : {};
+      const currentModuleOptions = this.getModuleInitOptions(
+        EngineModule.name,
+        prototypeMethodNames,
+        moduleOptions,
+      );
 
       const moduleInstance = new EngineModule({
         data,
@@ -67,6 +66,31 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     this.engine = Object.keys(engine).length > 0 ? engine : null;
+  }
+
+  private getModuleInitOptions(
+    moduleName: string,
+    methodNames: string[],
+    options: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const initOptions: Record<string, unknown> = {};
+
+    const moduleNamedOptions = options[moduleName];
+    if (this.isRecord(moduleNamedOptions)) {
+      Object.assign(initOptions, moduleNamedOptions);
+    }
+
+    for (const methodName of methodNames) {
+      const methodNamedOptions = options[methodName];
+
+      if (!this.isRecord(methodNamedOptions)) {
+        continue;
+      }
+
+      Object.assign(initOptions, methodNamedOptions);
+    }
+
+    return initOptions;
   }
 
   private getMethodNames(prototype: object): string[] {
@@ -115,6 +139,13 @@ export class MergeEngines<T extends CollectionItem> {
   search(query: string): T[];
   search(field: keyof T & string, query: string): T[];
   search(fieldOrQuery: string, maybeQuery?: string): T[] {
+    if (!this.engine?.search) {
+      throw new Error(
+        "MergeEngines: TextSearchEngine is not available. " +
+          "Add TextSearchEngine to the `imports` array.",
+      );
+    }
+
     if (maybeQuery === undefined) {
       return this.callEngineMethod<T[]>("search", [fieldOrQuery]);
     }
@@ -132,6 +163,13 @@ export class MergeEngines<T extends CollectionItem> {
     descriptors?: SortDescriptor<T>[],
     inPlace?: boolean,
   ): T[] {
+    if (!this.engine?.sort) {
+      throw new Error(
+        "MergeEngines: SortEngine is not available. " +
+          "Add SortEngine to the `imports` array.",
+      );
+    }
+
     if (descriptors === undefined) {
       return this.callEngineMethod<T[]>("sort", [
         dataOrDescriptors as SortDescriptor<T>[],
@@ -151,6 +189,13 @@ export class MergeEngines<T extends CollectionItem> {
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] {
+    if (!this.engine?.filter) {
+      throw new Error(
+        "MergeEngines: FilterEngine is not available. " +
+          "Add FilterEngine to the `imports` array.",
+      );
+    }
+
     if (criteria === undefined) {
       return this.callEngineMethod<T[]>("filter", [
         dataOrCriteria as FilterCriterion<T>[],
