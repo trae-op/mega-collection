@@ -83,7 +83,7 @@ const engine = new MergeEngines<User>({
 // dataset is passed once at init — no need to repeat it in every call
 engine.search("john");
 engine.sort([{ field: "age", direction: "asc" }]);
-engine.filter([{ field: "city", values: ["Kyiv", "Lviv"] }]);
+engine.filter([{ field: "city", values: ["Miami", "New York"] }]);
 ```
 
 ---
@@ -130,13 +130,13 @@ const engine = new FilterEngine<User>({
 });
 
 engine.filter([
-  { field: "city", values: ["Kyiv", "Lviv"] },
+  { field: "city", values: ["Miami", "New York"] },
   { field: "age", values: [25, 30, 35] },
 ]);
 
 // Sequential mode example:
 // 1) First call filters by city
-const byCity = engine.filter([{ field: "city", values: ["Dnipro"] }]);
+const byCity = engine.filter([{ field: "city", values: ["Miami"] }]);
 // 2) Second call filters only inside previous result
 const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
 ```
