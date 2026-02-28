@@ -163,21 +163,17 @@ export class TextSearchEngine<T extends CollectionItem> {
   }
 
   /**
-   * Checks if the query is long enough to search.
-   */
-  private isQuerySearchable(lowerQuery: string): boolean {
-    if (!lowerQuery) return false;
-    if (lowerQuery.length < this.minQueryLength) return false;
-    return true;
-  }
-
-  /**
    * Searches all indexed fields.
    */
   private searchAllFields(query: string): T[] {
     const fields = [...this.ngramIndexes.keys()] as (keyof T & string)[];
     const lowerQuery = this.normalizeQuery(query);
-    if (!this.isQuerySearchable(lowerQuery)) {
+
+    if (!lowerQuery) {
+      return [];
+    }
+
+    if (lowerQuery.length < this.minQueryLength) {
       return this.data;
     }
 
@@ -212,7 +208,17 @@ export class TextSearchEngine<T extends CollectionItem> {
    */
   private searchField(field: keyof T & string, query: string): T[] {
     const lowerQuery = this.normalizeQuery(query);
-    if (!this.isQuerySearchable(lowerQuery)) return [];
+
+    // empty queries should yield no results
+    if (!lowerQuery) {
+      return [];
+    }
+
+    if (lowerQuery.length < this.minQueryLength) {
+      // nonempty but shorter than threshold: return all data rather than
+      // an empty list
+      return this.data;
+    }
 
     if (!this.ngramIndexes.size) {
       return this.searchFieldLinear(field, lowerQuery);

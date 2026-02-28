@@ -79,15 +79,15 @@ describe("TextSearchEngine", () => {
     expect(engine.search("title", "Noah")).toEqual([]);
   });
 
-  it("minQueryLength blocks short queries", () => {
+  it("minQueryLength blocks short queries by returning original data", () => {
     const engine = new TextSearchEngine<CardItem>({
       data: cityCards,
       fields: ["city"],
       minQueryLength: 3,
     });
 
-    expect(engine.search("city", "dn")).toEqual([]);
-    expect(engine.search("dn")).toEqual([]);
+    expect(engine.search("city", "dn")).toEqual(cityCards);
+    expect(engine.search("dn")).toEqual(cityCards);
     expect(engine.search("city", "dni")).toHaveLength(1);
   });
 
