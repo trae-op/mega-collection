@@ -177,7 +177,9 @@ export class TextSearchEngine<T extends CollectionItem> {
   private searchAllFields(query: string): T[] {
     const fields = [...this.ngramIndexes.keys()] as (keyof T & string)[];
     const lowerQuery = this.normalizeQuery(query);
-    if (!this.isQuerySearchable(lowerQuery)) return [];
+    if (!this.isQuerySearchable(lowerQuery)) {
+      return this.data;
+    }
 
     if (!fields.length) {
       return this.searchAllFieldsLinear(lowerQuery);
