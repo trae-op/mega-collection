@@ -10,7 +10,30 @@ A ⭐ means a lot if this saved you some time.
 
 > Search, filter & sort engine for **100K+** item collections in JavaScript / TypeScript.
 
-What does this package solve?
+## Navigation
+
+- [What does this package solve](#what-does-this-package-solve) – explains the core problem addressed by the library
+- [Features](#features) – overview of package capabilities
+- [React demo](#react-demo) – link to example app and live demo
+- [Install](#install) – npm installation instructions
+- [Quick Start](#quick-start) – examples for using the engines
+  - [All-in-one: `MergeEngines`](#all-in-one-mergeengines) – combine search, filter, sort
+  - [Search only](#search-only) – text search engine usage
+  - [Filter only](#filter-only) – multi-criteria filter engine
+  - [Sort only](#sort-only) – sort engine examples
+- [API Reference](#api-reference) – detailed methods and options
+  - [`MergeEngines<T>`](#mergeenginest-root-module) – unified facade around dataset
+  - [`TextSearchEngine<T>`](#textsearchenginet-search-module) – trigram search engine
+  - [`FilterEngine<T>`](#filterenginet-filter-module) – indexed filter engine
+  - [`SortEngine<T>`](#sortenginet-sort-module) – pre-sorted comparators
+- [Types](#types) – exported TypeScript types
+- [Architecture](#architecture) – project structure overview
+- [Build](#build) – build and development commands
+- [Contributing](#contributing) – guidelines for contributors
+- [Security](#security) – policy information
+- [License](#license) – MIT license terms
+
+## What does this package solve
 
 Sometimes in projects, you need to iterate through huge collections (100K+ elements in an array) that have come from the server. Usually, the most common features are searching, filtering, and sorting.
 So, this package helps to perform searching, filtering, and sorting of large collections faster than standard JavaScript methods. This operation is performed before rendering the UI content.
