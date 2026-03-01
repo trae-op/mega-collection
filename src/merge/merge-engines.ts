@@ -25,11 +25,30 @@ export interface MergeEnginesOptions<T extends CollectionItem> {
   [key: string]: unknown;
 }
 
+export interface MergeEnginesChain<T extends CollectionItem> {
+  search(query: string): T[] & MergeEnginesChain<T>;
+  search(field: keyof T & string, query: string): T[] & MergeEnginesChain<T>;
+  sort(descriptors: SortDescriptor<T>[]): T[] & MergeEnginesChain<T>;
+  sort(
+    data: T[],
+    descriptors: SortDescriptor<T>[],
+    inPlace?: boolean,
+  ): T[] & MergeEnginesChain<T>;
+  filter(criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
+  filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
+  clearIndexes(module: MergeModuleName): T[] & MergeEnginesChain<T>;
+  clearData(module: MergeModuleName): T[] & MergeEnginesChain<T>;
+}
+
 export class MergeEngines<T extends CollectionItem> {
   private readonly engine: EngineApi | null;
 
   private readonly clearIndexMethods: Partial<
-    Record<MergeModuleName, () => void>
+    Record<MergeModuleName, () => unknown>
+  >;
+
+  private readonly clearDataMethods: Partial<
+    Record<MergeModuleName, () => unknown>
   >;
 
   /**
@@ -42,7 +61,10 @@ export class MergeEngines<T extends CollectionItem> {
     const importedEngines = new Set<EngineConstructor>(imports);
 
     const engine: EngineApi = {};
-    const clearIndexMethods: Partial<Record<MergeModuleName, () => void>> = {};
+    const clearIndexMethods: Partial<Record<MergeModuleName, () => unknown>> =
+      {};
+    const clearDataMethods: Partial<Record<MergeModuleName, () => unknown>> =
+      {};
 
     for (const EngineModule of importedEngines) {
       const prototype = EngineModule.prototype;
@@ -73,6 +95,15 @@ export class MergeEngines<T extends CollectionItem> {
           moduleInstance.clearIndexes.bind(moduleInstance);
       }
 
+      if (
+        moduleName &&
+        this.hasMethod(moduleInstance, "clearData") &&
+        !clearDataMethods[moduleName]
+      ) {
+        clearDataMethods[moduleName] =
+          moduleInstance.clearData.bind(moduleInstance);
+      }
+
       for (const methodName of prototypeMethodNames) {
         if (engine[methodName]) {
           continue;
@@ -88,6 +119,7 @@ export class MergeEngines<T extends CollectionItem> {
 
     this.engine = Object.keys(engine).length > 0 ? engine : null;
     this.clearIndexMethods = clearIndexMethods;
+    this.clearDataMethods = clearDataMethods;
   }
 
   private getModuleName(methodNames: string[]): MergeModuleName | null {
@@ -186,9 +218,12 @@ export class MergeEngines<T extends CollectionItem> {
     return method(...args) as TResult;
   }
 
-  search(query: string): T[];
-  search(field: keyof T & string, query: string): T[];
-  search(fieldOrQuery: string, maybeQuery?: string): T[] {
+  search(query: string): T[] & MergeEnginesChain<T>;
+  search(field: keyof T & string, query: string): T[] & MergeEnginesChain<T>;
+  search(
+    fieldOrQuery: string,
+    maybeQuery?: string,
+  ): T[] & MergeEnginesChain<T> {
     if (!this.engine?.search) {
       throw new Error(
         "MergeEngines: TextSearchEngine is not available. " +
@@ -197,22 +232,30 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     if (maybeQuery === undefined) {
-      return this.callEngineMethod<T[]>("search", [fieldOrQuery]);
+      return this.withChain(
+        this.callEngineMethod<T[]>("search", [fieldOrQuery]),
+      );
     }
 
-    return this.callEngineMethod<T[]>("search", [
-      fieldOrQuery as keyof T & string,
-      maybeQuery,
-    ]);
+    return this.withChain(
+      this.callEngineMethod<T[]>("search", [
+        fieldOrQuery as keyof T & string,
+        maybeQuery,
+      ]),
+    );
   }
 
-  sort(descriptors: SortDescriptor<T>[]): T[];
-  sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
+  sort(descriptors: SortDescriptor<T>[]): T[] & MergeEnginesChain<T>;
+  sort(
+    data: T[],
+    descriptors: SortDescriptor<T>[],
+    inPlace?: boolean,
+  ): T[] & MergeEnginesChain<T>;
   sort(
     dataOrDescriptors: T[] | SortDescriptor<T>[],
     descriptors?: SortDescriptor<T>[],
     inPlace?: boolean,
-  ): T[] {
+  ): T[] & MergeEnginesChain<T> {
     if (!this.engine?.sort) {
       throw new Error(
         "MergeEngines: SortEngine is not available. " +
@@ -221,24 +264,28 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     if (descriptors === undefined) {
-      return this.callEngineMethod<T[]>("sort", [
-        dataOrDescriptors as SortDescriptor<T>[],
-      ]);
+      return this.withChain(
+        this.callEngineMethod<T[]>("sort", [
+          dataOrDescriptors as SortDescriptor<T>[],
+        ]),
+      );
     }
 
-    return this.callEngineMethod<T[]>("sort", [
-      dataOrDescriptors as T[],
-      descriptors,
-      inPlace,
-    ]);
+    return this.withChain(
+      this.callEngineMethod<T[]>("sort", [
+        dataOrDescriptors as T[],
+        descriptors,
+        inPlace,
+      ]),
+    );
   }
 
-  filter(criteria: FilterCriterion<T>[]): T[];
-  filter(data: T[], criteria: FilterCriterion<T>[]): T[];
+  filter(criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
+  filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
   filter(
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
-  ): T[] {
+  ): T[] & MergeEnginesChain<T> {
     if (!this.engine?.filter) {
       throw new Error(
         "MergeEngines: FilterEngine is not available. " +
@@ -247,23 +294,117 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     if (criteria === undefined) {
-      return this.callEngineMethod<T[]>("filter", [
-        dataOrCriteria as FilterCriterion<T>[],
-      ]);
+      return this.withChain(
+        this.callEngineMethod<T[]>("filter", [
+          dataOrCriteria as FilterCriterion<T>[],
+        ]),
+      );
     }
 
-    return this.callEngineMethod<T[]>("filter", [
-      dataOrCriteria as T[],
-      criteria,
-    ]);
+    return this.withChain(
+      this.callEngineMethod<T[]>("filter", [dataOrCriteria as T[], criteria]),
+    );
   }
 
-  clearIndexes(module: MergeModuleName): void {
+  private withChain(result: T[]): T[] & MergeEnginesChain<T> {
+    const chainResult = result as T[] & MergeEnginesChain<T>;
+
+    Object.defineProperty(chainResult, "search", {
+      value: (fieldOrQuery: string, maybeQuery?: string) =>
+        maybeQuery === undefined
+          ? this.search(fieldOrQuery)
+          : this.search(fieldOrQuery as keyof T & string, maybeQuery),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "sort", {
+      value: (
+        dataOrDescriptors: T[] | SortDescriptor<T>[],
+        descriptors?: SortDescriptor<T>[],
+        inPlace?: boolean,
+      ) => {
+        if (descriptors === undefined) {
+          return this.sort(
+            result,
+            dataOrDescriptors as SortDescriptor<T>[],
+            inPlace,
+          );
+        }
+
+        return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
+      },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "filter", {
+      value: (
+        dataOrCriteria: T[] | FilterCriterion<T>[],
+        criteria?: FilterCriterion<T>[],
+      ) => {
+        if (criteria === undefined) {
+          return this.filter(result, dataOrCriteria as FilterCriterion<T>[]);
+        }
+
+        return this.filter(dataOrCriteria as T[], criteria);
+      },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "clearIndexes", {
+      value: (module: MergeModuleName) => {
+        this.clearIndexes(module);
+        return this.withChain(result);
+      },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "clearData", {
+      value: (module: MergeModuleName) => {
+        this.clearData(module);
+        return this.withChain(result);
+      },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    return chainResult;
+  }
+
+  clearIndexes(module: MergeModuleName): this {
     const clearMethod = this.clearIndexMethods[module];
 
     if (clearMethod) {
       clearMethod();
-      return;
+      return this;
+    }
+
+    const moduleToEngine = {
+      search: "TextSearchEngine",
+      sort: "SortEngine",
+      filter: "FilterEngine",
+    } as const;
+
+    throw new Error(
+      `MergeEngines: ${moduleToEngine[module]} is not available. ` +
+        `Add ${moduleToEngine[module]} to the \`imports\` array.`,
+    );
+  }
+
+  clearData(module: MergeModuleName): this {
+    const clearMethod = this.clearDataMethods[module];
+
+    if (clearMethod) {
+      clearMethod();
+      return this;
     }
 
     const moduleToEngine = {

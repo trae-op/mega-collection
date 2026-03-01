@@ -98,7 +98,7 @@ describe("MergeEngines", () => {
 
     expect(merge.search("Alice")).toHaveLength(1);
     merge.clearIndexes("search");
-    expect(merge.search("Alice")).toEqual([]);
+    expect(merge.search("Alice")).toHaveLength(1);
 
     expect(() => merge.clearIndexes("sort")).not.toThrow();
     expect(
@@ -120,6 +120,64 @@ describe("MergeEngines", () => {
       "SortEngine is not available",
     );
     expect(() => searchOnly.clearIndexes("filter")).toThrow(
+      "FilterEngine is not available",
+    );
+  });
+
+  it("supports chaining across public methods", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: users,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    const result = merge
+      .search("i")
+      .sort([{ field: "age", direction: "asc" }])
+      .filter([{ field: "city", values: ["Kyiv"] }]);
+
+    expect(result.map((item) => item.id)).toEqual([1, 3]);
+    expect(() =>
+      result.clearIndexes("search").clearIndexes("sort").clearIndexes("filter"),
+    ).not.toThrow();
+  });
+
+  it("clearData() clears data for selected module", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: users,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    merge.clearData("search");
+    expect(merge.search("Alice")).toEqual([]);
+
+    merge.clearData("sort");
+    expect(() => merge.sort([{ field: "age", direction: "asc" }])).toThrow(
+      "no dataset in memory",
+    );
+
+    merge.clearData("filter");
+    expect(() => merge.filter([{ field: "city", values: ["Kyiv"] }])).toThrow(
+      "no dataset in memory",
+    );
+  });
+
+  it("clearData() throws when selected module was not imported", () => {
+    const searchOnly = new MergeEngines<User>({
+      imports: [TextSearchEngine],
+      data: users,
+      search: { fields: ["name"] },
+    });
+
+    expect(() => searchOnly.clearData("sort")).toThrow(
+      "SortEngine is not available",
+    );
+    expect(() => searchOnly.clearData("filter")).toThrow(
       "FilterEngine is not available",
     );
   });

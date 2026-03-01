@@ -18,6 +18,17 @@ export interface SortEngineOptions<T extends CollectionItem = CollectionItem> {
   fields?: (keyof T & string)[];
 }
 
+export interface SortEngineChain<T extends CollectionItem> {
+  sort(descriptors: SortDescriptor<T>[]): T[] & SortEngineChain<T>;
+  sort(
+    data: T[],
+    descriptors: SortDescriptor<T>[],
+    inPlace?: boolean,
+  ): T[] & SortEngineChain<T>;
+  clearIndexes(): SortEngine<T>;
+  clearData(): SortEngine<T>;
+}
+
 export class SortEngine<T extends CollectionItem> {
   private cache = new Map<string, SortIndex<T>>();
 
@@ -97,20 +108,30 @@ export class SortEngine<T extends CollectionItem> {
   /**
    * Clears all cached indexes.
    */
-  clearIndexes(): void {
+  clearIndexes(): this {
     this.cache.clear();
+    return this;
+  }
+
+  clearData(): this {
+    this.data = [];
+    return this;
   }
 
   /**
    * Sorts the data based on the given descriptors.
    */
-  sort(descriptors: SortDescriptor<T>[]): T[];
-  sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
+  sort(descriptors: SortDescriptor<T>[]): T[] & SortEngineChain<T>;
+  sort(
+    data: T[],
+    descriptors: SortDescriptor<T>[],
+    inPlace?: boolean,
+  ): T[] & SortEngineChain<T>;
   sort(
     dataOrDescriptors: T[] | SortDescriptor<T>[],
     descriptors?: SortDescriptor<T>[],
     inPlace = false,
-  ): T[] {
+  ): T[] & SortEngineChain<T> {
     let data: T[];
     let resolvedDescriptors: SortDescriptor<T>[];
 
@@ -129,7 +150,9 @@ export class SortEngine<T extends CollectionItem> {
       resolvedDescriptors = descriptors;
     }
 
-    if (resolvedDescriptors.length === 0 || data.length === 0) return data;
+    if (resolvedDescriptors.length === 0 || data.length === 0) {
+      return this.withChain(data);
+    }
 
     if (resolvedDescriptors.length === 1) {
       const { field, direction } = resolvedDescriptors[0];
@@ -141,7 +164,9 @@ export class SortEngine<T extends CollectionItem> {
         cached.itemCount === data.length &&
         this.isFieldSnapshotValid(data, field, cached.fieldSnapshot)
       ) {
-        return this.reconstructFromIndex(data, cached.indexes, direction);
+        return this.withChain(
+          this.reconstructFromIndex(data, cached.indexes, direction),
+        );
       }
     }
 
@@ -152,16 +177,59 @@ export class SortEngine<T extends CollectionItem> {
       data.length > 0 &&
       typeof data[0][resolvedDescriptors[0].field] === "number"
     ) {
-      return this.radixSortNumeric(
-        sortableItems,
-        resolvedDescriptors[0].field,
-        resolvedDescriptors[0].direction,
+      return this.withChain(
+        this.radixSortNumeric(
+          sortableItems,
+          resolvedDescriptors[0].field,
+          resolvedDescriptors[0].direction,
+        ),
       );
     }
 
     const comparator = this.buildComparator(resolvedDescriptors);
     sortableItems.sort(comparator);
-    return sortableItems;
+    return this.withChain(sortableItems);
+  }
+
+  private withChain(result: T[]): T[] & SortEngineChain<T> {
+    const chainResult = result as T[] & SortEngineChain<T>;
+
+    Object.defineProperty(chainResult, "sort", {
+      value: (
+        dataOrDescriptors: T[] | SortDescriptor<T>[],
+        descriptors?: SortDescriptor<T>[],
+        inPlace = false,
+      ) => {
+        if (descriptors === undefined) {
+          return this.sort(
+            result,
+            dataOrDescriptors as SortDescriptor<T>[],
+            inPlace,
+          );
+        }
+
+        return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
+      },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "clearIndexes", {
+      value: () => this.clearIndexes(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "clearData", {
+      value: () => this.clearData(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    return chainResult;
   }
 
   /**

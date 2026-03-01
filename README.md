@@ -106,14 +106,14 @@ const engine = new MergeEngines<User>({
 });
 
 // dataset is passed once at init — no need to repeat it in every call
-engine.search("john");
-engine.sort([{ field: "age", direction: "asc" }]);
-engine.filter([{ field: "city", values: ["Miami", "New York"] }]);
+engine
+  .search("john")
+  .sort([{ field: "age", direction: "asc" }])
+  .filter([{ field: "city", values: ["Miami", "New York"] }]);
 
-// clear indexes for one module
-engine.clearIndexes("search");
-engine.clearIndexes("sort");
-engine.clearIndexes("filter");
+// clear indexes/data for one module
+engine.clearIndexes("search").clearIndexes("sort").clearIndexes("filter");
+engine.clearData("search").clearData("sort").clearData("filter");
 ```
 
 ---
@@ -141,6 +141,9 @@ const engine = new TextSearchEngine<User>({
 
 engine.search("john"); // searches all indexed fields, deduplicated
 engine.search("name", "john"); // searches a specific field
+
+// chain support
+engine.search("john").clearIndexes().clearData();
 ```
 
 ### Filter only
@@ -162,6 +165,13 @@ engine.filter([
   { field: "city", values: ["Miami", "New York"] },
   { field: "age", values: [25, 30, 35] },
 ]);
+
+engine
+  .filter([{ field: "city", values: ["Miami", "New York"] }])
+  .filter([{ field: "age", values: [25, 30, 35] }])
+  .clearIndexes()
+  .resetFilterState()
+  .clearData();
 
 // Sequential mode example:
 // 1) First call filters by city
@@ -187,6 +197,13 @@ const engine = new SortEngine<User>({
 
 // Single-field sort — O(n) via cached index
 engine.sort([{ field: "age", direction: "asc" }]);
+
+// chain support
+engine
+  .sort([{ field: "age", direction: "asc" }])
+  .sort([{ field: "name", direction: "desc" }])
+  .clearIndexes()
+  .clearData();
 
 // Multi-field sort — O(n log n)
 engine.sort([
@@ -215,15 +232,16 @@ Unified facade that composes all three engines around a shared dataset.
 
 **Methods:**
 
-| Method                              | Description                                                     |
-| ----------------------------------- | --------------------------------------------------------------- |
-| `search(query)`                     | Search all indexed fields                                       |
-| `search(field, query)`              | Search a specific field                                         |
-| `sort(descriptors)`                 | Sort using stored dataset                                       |
-| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                   |
-| `filter(criteria)`                  | Filter using stored dataset                                     |
-| `filter(data, criteria)`            | Filter with an explicit dataset                                 |
-| `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`) |
+| Method                              | Description                                                         |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| `search(query)`                     | Search all indexed fields                                           |
+| `search(field, query)`              | Search a specific field                                             |
+| `sort(descriptors)`                 | Sort using stored dataset                                           |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                       |
+| `filter(criteria)`                  | Filter using stored dataset                                         |
+| `filter(data, criteria)`            | Filter with an explicit dataset                                     |
+| `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)     |
+| `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`) |
 
 ---
 
@@ -235,7 +253,8 @@ Trigram-based text search engine.
 | ---------------------- | --------------------------------------- |
 | `search(query)`        | Search all indexed fields, deduplicated |
 | `search(field, query)` | Search a specific indexed field         |
-| `clearIndexes()`       | Free memory                             |
+| `clearIndexes()`       | Clear n-gram indexes                    |
+| `clearData()`          | Clear stored data                       |
 
 ### `FilterEngine<T>` (filter module)
 
@@ -253,6 +272,7 @@ Constructor option highlights:
 | `filter(data, criteria)` | Filter with an explicit dataset                      |
 | `resetFilterState()`     | Reset previous-result state for sequential filtering |
 | `clearIndexes()`         | Free all index memory                                |
+| `clearData()`            | Clear stored data                                    |
 
 ### `SortEngine<T>` (sort module)
 
@@ -263,6 +283,7 @@ Sorting with pre-compiled comparators and cached sort indexes.
 | `sort(descriptors)`                 | Sort using stored dataset     |
 | `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset |
 | `clearIndexes()`                    | Free all cached indexes       |
+| `clearData()`                       | Clear stored data             |
 
 ---
 

@@ -91,13 +91,34 @@ describe("TextSearchEngine", () => {
     expect(engine.search("city", "dni")).toHaveLength(1);
   });
 
-  it("clearIndexes removes all indexes", () => {
+  it("clearIndexes removes indexes but keeps data", () => {
     const engine = new TextSearchEngine<CardItem>({
       data: cityCards,
       fields: ["city"],
     });
     engine.clearIndexes();
 
+    expect(engine.search("Kyiv").map((item) => item.id)).toEqual([2]);
+  });
+
+  it("clearData removes stored data and indexes", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city"],
+    });
+
+    engine.clearData();
+    expect(engine.search("Kyiv")).toEqual([]);
+  });
+
+  it("supports chain usage", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city", "title"],
+      minQueryLength: 2,
+    });
+
+    expect(() => engine.search("ky").clearIndexes().clearData()).not.toThrow();
     expect(engine.search("Kyiv")).toEqual([]);
   });
 

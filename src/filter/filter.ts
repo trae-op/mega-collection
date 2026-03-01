@@ -16,6 +16,14 @@ export interface FilterEngineOptions<
   filterByPreviousResult?: boolean;
 }
 
+export interface FilterEngineChain<T extends CollectionItem> {
+  filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
+  filter(data: T[], criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
+  clearIndexes(): FilterEngine<T>;
+  clearData(): FilterEngine<T>;
+  resetFilterState(): FilterEngine<T>;
+}
+
 export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;
   private readonly filterByPreviousResult: boolean;
@@ -73,25 +81,32 @@ export class FilterEngine<T extends CollectionItem> {
     return this;
   }
 
-  clearIndexes(): void {
+  clearIndexes(): this {
     this.indexer.clear();
+    return this;
   }
 
-  resetFilterState(): void {
+  resetFilterState(): this {
     this.previousResult = null;
     this.previousCriteria = null;
     this.previousBaseData = null;
+    return this;
+  }
+
+  clearData(): this {
+    this.data = [];
+    return this;
   }
 
   /**
    * Filters the data based on the given criteria.
    */
-  filter(criteria: FilterCriterion<T>[]): T[];
-  filter(data: T[], criteria: FilterCriterion<T>[]): T[];
+  filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
+  filter(data: T[], criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
   filter(
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
-  ): T[] {
+  ): T[] & FilterEngineChain<T> {
     const usesStoredData = criteria === undefined;
 
     let sourceData: T[];
@@ -124,7 +139,7 @@ export class FilterEngine<T extends CollectionItem> {
         );
 
         if (!hasAdditions && !hasRemovals) {
-          return this.previousResult;
+          return this.withChain(this.previousResult);
         }
 
         if (hasAdditions && !hasRemovals) {
@@ -161,7 +176,7 @@ export class FilterEngine<T extends CollectionItem> {
         );
 
         if (!hasAdditions && !hasRemovals) {
-          return this.previousResult;
+          return this.withChain(this.previousResult);
         }
 
         if (hasAdditions && !hasRemovals) {
@@ -184,7 +199,7 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousCriteria = null;
         this.previousBaseData = null;
       }
-      return usesStoredData ? this.data : sourceData;
+      return this.withChain(usesStoredData ? this.data : sourceData);
     }
 
     if (usesStoredData && !executionCriteria) {
@@ -220,7 +235,7 @@ export class FilterEngine<T extends CollectionItem> {
           ? this.data
           : (dataOrCriteria as T[]);
       }
-      return result;
+      return this.withChain(result);
     }
 
     if (indexedCriteria.length > 0 && linearCriteria.length > 0) {
@@ -233,7 +248,7 @@ export class FilterEngine<T extends CollectionItem> {
           ? this.data
           : (dataOrCriteria as T[]);
       }
-      return result;
+      return this.withChain(result);
     }
 
     result = this.linearFilter(sourceData, executionCriteria);
@@ -244,7 +259,50 @@ export class FilterEngine<T extends CollectionItem> {
         ? this.data
         : (dataOrCriteria as T[]);
     }
-    return result;
+    return this.withChain(result);
+  }
+
+  private withChain(result: T[]): T[] & FilterEngineChain<T> {
+    const chainResult = result as T[] & FilterEngineChain<T>;
+
+    Object.defineProperty(chainResult, "filter", {
+      value: (
+        dataOrCriteria: T[] | FilterCriterion<T>[],
+        criteria?: FilterCriterion<T>[],
+      ) => {
+        if (criteria === undefined) {
+          return this.filter(result, dataOrCriteria as FilterCriterion<T>[]);
+        }
+
+        return this.filter(dataOrCriteria as T[], criteria);
+      },
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "clearIndexes", {
+      value: () => this.clearIndexes(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "clearData", {
+      value: () => this.clearData(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "resetFilterState", {
+      value: () => this.resetFilterState(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    return chainResult;
   }
 
   private cloneCriteria(criteria: FilterCriterion<T>[]): FilterCriterion<T>[] {

@@ -30,7 +30,7 @@ describe("SortEngine", () => {
 
     expect(asc.map((u) => u.id)).toEqual([2, 3, 1, 4]);
     expect(desc.map((u) => u.id)).toEqual([4, 1, 3, 2]);
-    expect(users.map((u) => u.id)).toEqual([1, 2, 3, 4]); 
+    expect(users.map((u) => u.id)).toEqual([1, 2, 3, 4]);
   });
 
   it("sorts by multiple fields with tie-breaking", () => {
@@ -99,6 +99,23 @@ describe("SortEngine", () => {
 
       const result = engine.sort(users, [{ field: "age", direction: "asc" }]);
       expect(result.map((u) => u.id)).toEqual([2, 3, 1, 4]);
+    });
+
+    it("supports chain usage", () => {
+      const engine = new SortEngine<User>({
+        data: users,
+        fields: ["age", "name"],
+      });
+
+      const result = engine
+        .sort([{ field: "age", direction: "asc" }])
+        .sort([{ field: "name", direction: "asc" }]);
+
+      expect(result.map((u) => u.id)).toEqual([2, 4, 3, 1]);
+      expect(() => result.clearIndexes().clearData()).not.toThrow();
+      expect(() => engine.sort([{ field: "age", direction: "asc" }])).toThrow(
+        "no dataset in memory",
+      );
     });
 
     it("constructor with data and fields auto-builds index", () => {

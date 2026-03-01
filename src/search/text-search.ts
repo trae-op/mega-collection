@@ -59,6 +59,16 @@ export interface TextSearchEngineOptions<
   minQueryLength?: number;
 }
 
+export interface TextSearchEngineChain<T extends CollectionItem> {
+  search(query: string): T[] & TextSearchEngineChain<T>;
+  search(
+    field: keyof T & string,
+    query: string,
+  ): T[] & TextSearchEngineChain<T>;
+  clearIndexes(): TextSearchEngine<T>;
+  clearData(): TextSearchEngine<T>;
+}
+
 export class TextSearchEngine<T extends CollectionItem> {
   private ngramIndexes = new Map<string, Map<string, Set<number>>>();
 
@@ -148,14 +158,22 @@ export class TextSearchEngine<T extends CollectionItem> {
     return this;
   }
 
-  search(query: string): T[];
-  search(field: keyof T & string, query: string): T[];
-  search(fieldOrQuery: string, maybeQuery?: string): T[] {
+  search(query: string): T[] & TextSearchEngineChain<T>;
+  search(
+    field: keyof T & string,
+    query: string,
+  ): T[] & TextSearchEngineChain<T>;
+  search(
+    fieldOrQuery: string,
+    maybeQuery?: string,
+  ): T[] & TextSearchEngineChain<T> {
     if (maybeQuery === undefined) {
-      return this.searchAllFields(fieldOrQuery);
+      return this.withChain(this.searchAllFields(fieldOrQuery));
     }
 
-    return this.searchField(fieldOrQuery as keyof T & string, maybeQuery);
+    return this.withChain(
+      this.searchField(fieldOrQuery as keyof T & string, maybeQuery),
+    );
   }
 
   private normalizeQuery(query: string): string {
@@ -272,12 +290,15 @@ export class TextSearchEngine<T extends CollectionItem> {
       }
       if (!isCandidate) continue;
 
-      const fieldValue = this.data[candidateIndex][field];
+      const candidateItem = this.data[candidateIndex];
+      if (!candidateItem) continue;
+
+      const fieldValue = candidateItem[field];
       if (
         typeof fieldValue === "string" &&
         fieldValue.toLowerCase().includes(lowerQuery)
       ) {
-        matchedItems.push(this.data[candidateIndex]);
+        matchedItems.push(candidateItem);
       }
     }
 
@@ -330,8 +351,43 @@ export class TextSearchEngine<T extends CollectionItem> {
     return matchedItems;
   }
 
-  clearIndexes(): void {
+  private withChain(result: T[]): T[] & TextSearchEngineChain<T> {
+    const chainResult = result as T[] & TextSearchEngineChain<T>;
+
+    Object.defineProperty(chainResult, "search", {
+      value: (fieldOrQuery: string, maybeQuery?: string) =>
+        maybeQuery === undefined
+          ? this.search(fieldOrQuery)
+          : this.search(fieldOrQuery as keyof T & string, maybeQuery),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "clearIndexes", {
+      value: () => this.clearIndexes(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "clearData", {
+      value: () => this.clearData(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    return chainResult;
+  }
+
+  clearIndexes(): this {
     this.ngramIndexes.clear();
+    return this;
+  }
+
+  clearData(): this {
     this.data = [];
+    return this;
   }
 }

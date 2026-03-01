@@ -122,5 +122,19 @@ describe("FilterEngine", () => {
       const result = engine.filter([{ field: "city", values: ["Lviv"] }]);
       expect(result.map((u) => u.id)).toEqual(expect.arrayContaining([2, 5]));
     });
+
+    it("supports chain usage for public methods", () => {
+      const result = engine
+        .filter([{ field: "city", values: ["Kyiv", "Lviv"] }])
+        .filter([{ field: "age", values: [30] }]);
+
+      expect(result.map((u) => u.id)).toEqual(expect.arrayContaining([2, 3]));
+      expect(() =>
+        result.clearIndexes().resetFilterState().clearData(),
+      ).not.toThrow();
+      expect(() =>
+        engine.filter([{ field: "city", values: ["Kyiv"] }]),
+      ).toThrow("no dataset in memory");
+    });
   });
 });
