@@ -66,6 +66,22 @@ describe("SortEngine", () => {
     );
   });
 
+  it("data() replaces stored dataset without re-initializing engine", () => {
+    const engine = new SortEngine<User>({ data: users, fields: ["age"] });
+
+    const nextUsers: User[] = [
+      { id: 10, name: "Tim", city: "New-York", age: 30 },
+      { id: 11, name: "Mona", city: "Miami", age: 22 },
+      { id: 12, name: "John", city: "Boston", age: 40 },
+    ];
+
+    engine.data(nextUsers);
+
+    expect(
+      engine.sort([{ field: "age", direction: "asc" }]).map((u) => u.id),
+    ).toEqual([11, 10, 12]);
+  });
+
   describe("buildIndex (cached fast path)", () => {
     it("sorts asc/desc via cached index", () => {
       const engine = new SortEngine<User>({ data: users, fields: ["age"] });

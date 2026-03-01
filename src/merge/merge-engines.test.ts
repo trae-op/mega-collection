@@ -181,4 +181,32 @@ describe("MergeEngines", () => {
       "FilterEngine is not available",
     );
   });
+
+  it("data() replaces dataset for all imported modules", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: users,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    const nextUsers: User[] = [
+      { id: 10, name: "Tim", city: "New-York", age: 30 },
+      { id: 11, name: "Mona", city: "Miami", age: 22 },
+      { id: 12, name: "Zed", city: "Boston", age: 40 },
+    ];
+
+    merge.data(nextUsers);
+
+    expect(merge.search("Tim").map((user) => user.id)).toEqual([10]);
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([11, 10, 12]);
+    expect(
+      merge
+        .filter([{ field: "city", values: ["Miami"] }])
+        .map((user) => user.id),
+    ).toEqual([11]);
+  });
 });

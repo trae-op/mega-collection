@@ -19,6 +19,7 @@ export interface FilterEngineOptions<
 export interface FilterEngineChain<T extends CollectionItem> {
   filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
+  data(data: T[]): FilterEngine<T>;
   clearIndexes(): FilterEngine<T>;
   clearData(): FilterEngine<T>;
   resetFilterState(): FilterEngine<T>;
@@ -28,7 +29,9 @@ export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;
   private readonly filterByPreviousResult: boolean;
 
-  private data: T[] = [];
+  private dataset: T[] = [];
+
+  private readonly indexedFields = new Set<keyof T & string>();
 
   private previousResult: T[] | null = null;
 
@@ -44,11 +47,21 @@ export class FilterEngine<T extends CollectionItem> {
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
     if (!options.data) return;
 
-    this.data = options.data;
-    if (!options.fields?.length) return;
+    this.dataset = options.data;
+    if (options.fields?.length) {
+      for (const field of options.fields) {
+        this.indexedFields.add(field);
+      }
 
-    for (const field of options.fields) {
-      this.buildIndex(options.data, field);
+      this.rebuildConfiguredIndexes();
+    }
+  }
+
+  private rebuildConfiguredIndexes(): void {
+    this.indexer.clear();
+
+    for (const field of this.indexedFields) {
+      this.buildIndex(this.dataset, field);
     }
   }
 
@@ -62,18 +75,18 @@ export class FilterEngine<T extends CollectionItem> {
     field?: keyof T & string,
   ): this {
     if (!Array.isArray(dataOrField)) {
-      if (!this.data.length) {
+      if (!this.dataset.length) {
         throw new Error(
           "FilterEngine: no dataset in memory. " +
             "Either pass `data` in the constructor options, or call buildIndex(data, field).",
         );
       }
 
-      this.indexer.buildIndex(this.data, dataOrField);
+      this.indexer.buildIndex(this.dataset, dataOrField);
       return this;
     }
 
-    this.data = dataOrField;
+    this.dataset = dataOrField;
     this.previousResult = null;
     this.previousCriteria = null;
     this.previousBaseData = null;
@@ -94,7 +107,16 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   clearData(): this {
-    this.data = [];
+    this.dataset = [];
+    this.indexer.clear();
+    this.resetFilterState();
+    return this;
+  }
+
+  data(data: T[]): this {
+    this.dataset = data;
+    this.resetFilterState();
+    this.rebuildConfiguredIndexes();
     return this;
   }
 
@@ -114,7 +136,7 @@ export class FilterEngine<T extends CollectionItem> {
     let executionCriteria: FilterCriterion<T>[];
 
     if (usesStoredData) {
-      if (!this.data.length) {
+      if (!this.dataset.length) {
         throw new Error(
           "FilterEngine: no dataset in memory. " +
             "Either pass `data` in the constructor options, or call filter(data, criteria).",
@@ -127,7 +149,7 @@ export class FilterEngine<T extends CollectionItem> {
         this.filterByPreviousResult &&
         this.previousResult !== null &&
         this.previousCriteria !== null &&
-        this.previousBaseData === this.data
+        this.previousBaseData === this.dataset
       ) {
         const hasAdditions = this.hasCriteriaAdditions(
           this.previousCriteria,
@@ -149,11 +171,11 @@ export class FilterEngine<T extends CollectionItem> {
             resolvedCriteria,
           );
         } else {
-          sourceData = this.data;
+          sourceData = this.dataset;
           executionCriteria = resolvedCriteria;
         }
       } else {
-        sourceData = this.data;
+        sourceData = this.dataset;
         executionCriteria = resolvedCriteria;
       }
     } else {
@@ -199,7 +221,7 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousCriteria = null;
         this.previousBaseData = null;
       }
-      return this.withChain(usesStoredData ? this.data : sourceData);
+      return this.withChain(usesStoredData ? this.dataset : sourceData);
     }
 
     if (usesStoredData && !executionCriteria) {
@@ -232,7 +254,7 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousResult = result;
         this.previousCriteria = this.cloneCriteria(resolvedCriteria);
         this.previousBaseData = usesStoredData
-          ? this.data
+          ? this.dataset
           : (dataOrCriteria as T[]);
       }
       return this.withChain(result);
@@ -245,7 +267,7 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousResult = result;
         this.previousCriteria = this.cloneCriteria(resolvedCriteria);
         this.previousBaseData = usesStoredData
-          ? this.data
+          ? this.dataset
           : (dataOrCriteria as T[]);
       }
       return this.withChain(result);
@@ -256,7 +278,7 @@ export class FilterEngine<T extends CollectionItem> {
       this.previousResult = result;
       this.previousCriteria = this.cloneCriteria(resolvedCriteria);
       this.previousBaseData = usesStoredData
-        ? this.data
+        ? this.dataset
         : (dataOrCriteria as T[]);
     }
     return this.withChain(result);
@@ -283,6 +305,13 @@ export class FilterEngine<T extends CollectionItem> {
 
     Object.defineProperty(chainResult, "clearIndexes", {
       value: () => this.clearIndexes(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "data", {
+      value: (data: T[]) => this.data(data),
       enumerable: false,
       configurable: true,
       writable: true,
@@ -440,7 +469,7 @@ export class FilterEngine<T extends CollectionItem> {
    * Filters data using the index.
    */
   private filterViaIndex(criteria: FilterCriterion<T>[], sourceData: T[]): T[] {
-    const isFilteringFromSubset = sourceData !== this.data;
+    const isFilteringFromSubset = sourceData !== this.dataset;
     const allowedItems = isFilteringFromSubset ? new Set(sourceData) : null;
 
     if (criteria.length === 1) {

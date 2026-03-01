@@ -81,6 +81,28 @@ describe("FilterEngine", () => {
     ).toEqual([2, 5]);
   });
 
+  it("data() replaces stored dataset without re-initializing engine", () => {
+    const engine = new FilterEngine<User>({
+      data: users,
+      fields: ["city", "age"],
+      filterByPreviousResult: true,
+    });
+
+    engine.filter([{ field: "city", values: ["Kyiv"] }]);
+
+    const nextUsers: User[] = [
+      { id: 10, name: "Tim", city: "New-York", age: 30, active: true },
+      { id: 11, name: "Mona", city: "Miami", age: 22, active: false },
+    ];
+
+    engine.data(nextUsers);
+
+    expect(
+      engine.filter([{ field: "city", values: ["New-York"] }]).map((u) => u.id),
+    ).toEqual([10]);
+    expect(engine.filter([{ field: "city", values: ["Kyiv"] }])).toEqual([]);
+  });
+
   describe("filterByPreviousResult (sequential mode)", () => {
     let engine: FilterEngine<User>;
 

@@ -25,6 +25,7 @@ export interface SortEngineChain<T extends CollectionItem> {
     descriptors: SortDescriptor<T>[],
     inPlace?: boolean,
   ): T[] & SortEngineChain<T>;
+  data(data: T[]): SortEngine<T>;
   clearIndexes(): SortEngine<T>;
   clearData(): SortEngine<T>;
 }
@@ -32,7 +33,9 @@ export interface SortEngineChain<T extends CollectionItem> {
 export class SortEngine<T extends CollectionItem> {
   private cache = new Map<string, SortIndex<T>>();
 
-  private data: T[] = [];
+  private dataset: T[] = [];
+
+  private readonly indexedFields = new Set<keyof T & string>();
 
   /**
    * Creates a new SortEngine with optional data and fields to index.
@@ -40,11 +43,21 @@ export class SortEngine<T extends CollectionItem> {
   constructor(options: SortEngineOptions<T> = {}) {
     if (!options.data) return;
 
-    this.data = options.data;
-    if (!options.fields?.length) return;
+    this.dataset = options.data;
+    if (options.fields?.length) {
+      for (const field of options.fields) {
+        this.indexedFields.add(field);
+      }
 
-    for (const field of options.fields) {
-      this.buildIndex(options.data, field);
+      this.rebuildConfiguredIndexes();
+    }
+  }
+
+  private rebuildConfiguredIndexes(): void {
+    this.cache.clear();
+
+    for (const field of this.indexedFields) {
+      this.buildIndex(this.dataset, field);
     }
   }
 
@@ -61,21 +74,21 @@ export class SortEngine<T extends CollectionItem> {
     let resolvedField: keyof T & string;
 
     if (!Array.isArray(dataOrField)) {
-      if (!this.data.length) {
+      if (!this.dataset.length) {
         throw new Error(
           "SortEngine: no dataset in memory. " +
             "Either pass `data` in the constructor options, or call buildIndex(data, field).",
         );
       }
 
-      data = this.data;
+      data = this.dataset;
       resolvedField = dataOrField;
     } else {
       data = dataOrField;
       resolvedField = field!;
     }
 
-    this.data = data;
+    this.dataset = data;
     const itemCount = data.length;
     const indexes = new Uint32Array(itemCount);
     for (let i = 0; i < itemCount; i++) indexes[i] = i;
@@ -114,7 +127,14 @@ export class SortEngine<T extends CollectionItem> {
   }
 
   clearData(): this {
-    this.data = [];
+    this.dataset = [];
+    this.cache.clear();
+    return this;
+  }
+
+  data(data: T[]): this {
+    this.dataset = data;
+    this.rebuildConfiguredIndexes();
     return this;
   }
 
@@ -136,14 +156,14 @@ export class SortEngine<T extends CollectionItem> {
     let resolvedDescriptors: SortDescriptor<T>[];
 
     if (descriptors === undefined) {
-      if (!this.data.length) {
+      if (!this.dataset.length) {
         throw new Error(
           "SortEngine: no dataset in memory. " +
             "Either pass `data` in the constructor options, or call sort(data, descriptors).",
         );
       }
 
-      data = this.data;
+      data = this.dataset;
       resolvedDescriptors = dataOrDescriptors as SortDescriptor<T>[];
     } else {
       data = dataOrDescriptors as T[];
@@ -217,6 +237,13 @@ export class SortEngine<T extends CollectionItem> {
 
     Object.defineProperty(chainResult, "clearIndexes", {
       value: () => this.clearIndexes(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "data", {
+      value: (data: T[]) => this.data(data),
       enumerable: false,
       configurable: true,
       writable: true,

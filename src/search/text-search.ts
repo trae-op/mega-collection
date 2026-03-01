@@ -65,6 +65,7 @@ export interface TextSearchEngineChain<T extends CollectionItem> {
     field: keyof T & string,
     query: string,
   ): T[] & TextSearchEngineChain<T>;
+  data(data: T[]): TextSearchEngine<T>;
   clearIndexes(): TextSearchEngine<T>;
   clearData(): TextSearchEngine<T>;
 }
@@ -72,7 +73,9 @@ export interface TextSearchEngineChain<T extends CollectionItem> {
 export class TextSearchEngine<T extends CollectionItem> {
   private ngramIndexes = new Map<string, Map<string, Set<number>>>();
 
-  private data: T[] = [];
+  private dataset: T[] = [];
+
+  private readonly indexedFields = new Set<keyof T & string>();
 
   private readonly minQueryLength: number;
 
@@ -84,11 +87,21 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     if (!options.data) return;
 
-    this.data = options.data;
-    if (!options.fields?.length) return;
+    this.dataset = options.data;
+    if (options.fields?.length) {
+      for (const field of options.fields) {
+        this.indexedFields.add(field);
+      }
 
-    for (const field of options.fields) {
-      this.buildIndex(options.data, field);
+      this.rebuildConfiguredIndexes();
+    }
+  }
+
+  private rebuildConfiguredIndexes(): void {
+    this.ngramIndexes.clear();
+
+    for (const field of this.indexedFields) {
+      this.buildIndex(this.dataset, field);
     }
   }
 
@@ -105,21 +118,21 @@ export class TextSearchEngine<T extends CollectionItem> {
     let resolvedField: keyof T & string;
 
     if (!Array.isArray(dataOrField)) {
-      if (!this.data.length) {
+      if (!this.dataset.length) {
         throw new Error(
           "TextSearchEngine: no dataset in memory. " +
             "Either pass `data` in the constructor options, or call buildIndex(data, field).",
         );
       }
 
-      data = this.data;
+      data = this.dataset;
       resolvedField = dataOrField;
     } else {
       data = dataOrField;
       resolvedField = field!;
     }
 
-    this.data = data;
+    this.dataset = data;
 
     const ngramMap = new Map<string, Set<number>>();
 
@@ -188,11 +201,11 @@ export class TextSearchEngine<T extends CollectionItem> {
     const lowerQuery = this.normalizeQuery(query);
 
     if (!lowerQuery) {
-      return this.data;
+      return this.dataset;
     }
 
     if (lowerQuery.length < this.minQueryLength) {
-      return this.data;
+      return this.dataset;
     }
 
     if (!fields.length) {
@@ -229,13 +242,13 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     // empty queries should return original data
     if (!lowerQuery) {
-      return this.data;
+      return this.dataset;
     }
 
     if (lowerQuery.length < this.minQueryLength) {
       // nonempty but shorter than threshold: return all data rather than
       // an empty list
-      return this.data;
+      return this.dataset;
     }
 
     if (!this.ngramIndexes.size) {
@@ -290,7 +303,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       }
       if (!isCandidate) continue;
 
-      const candidateItem = this.data[candidateIndex];
+      const candidateItem = this.dataset[candidateIndex];
       if (!candidateItem) continue;
 
       const fieldValue = candidateItem[field];
@@ -309,12 +322,12 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Searches all fields linearly without index.
    */
   private searchAllFieldsLinear(lowerQuery: string): T[] {
-    if (!this.data.length) return [];
+    if (!this.dataset.length) return [];
 
     const matchedItems: T[] = [];
 
-    for (let itemIndex = 0; itemIndex < this.data.length; itemIndex++) {
-      const item = this.data[itemIndex];
+    for (let itemIndex = 0; itemIndex < this.dataset.length; itemIndex++) {
+      const item = this.dataset[itemIndex];
       let hasMatch = false;
 
       for (const value of Object.values(item)) {
@@ -337,15 +350,15 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Searches a specific field linearly without index.
    */
   private searchFieldLinear(field: keyof T & string, lowerQuery: string): T[] {
-    if (!this.data.length) return [];
+    if (!this.dataset.length) return [];
 
     const matchedItems: T[] = [];
 
-    for (let itemIndex = 0; itemIndex < this.data.length; itemIndex++) {
-      const fieldValue = this.data[itemIndex][field];
+    for (let itemIndex = 0; itemIndex < this.dataset.length; itemIndex++) {
+      const fieldValue = this.dataset[itemIndex][field];
       if (typeof fieldValue !== "string") continue;
       if (!fieldValue.toLowerCase().includes(lowerQuery)) continue;
-      matchedItems.push(this.data[itemIndex]);
+      matchedItems.push(this.dataset[itemIndex]);
     }
 
     return matchedItems;
@@ -371,6 +384,13 @@ export class TextSearchEngine<T extends CollectionItem> {
       writable: true,
     });
 
+    Object.defineProperty(chainResult, "data", {
+      value: (data: T[]) => this.data(data),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
     Object.defineProperty(chainResult, "clearData", {
       value: () => this.clearData(),
       enumerable: false,
@@ -386,8 +406,15 @@ export class TextSearchEngine<T extends CollectionItem> {
     return this;
   }
 
+  data(data: T[]): this {
+    this.dataset = data;
+    this.rebuildConfiguredIndexes();
+    return this;
+  }
+
   clearData(): this {
-    this.data = [];
+    this.dataset = [];
+    this.ngramIndexes.clear();
     return this;
   }
 }

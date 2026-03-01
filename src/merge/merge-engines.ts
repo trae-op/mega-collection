@@ -36,6 +36,7 @@ export interface MergeEnginesChain<T extends CollectionItem> {
   ): T[] & MergeEnginesChain<T>;
   filter(criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
+  data(data: T[]): MergeEngines<T>;
   clearIndexes(module: MergeModuleName): T[] & MergeEnginesChain<T>;
   clearData(module: MergeModuleName): T[] & MergeEnginesChain<T>;
 }
@@ -49,6 +50,10 @@ export class MergeEngines<T extends CollectionItem> {
 
   private readonly clearDataMethods: Partial<
     Record<MergeModuleName, () => unknown>
+  >;
+
+  private readonly setDataMethods: Partial<
+    Record<MergeModuleName, (data: T[]) => unknown>
   >;
 
   /**
@@ -65,6 +70,9 @@ export class MergeEngines<T extends CollectionItem> {
       {};
     const clearDataMethods: Partial<Record<MergeModuleName, () => unknown>> =
       {};
+    const setDataMethods: Partial<
+      Record<MergeModuleName, (data: T[]) => unknown>
+    > = {};
 
     for (const EngineModule of importedEngines) {
       const prototype = EngineModule.prototype;
@@ -104,6 +112,14 @@ export class MergeEngines<T extends CollectionItem> {
           moduleInstance.clearData.bind(moduleInstance);
       }
 
+      if (
+        moduleName &&
+        this.hasMethod(moduleInstance, "data") &&
+        !setDataMethods[moduleName]
+      ) {
+        setDataMethods[moduleName] = moduleInstance.data.bind(moduleInstance);
+      }
+
       for (const methodName of prototypeMethodNames) {
         if (engine[methodName]) {
           continue;
@@ -120,6 +136,7 @@ export class MergeEngines<T extends CollectionItem> {
     this.engine = Object.keys(engine).length > 0 ? engine : null;
     this.clearIndexMethods = clearIndexMethods;
     this.clearDataMethods = clearDataMethods;
+    this.setDataMethods = setDataMethods;
   }
 
   private getModuleName(methodNames: string[]): MergeModuleName | null {
@@ -376,6 +393,13 @@ export class MergeEngines<T extends CollectionItem> {
       writable: true,
     });
 
+    Object.defineProperty(chainResult, "data", {
+      value: (data: T[]) => this.data(data),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
     return chainResult;
   }
 
@@ -397,6 +421,18 @@ export class MergeEngines<T extends CollectionItem> {
       `MergeEngines: ${moduleToEngine[module]} is not available. ` +
         `Add ${moduleToEngine[module]} to the \`imports\` array.`,
     );
+  }
+
+  data(data: T[]): this {
+    const moduleNames: MergeModuleName[] = ["search", "sort", "filter"];
+
+    for (const moduleName of moduleNames) {
+      const setDataMethod = this.setDataMethods[moduleName];
+      if (!setDataMethod) continue;
+      setDataMethod(data);
+    }
+
+    return this;
   }
 
   clearData(module: MergeModuleName): this {
