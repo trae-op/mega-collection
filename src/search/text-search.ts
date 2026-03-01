@@ -330,7 +330,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     return matchedItems;
   }
 
-  clear(): void {
+  clearIndexes(): void {
     this.ngramIndexes.clear();
     this.data = [];
   }

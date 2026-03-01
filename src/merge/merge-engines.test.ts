@@ -86,4 +86,41 @@ describe("MergeEngines", () => {
         }),
     ).not.toThrow();
   });
+
+  it("clearIndexes() clears indexes for selected module", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: users,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    expect(merge.search("Alice")).toHaveLength(1);
+    merge.clearIndexes("search");
+    expect(merge.search("Alice")).toEqual([]);
+
+    expect(() => merge.clearIndexes("sort")).not.toThrow();
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((u) => u.id),
+    ).toEqual([1, 4, 2, 3, 5]);
+
+    expect(() => merge.clearIndexes("filter")).not.toThrow();
+    expect(merge.filter([{ field: "city", values: ["Kyiv"] }])).toHaveLength(2);
+  });
+
+  it("clearIndexes() throws when selected module was not imported", () => {
+    const searchOnly = new MergeEngines<User>({
+      imports: [TextSearchEngine],
+      data: users,
+      search: { fields: ["name"] },
+    });
+
+    expect(() => searchOnly.clearIndexes("sort")).toThrow(
+      "SortEngine is not available",
+    );
+    expect(() => searchOnly.clearIndexes("filter")).toThrow(
+      "FilterEngine is not available",
+    );
+  });
 });

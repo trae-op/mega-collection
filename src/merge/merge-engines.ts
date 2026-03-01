@@ -5,6 +5,8 @@
 
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
 
+type MergeModuleName = "search" | "sort" | "filter";
+
 export interface EngineConstructor {
   new (options: Record<string, unknown>): object;
   prototype: object;
@@ -26,6 +28,10 @@ export interface MergeEnginesOptions<T extends CollectionItem> {
 export class MergeEngines<T extends CollectionItem> {
   private readonly engine: EngineApi | null;
 
+  private readonly clearIndexMethods: Partial<
+    Record<MergeModuleName, () => void>
+  >;
+
   /**
    * Creates a new MergeEngines instance with the given options.
    * Collects all modules from imports.
@@ -36,6 +42,7 @@ export class MergeEngines<T extends CollectionItem> {
     const importedEngines = new Set<EngineConstructor>(imports);
 
     const engine: EngineApi = {};
+    const clearIndexMethods: Partial<Record<MergeModuleName, () => void>> = {};
 
     for (const EngineModule of importedEngines) {
       const prototype = EngineModule.prototype;
@@ -56,6 +63,16 @@ export class MergeEngines<T extends CollectionItem> {
         ...currentModuleOptions,
       });
 
+      const moduleName = this.getModuleName(prototypeMethodNames);
+      if (
+        moduleName &&
+        this.hasMethod(moduleInstance, "clearIndexes") &&
+        !clearIndexMethods[moduleName]
+      ) {
+        clearIndexMethods[moduleName] =
+          moduleInstance.clearIndexes.bind(moduleInstance);
+      }
+
       for (const methodName of prototypeMethodNames) {
         if (engine[methodName]) {
           continue;
@@ -70,6 +87,23 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     this.engine = Object.keys(engine).length > 0 ? engine : null;
+    this.clearIndexMethods = clearIndexMethods;
+  }
+
+  private getModuleName(methodNames: string[]): MergeModuleName | null {
+    if (methodNames.includes("search")) {
+      return "search";
+    }
+
+    if (methodNames.includes("sort")) {
+      return "sort";
+    }
+
+    if (methodNames.includes("filter")) {
+      return "filter";
+    }
+
+    return null;
   }
 
   /**
@@ -222,5 +256,25 @@ export class MergeEngines<T extends CollectionItem> {
       dataOrCriteria as T[],
       criteria,
     ]);
+  }
+
+  clearIndexes(module: MergeModuleName): void {
+    const clearMethod = this.clearIndexMethods[module];
+
+    if (clearMethod) {
+      clearMethod();
+      return;
+    }
+
+    const moduleToEngine = {
+      search: "TextSearchEngine",
+      sort: "SortEngine",
+      filter: "FilterEngine",
+    } as const;
+
+    throw new Error(
+      `MergeEngines: ${moduleToEngine[module]} is not available. ` +
+        `Add ${moduleToEngine[module]} to the \`imports\` array.`,
+    );
   }
 }

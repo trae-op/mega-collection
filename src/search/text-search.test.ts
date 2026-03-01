@@ -91,12 +91,12 @@ describe("TextSearchEngine", () => {
     expect(engine.search("city", "dni")).toHaveLength(1);
   });
 
-  it("clear removes all indexes; hasIndex returns false afterwards", () => {
+  it("clearIndexes removes all indexes", () => {
     const engine = new TextSearchEngine<CardItem>({
       data: cityCards,
       fields: ["city"],
     });
-    engine.clear();
+    engine.clearIndexes();
 
     expect(engine.search("Kyiv")).toEqual([]);
   });

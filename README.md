@@ -109,6 +109,11 @@ const engine = new MergeEngines<User>({
 engine.search("john");
 engine.sort([{ field: "age", direction: "asc" }]);
 engine.filter([{ field: "city", values: ["Miami", "New York"] }]);
+
+// clear indexes for one module
+engine.clearIndexes("search");
+engine.clearIndexes("sort");
+engine.clearIndexes("filter");
 ```
 
 ---
@@ -210,14 +215,15 @@ Unified facade that composes all three engines around a shared dataset.
 
 **Methods:**
 
-| Method                              | Description                     |
-| ----------------------------------- | ------------------------------- |
-| `search(query)`                     | Search all indexed fields       |
-| `search(field, query)`              | Search a specific field         |
-| `sort(descriptors)`                 | Sort using stored dataset       |
-| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset   |
-| `filter(criteria)`                  | Filter using stored dataset     |
-| `filter(data, criteria)`            | Filter with an explicit dataset |
+| Method                              | Description                                                     |
+| ----------------------------------- | --------------------------------------------------------------- |
+| `search(query)`                     | Search all indexed fields                                       |
+| `search(field, query)`              | Search a specific field                                         |
+| `sort(descriptors)`                 | Sort using stored dataset                                       |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                   |
+| `filter(criteria)`                  | Filter using stored dataset                                     |
+| `filter(data, criteria)`            | Filter with an explicit dataset                                 |
+| `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`) |
 
 ---
 
@@ -229,7 +235,7 @@ Trigram-based text search engine.
 | ---------------------- | --------------------------------------- |
 | `search(query)`        | Search all indexed fields, deduplicated |
 | `search(field, query)` | Search a specific indexed field         |
-| `clear()`              | Free memory                             |
+| `clearIndexes()`       | Free memory                             |
 
 ### `FilterEngine<T>` (filter module)
 
