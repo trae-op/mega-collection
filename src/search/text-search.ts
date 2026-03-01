@@ -170,7 +170,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     const lowerQuery = this.normalizeQuery(query);
 
     if (!lowerQuery) {
-      return [];
+      return this.data;
     }
 
     if (lowerQuery.length < this.minQueryLength) {
@@ -209,9 +209,9 @@ export class TextSearchEngine<T extends CollectionItem> {
   private searchField(field: keyof T & string, query: string): T[] {
     const lowerQuery = this.normalizeQuery(query);
 
-    // empty queries should yield no results
+    // empty queries should return original data
     if (!lowerQuery) {
-      return [];
+      return this.data;
     }
 
     if (lowerQuery.length < this.minQueryLength) {

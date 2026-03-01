@@ -59,14 +59,14 @@ describe("TextSearchEngine", () => {
     );
   });
 
-  it("returns empty for empty/blank query and for absent gram", () => {
+  it("returns original data for empty/blank query and empty for absent gram", () => {
     const engine = new TextSearchEngine<CardItem>({
       data: cityCards,
       fields: ["city"],
     });
 
-    expect(engine.search("city", "")).toEqual([]);
-    expect(engine.search("city", "   ")).toEqual([]);
+    expect(engine.search("city", "")).toEqual(cityCards);
+    expect(engine.search("city", "   ")).toEqual(cityCards);
     expect(engine.search("city", "zzz")).toEqual([]);
   });
 

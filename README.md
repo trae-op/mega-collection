@@ -107,7 +107,7 @@ const engine = new TextSearchEngine<User>({
 // A one‑character search usually matches most of the dataset, so avoiding
 // extra work makes typing feel snappier. Once the query reaches the
 // threshold the indexed search kicks in and performance improves
-// dramatically. Empty/blank queries still return an empty array.
+// dramatically. Empty/blank queries return the original dataset.
 
 engine.search("john"); // searches all indexed fields, deduplicated
 engine.search("name", "john"); // searches a specific field
