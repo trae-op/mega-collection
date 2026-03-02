@@ -82,6 +82,22 @@ describe("SortEngine", () => {
     ).toEqual([11, 10, 12]);
   });
 
+  it("getOriginData returns stored dataset", () => {
+    const engine = new SortEngine<User>({ data: users, fields: ["age"] });
+
+    expect(engine.getOriginData()).toBe(users);
+
+    const nextUsers: User[] = [
+      { id: 20, name: "Lia", city: "Berlin", age: 28 },
+    ];
+
+    engine.data(nextUsers);
+    expect(engine.getOriginData()).toBe(nextUsers);
+
+    engine.clearData();
+    expect(engine.getOriginData()).toEqual([]);
+  });
+
   describe("buildIndex (cached fast path)", () => {
     it("sorts asc/desc via cached index", () => {
       const engine = new SortEngine<User>({ data: users, fields: ["age"] });

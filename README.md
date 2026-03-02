@@ -124,6 +124,9 @@ engine.data([
 // clear indexes/data for one module
 engine.clearIndexes("search").clearIndexes("sort").clearIndexes("filter");
 engine.clearData("search").clearData("sort").clearData("filter");
+
+// get original dataset from a specific module
+engine.getOriginData("search"); // "search" | "sort" | "filter"
 ```
 
 ---
@@ -155,6 +158,9 @@ engine.search("name", "john"); // searches a specific field
 // replace dataset without re-initializing
 engine.data(users);
 
+// access original dataset stored in the engine
+engine.getOriginData();
+
 // chain support
 engine.search("john").clearIndexes().clearData();
 ```
@@ -181,6 +187,9 @@ engine.filter([
 
 // replace dataset without re-initializing
 engine.data(users);
+
+// access original dataset stored in the engine
+engine.getOriginData();
 
 engine
   .filter([{ field: "city", values: ["Miami", "New York"] }])
@@ -216,6 +225,9 @@ engine.sort([{ field: "age", direction: "asc" }]);
 
 // replace dataset without re-initializing
 engine.data(users);
+
+// access original dataset stored in the engine
+engine.getOriginData();
 
 // chain support
 engine
@@ -259,6 +271,7 @@ Unified facade that composes all three engines around a shared dataset.
 | `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                                                                              |
 | `filter(criteria)`                  | Filter using stored dataset                                                                                                |
 | `filter(data, criteria)`            | Filter with an explicit dataset                                                                                            |
+| `getOriginData(module)`             | Get the original dataset from one module (`"search"`, `"sort"`, `"filter"`)                                                |
 | `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
 | `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`)                                                        |
@@ -273,6 +286,7 @@ Trigram-based text search engine.
 | ---------------------- | ----------------------------------------------------- |
 | `search(query)`        | Search all indexed fields, deduplicated               |
 | `search(field, query)` | Search a specific indexed field                       |
+| `getOriginData()`      | Get the original stored dataset                       |
 | `data(data)`           | Replace stored dataset and rebuild configured indexes |
 | `clearIndexes()`       | Clear n-gram indexes                                  |
 | `clearData()`          | Clear stored data                                     |
@@ -291,6 +305,7 @@ Constructor option highlights:
 | ------------------------ | -------------------------------------------------------------------------- |
 | `filter(criteria)`       | Filter using stored dataset                                                |
 | `filter(data, criteria)` | Filter with an explicit dataset                                            |
+| `getOriginData()`        | Get the original stored dataset                                            |
 | `data(data)`             | Replace stored dataset, rebuild configured indexes, and reset filter state |
 | `resetFilterState()`     | Reset previous-result state for sequential filtering                       |
 | `clearIndexes()`         | Free all index memory                                                      |
@@ -304,6 +319,7 @@ Sorting with pre-compiled comparators and cached sort indexes.
 | ----------------------------------- | ----------------------------------------------------- |
 | `sort(descriptors)`                 | Sort using stored dataset                             |
 | `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                         |
+| `getOriginData()`                   | Get the original stored dataset                       |
 | `data(data)`                        | Replace stored dataset and rebuild configured indexes |
 | `clearIndexes()`                    | Free all cached indexes                               |
 | `clearData()`                       | Clear stored data                                     |

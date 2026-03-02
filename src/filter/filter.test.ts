@@ -103,6 +103,25 @@ describe("FilterEngine", () => {
     expect(engine.filter([{ field: "city", values: ["Kyiv"] }])).toEqual([]);
   });
 
+  it("getOriginData returns stored dataset", () => {
+    const engine = new FilterEngine<User>({
+      data: users,
+      fields: ["city", "age"],
+    });
+
+    expect(engine.getOriginData()).toBe(users);
+
+    const nextUsers: User[] = [
+      { id: 20, name: "Lia", city: "Berlin", age: 28, active: true },
+    ];
+
+    engine.data(nextUsers);
+    expect(engine.getOriginData()).toBe(nextUsers);
+
+    engine.clearData();
+    expect(engine.getOriginData()).toEqual([]);
+  });
+
   describe("filterByPreviousResult (sequential mode)", () => {
     let engine: FilterEngine<User>;
 

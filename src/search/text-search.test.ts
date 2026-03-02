@@ -111,6 +111,31 @@ describe("TextSearchEngine", () => {
     expect(engine.search("Kyiv")).toEqual([]);
   });
 
+  it("getOriginData returns stored dataset", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city"],
+    });
+
+    expect(engine.getOriginData()).toBe(cityCards);
+
+    const nextCards: CardItem[] = [
+      {
+        id: 99,
+        title: "Nina 2",
+        description: "User from Paris",
+        tag: "Even",
+        city: "Paris",
+      },
+    ];
+
+    engine.data(nextCards);
+    expect(engine.getOriginData()).toBe(nextCards);
+
+    engine.clearData();
+    expect(engine.getOriginData()).toEqual([]);
+  });
+
   it("data() replaces stored dataset without re-initializing engine", () => {
     const engine = new TextSearchEngine<CardItem>({
       data: cityCards,

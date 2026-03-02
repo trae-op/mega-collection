@@ -25,6 +25,7 @@ export interface SortEngineChain<T extends CollectionItem> {
     descriptors: SortDescriptor<T>[],
     inPlace?: boolean,
   ): T[] & SortEngineChain<T>;
+  getOriginData(): T[];
   data(data: T[]): SortEngine<T>;
   clearIndexes(): SortEngine<T>;
   clearData(): SortEngine<T>;
@@ -138,6 +139,10 @@ export class SortEngine<T extends CollectionItem> {
     return this;
   }
 
+  getOriginData(): T[] {
+    return this.dataset;
+  }
+
   /**
    * Sorts the data based on the given descriptors.
    */
@@ -244,6 +249,13 @@ export class SortEngine<T extends CollectionItem> {
 
     Object.defineProperty(chainResult, "data", {
       value: (data: T[]) => this.data(data),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "getOriginData", {
+      value: () => this.getOriginData(),
       enumerable: false,
       configurable: true,
       writable: true,

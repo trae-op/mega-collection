@@ -19,6 +19,7 @@ export interface FilterEngineOptions<
 export interface FilterEngineChain<T extends CollectionItem> {
   filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
+  getOriginData(): T[];
   data(data: T[]): FilterEngine<T>;
   clearIndexes(): FilterEngine<T>;
   clearData(): FilterEngine<T>;
@@ -118,6 +119,10 @@ export class FilterEngine<T extends CollectionItem> {
     this.resetFilterState();
     this.rebuildConfiguredIndexes();
     return this;
+  }
+
+  getOriginData(): T[] {
+    return this.dataset;
   }
 
   /**
@@ -312,6 +317,13 @@ export class FilterEngine<T extends CollectionItem> {
 
     Object.defineProperty(chainResult, "data", {
       value: (data: T[]) => this.data(data),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
+    Object.defineProperty(chainResult, "getOriginData", {
+      value: () => this.getOriginData(),
       enumerable: false,
       configurable: true,
       writable: true,

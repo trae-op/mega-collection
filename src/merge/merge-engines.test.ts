@@ -209,4 +209,44 @@ describe("MergeEngines", () => {
         .map((user) => user.id),
     ).toEqual([11]);
   });
+
+  it("getOriginData() returns origin dataset for each imported module", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: users,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    expect(merge.getOriginData("search")).toBe(users);
+    expect(merge.getOriginData("sort")).toBe(users);
+    expect(merge.getOriginData("filter")).toBe(users);
+
+    const nextUsers: User[] = [
+      { id: 10, name: "Tim", city: "New-York", age: 30 },
+      { id: 11, name: "Mona", city: "Miami", age: 22 },
+    ];
+
+    merge.data(nextUsers);
+
+    expect(merge.getOriginData("search")).toBe(nextUsers);
+    expect(merge.getOriginData("sort")).toBe(nextUsers);
+    expect(merge.getOriginData("filter")).toBe(nextUsers);
+  });
+
+  it("getOriginData() throws when selected module was not imported", () => {
+    const searchOnly = new MergeEngines<User>({
+      imports: [TextSearchEngine],
+      data: users,
+      search: { fields: ["name"] },
+    });
+
+    expect(() => searchOnly.getOriginData("sort")).toThrow(
+      "SortEngine is not available",
+    );
+    expect(() => searchOnly.getOriginData("filter")).toThrow(
+      "FilterEngine is not available",
+    );
+  });
 });

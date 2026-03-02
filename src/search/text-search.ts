@@ -65,6 +65,7 @@ export interface TextSearchEngineChain<T extends CollectionItem> {
     field: keyof T & string,
     query: string,
   ): T[] & TextSearchEngineChain<T>;
+  getOriginData(): T[];
   data(data: T[]): TextSearchEngine<T>;
   clearIndexes(): TextSearchEngine<T>;
   clearData(): TextSearchEngine<T>;
@@ -384,6 +385,13 @@ export class TextSearchEngine<T extends CollectionItem> {
       writable: true,
     });
 
+    Object.defineProperty(chainResult, "getOriginData", {
+      value: () => this.getOriginData(),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
     Object.defineProperty(chainResult, "data", {
       value: (data: T[]) => this.data(data),
       enumerable: false,
@@ -404,6 +412,10 @@ export class TextSearchEngine<T extends CollectionItem> {
   clearIndexes(): this {
     this.ngramIndexes.clear();
     return this;
+  }
+
+  getOriginData(): T[] {
+    return this.dataset;
   }
 
   data(data: T[]): this {

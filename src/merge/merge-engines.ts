@@ -36,6 +36,7 @@ export interface MergeEnginesChain<T extends CollectionItem> {
   ): T[] & MergeEnginesChain<T>;
   filter(criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
+  getOriginData(module: MergeModuleName): T[];
   data(data: T[]): MergeEngines<T>;
   clearIndexes(module: MergeModuleName): T[] & MergeEnginesChain<T>;
   clearData(module: MergeModuleName): T[] & MergeEnginesChain<T>;
@@ -56,6 +57,10 @@ export class MergeEngines<T extends CollectionItem> {
     Record<MergeModuleName, (data: T[]) => unknown>
   >;
 
+  private readonly getOriginDataMethods: Partial<
+    Record<MergeModuleName, () => T[]>
+  >;
+
   /**
    * Creates a new MergeEngines instance with the given options.
    * Collects all modules from imports.
@@ -73,6 +78,8 @@ export class MergeEngines<T extends CollectionItem> {
     const setDataMethods: Partial<
       Record<MergeModuleName, (data: T[]) => unknown>
     > = {};
+    const getOriginDataMethods: Partial<Record<MergeModuleName, () => T[]>> =
+      {};
 
     for (const EngineModule of importedEngines) {
       const prototype = EngineModule.prototype;
@@ -120,6 +127,16 @@ export class MergeEngines<T extends CollectionItem> {
         setDataMethods[moduleName] = moduleInstance.data.bind(moduleInstance);
       }
 
+      if (
+        moduleName &&
+        this.hasMethod(moduleInstance, "getOriginData") &&
+        !getOriginDataMethods[moduleName]
+      ) {
+        getOriginDataMethods[moduleName] = moduleInstance.getOriginData.bind(
+          moduleInstance,
+        ) as () => T[];
+      }
+
       for (const methodName of prototypeMethodNames) {
         if (engine[methodName]) {
           continue;
@@ -137,6 +154,7 @@ export class MergeEngines<T extends CollectionItem> {
     this.clearIndexMethods = clearIndexMethods;
     this.clearDataMethods = clearDataMethods;
     this.setDataMethods = setDataMethods;
+    this.getOriginDataMethods = getOriginDataMethods;
   }
 
   private getModuleName(methodNames: string[]): MergeModuleName | null {
@@ -400,7 +418,33 @@ export class MergeEngines<T extends CollectionItem> {
       writable: true,
     });
 
+    Object.defineProperty(chainResult, "getOriginData", {
+      value: (module: MergeModuleName) => this.getOriginData(module),
+      enumerable: false,
+      configurable: true,
+      writable: true,
+    });
+
     return chainResult;
+  }
+
+  getOriginData(module: MergeModuleName): T[] {
+    const getOriginDataMethod = this.getOriginDataMethods[module];
+
+    if (getOriginDataMethod) {
+      return getOriginDataMethod();
+    }
+
+    const moduleToEngine = {
+      search: "TextSearchEngine",
+      sort: "SortEngine",
+      filter: "FilterEngine",
+    } as const;
+
+    throw new Error(
+      `MergeEngines: ${moduleToEngine[module]} is not available. ` +
+        `Add ${moduleToEngine[module]} to the \`imports\` array.`,
+    );
   }
 
   clearIndexes(module: MergeModuleName): this {
