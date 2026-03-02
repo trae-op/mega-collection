@@ -125,8 +125,8 @@ engine.data([
 engine.clearIndexes("search").clearIndexes("sort").clearIndexes("filter");
 engine.clearData("search").clearData("sort").clearData("filter");
 
-// get original dataset from a specific module
-engine.getOriginData("search"); // "search" | "sort" | "filter"
+// get shared original dataset
+engine.getOriginData();
 ```
 
 ---
@@ -271,7 +271,7 @@ Unified facade that composes all three engines around a shared dataset.
 | `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                                                                              |
 | `filter(criteria)`                  | Filter using stored dataset                                                                                                |
 | `filter(data, criteria)`            | Filter with an explicit dataset                                                                                            |
-| `getOriginData(module)`             | Get the original dataset from one module (`"search"`, `"sort"`, `"filter"`)                                                |
+| `getOriginData()`                   | Get the shared original dataset                                                                                            |
 | `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
 | `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`)                                                        |
