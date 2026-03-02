@@ -251,17 +251,17 @@ Unified facade that composes all three engines around a shared dataset.
 
 **Methods:**
 
-| Method                              | Description                                                         |
-| ----------------------------------- | ------------------------------------------------------------------- |
-| `search(query)`                     | Search all indexed fields                                           |
-| `search(field, query)`              | Search a specific field                                             |
-| `sort(descriptors)`                 | Sort using stored dataset                                           |
-| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                       |
-| `filter(criteria)`                  | Filter using stored dataset                                         |
-| `filter(data, criteria)`            | Filter with an explicit dataset                                     |
-| `data(data)`                        | Replace stored dataset for all imported modules                     |
-| `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)     |
-| `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`) |
+| Method                              | Description                                                                                                                |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `search(query)`                     | Search all indexed fields                                                                                                  |
+| `search(field, query)`              | Search a specific field                                                                                                    |
+| `sort(descriptors)`                 | Sort using stored dataset                                                                                                  |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                                                                              |
+| `filter(criteria)`                  | Filter using stored dataset                                                                                                |
+| `filter(data, criteria)`            | Filter with an explicit dataset                                                                                            |
+| `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
+| `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
+| `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`)                                                        |
 
 ---
 
@@ -269,13 +269,13 @@ Unified facade that composes all three engines around a shared dataset.
 
 Trigram-based text search engine.
 
-| Method                 | Description                             |
-| ---------------------- | --------------------------------------- |
-| `search(query)`        | Search all indexed fields, deduplicated |
-| `search(field, query)` | Search a specific indexed field         |
-| `data(data)`           | Replace stored dataset                  |
-| `clearIndexes()`       | Clear n-gram indexes                    |
-| `clearData()`          | Clear stored data                       |
+| Method                 | Description                                           |
+| ---------------------- | ----------------------------------------------------- |
+| `search(query)`        | Search all indexed fields, deduplicated               |
+| `search(field, query)` | Search a specific indexed field                       |
+| `data(data)`           | Replace stored dataset and rebuild configured indexes |
+| `clearIndexes()`       | Clear n-gram indexes                                  |
+| `clearData()`          | Clear stored data                                     |
 
 ### `FilterEngine<T>` (filter module)
 
@@ -287,28 +287,30 @@ Constructor option highlights:
 | ------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `filterByPreviousResult` | `boolean` | When `true`, each `filter(criteria)` call filters from previous result. Defaults to `false` (each call starts from the original dataset). |
 
-| Method                   | Description                                          |
-| ------------------------ | ---------------------------------------------------- |
-| `filter(criteria)`       | Filter using stored dataset                          |
-| `filter(data, criteria)` | Filter with an explicit dataset                      |
-| `data(data)`             | Replace stored dataset                               |
-| `resetFilterState()`     | Reset previous-result state for sequential filtering |
-| `clearIndexes()`         | Free all index memory                                |
-| `clearData()`            | Clear stored data                                    |
+| Method                   | Description                                                                |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `filter(criteria)`       | Filter using stored dataset                                                |
+| `filter(data, criteria)` | Filter with an explicit dataset                                            |
+| `data(data)`             | Replace stored dataset, rebuild configured indexes, and reset filter state |
+| `resetFilterState()`     | Reset previous-result state for sequential filtering                       |
+| `clearIndexes()`         | Free all index memory                                                      |
+| `clearData()`            | Clear stored data                                                          |
 
 ### `SortEngine<T>` (sort module)
 
 Sorting with pre-compiled comparators and cached sort indexes.
 
-| Method                              | Description                   |
-| ----------------------------------- | ----------------------------- |
-| `sort(descriptors)`                 | Sort using stored dataset     |
-| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset |
-| `data(data)`                        | Replace stored dataset        |
-| `clearIndexes()`                    | Free all cached indexes       |
-| `clearData()`                       | Clear stored data             |
+| Method                              | Description                                           |
+| ----------------------------------- | ----------------------------------------------------- |
+| `sort(descriptors)`                 | Sort using stored dataset                             |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                         |
+| `data(data)`                        | Replace stored dataset and rebuild configured indexes |
+| `clearIndexes()`                    | Free all cached indexes                               |
+| `clearData()`                       | Clear stored data                                     |
 
 ---
+
+**Note on `data` method:** Calling the `data` method automatically rebuilds configured indexes and resets any internal state (such as filter state in FilterEngine), so it is sufficient on its own without needing to call `clearIndexes` separately.
 
 ## Types
 
