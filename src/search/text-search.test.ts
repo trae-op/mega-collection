@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { TextSearchEngineError } from "./errors";
 import { TextSearchEngine } from "./text-search";
 
 type CardItem = {
@@ -171,6 +172,17 @@ describe("TextSearchEngine", () => {
 
     expect(() => engine.search("ky").clearIndexes().clearData()).not.toThrow();
     expect(engine.search("Kyiv")).toEqual([]);
+  });
+
+  it("returns module-specific errors when build-backed calls have no dataset", () => {
+    const engine = new TextSearchEngine<CardItem>();
+
+    expect(() =>
+      (engine as TextSearchEngine<CardItem>).search("Kyiv"),
+    ).not.toThrow();
+    expect(() => (engine as any).buildIndex("city")).toThrowError(
+      TextSearchEngineError,
+    );
   });
 
   it("search(query) searches all fields and deduplicates matches", () => {

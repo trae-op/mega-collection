@@ -4,6 +4,8 @@
  */
 
 import { CollectionItem, SortDescriptor, SortDirection } from "../types";
+import { SortEngineChain, SortEngineChainBuilder } from "./chain";
+import { SortEngineError } from "./errors";
 
 interface SortIndex<T> {
   indexes: Uint32Array;
@@ -18,25 +20,26 @@ export interface SortEngineOptions<T extends CollectionItem = CollectionItem> {
   fields?: (keyof T & string)[];
 }
 
-export interface SortEngineChain<T extends CollectionItem> {
-  sort(descriptors: SortDescriptor<T>[]): T[] & SortEngineChain<T>;
-  sort(
-    data: T[],
-    descriptors: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ): T[] & SortEngineChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): SortEngine<T>;
-  clearIndexes(): SortEngine<T>;
-  clearData(): SortEngine<T>;
-}
-
 export class SortEngine<T extends CollectionItem> {
   private cache = new Map<string, SortIndex<T>>();
 
   private dataset: T[] = [];
 
   private readonly indexedFields = new Set<keyof T & string>();
+
+  private readonly chainBuilder = new SortEngineChainBuilder<T>({
+    sort: (dataOrDescriptors, descriptors, inPlace) => {
+      if (descriptors === undefined) {
+        return this.sort(dataOrDescriptors as SortDescriptor<T>[]);
+      }
+
+      return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
+    },
+    getOriginData: () => this.getOriginData(),
+    data: (data) => this.data(data),
+    clearIndexes: () => this.clearIndexes(),
+    clearData: () => this.clearData(),
+  });
 
   /**
    * Creates a new SortEngine with optional data and fields to index.
@@ -76,10 +79,7 @@ export class SortEngine<T extends CollectionItem> {
 
     if (!Array.isArray(dataOrField)) {
       if (!this.dataset.length) {
-        throw new Error(
-          "SortEngine: no dataset in memory. " +
-            "Either pass `data` in the constructor options, or call buildIndex(data, field).",
-        );
+        throw SortEngineError.missingDatasetForBuildIndex();
       }
 
       data = this.dataset;
@@ -162,10 +162,7 @@ export class SortEngine<T extends CollectionItem> {
 
     if (descriptors === undefined) {
       if (!this.dataset.length) {
-        throw new Error(
-          "SortEngine: no dataset in memory. " +
-            "Either pass `data` in the constructor options, or call sort(data, descriptors).",
-        );
+        throw SortEngineError.missingDatasetForSort();
       }
 
       data = this.dataset;
@@ -217,58 +214,7 @@ export class SortEngine<T extends CollectionItem> {
   }
 
   private withChain(result: T[]): T[] & SortEngineChain<T> {
-    const chainResult = result as T[] & SortEngineChain<T>;
-
-    Object.defineProperty(chainResult, "sort", {
-      value: (
-        dataOrDescriptors: T[] | SortDescriptor<T>[],
-        descriptors?: SortDescriptor<T>[],
-        inPlace = false,
-      ) => {
-        if (descriptors === undefined) {
-          return this.sort(
-            result,
-            dataOrDescriptors as SortDescriptor<T>[],
-            inPlace,
-          );
-        }
-
-        return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
-      },
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearIndexes", {
-      value: () => this.clearIndexes(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "data", {
-      value: (data: T[]) => this.data(data),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "getOriginData", {
-      value: () => this.getOriginData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearData", {
-      value: () => this.clearData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    return chainResult;
+    return this.chainBuilder.create(result);
   }
 
   /**

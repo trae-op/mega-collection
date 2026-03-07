@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { SortEngineError } from "./errors";
 import { SortEngine } from "./sorter";
 
 type User = {
@@ -61,6 +62,9 @@ describe("SortEngine", () => {
     ).toEqual([2, 3, 1, 4]);
 
     const empty = new SortEngine<User>();
+    expect(() => empty.sort([{ field: "age", direction: "asc" }])).toThrowError(
+      SortEngineError,
+    );
     expect(() => empty.sort([{ field: "age", direction: "asc" }])).toThrow(
       "no dataset in memory",
     );

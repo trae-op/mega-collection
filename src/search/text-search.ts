@@ -4,6 +4,8 @@
  */
 
 import { CollectionItem } from "../types";
+import { TextSearchEngineChain, TextSearchEngineChainBuilder } from "./chain";
+import { TextSearchEngineError } from "./errors";
 
 const MAXIMUM_NGRAM_LENGTH = 3;
 const MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION = 12;
@@ -61,18 +63,6 @@ export interface TextSearchEngineOptions<
   minQueryLength?: number;
 }
 
-export interface TextSearchEngineChain<T extends CollectionItem> {
-  search(query: string): T[] & TextSearchEngineChain<T>;
-  search(
-    field: (keyof T & string) | (string & {}),
-    query: string,
-  ): T[] & TextSearchEngineChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): TextSearchEngine<T>;
-  clearIndexes(): TextSearchEngine<T>;
-  clearData(): TextSearchEngine<T>;
-}
-
 type NestedFieldDescriptor = {
   collectionKey: string;
   nestedKey: string;
@@ -95,6 +85,20 @@ export class TextSearchEngine<T extends CollectionItem> {
   >();
 
   private readonly minQueryLength: number;
+
+  private readonly chainBuilder = new TextSearchEngineChainBuilder<T>({
+    search: (fieldOrQuery, maybeQuery) => {
+      if (maybeQuery === undefined) {
+        return this.search(fieldOrQuery);
+      }
+
+      return this.search(fieldOrQuery as keyof T & string, maybeQuery);
+    },
+    getOriginData: () => this.getOriginData(),
+    data: (data) => this.data(data),
+    clearIndexes: () => this.clearIndexes(),
+    clearData: () => this.clearData(),
+  });
 
   /**
    * Creates a new TextSearchEngine with optional data and fields to index.
@@ -153,10 +157,7 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     if (!Array.isArray(dataOrField)) {
       if (!this.dataset.length) {
-        throw new Error(
-          "TextSearchEngine: no dataset in memory. " +
-            "Either pass `data` in the constructor options, or call buildIndex(data, field).",
-        );
+        throw TextSearchEngineError.missingDatasetForBuildIndex();
       }
 
       data = this.dataset;
@@ -427,47 +428,7 @@ export class TextSearchEngine<T extends CollectionItem> {
   }
 
   private withChain(result: T[]): T[] & TextSearchEngineChain<T> {
-    const chainResult = result as T[] & TextSearchEngineChain<T>;
-
-    Object.defineProperty(chainResult, "search", {
-      value: (fieldOrQuery: string, maybeQuery?: string) =>
-        maybeQuery === undefined
-          ? this.search(fieldOrQuery)
-          : this.search(fieldOrQuery as keyof T & string, maybeQuery),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearIndexes", {
-      value: () => this.clearIndexes(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "getOriginData", {
-      value: () => this.getOriginData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "data", {
-      value: (data: T[]) => this.data(data),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearData", {
-      value: () => this.clearData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    return chainResult;
+    return this.chainBuilder.create(result);
   }
 
   clearIndexes(): this {

@@ -4,8 +4,12 @@
  */
 
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
-
-type MergeModuleName = "search" | "sort" | "filter";
+import {
+  MergeEnginesChain,
+  MergeEnginesChainBuilder,
+  MergeModuleName,
+} from "./chain";
+import { MergeEnginesError } from "./errors";
 
 export interface EngineConstructor {
   new (options: Record<string, unknown>): object;
@@ -25,23 +29,6 @@ export interface MergeEnginesOptions<T extends CollectionItem> {
   [key: string]: unknown;
 }
 
-export interface MergeEnginesChain<T extends CollectionItem> {
-  search(query: string): T[] & MergeEnginesChain<T>;
-  search(field: keyof T & string, query: string): T[] & MergeEnginesChain<T>;
-  sort(descriptors: SortDescriptor<T>[]): T[] & MergeEnginesChain<T>;
-  sort(
-    data: T[],
-    descriptors: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ): T[] & MergeEnginesChain<T>;
-  filter(criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
-  filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): MergeEngines<T>;
-  clearIndexes(module: MergeModuleName): T[] & MergeEnginesChain<T>;
-  clearData(module: MergeModuleName): T[] & MergeEnginesChain<T>;
-}
-
 export class MergeEngines<T extends CollectionItem> {
   private readonly engine: EngineApi | null;
 
@@ -58,6 +45,37 @@ export class MergeEngines<T extends CollectionItem> {
   >;
 
   private readonly getOriginDataMethod: (() => T[]) | null;
+
+  private readonly chainBuilder = new MergeEnginesChainBuilder<T>({
+    search: (fieldOrQuery, maybeQuery) => {
+      if (maybeQuery === undefined) {
+        return this.search(fieldOrQuery);
+      }
+
+      return this.search(
+        fieldOrQuery as (keyof T & string) | (string & {}),
+        maybeQuery,
+      );
+    },
+    sort: (dataOrDescriptors, descriptors, inPlace) => {
+      if (descriptors === undefined) {
+        return this.sort(dataOrDescriptors as SortDescriptor<T>[]);
+      }
+
+      return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
+    },
+    filter: (dataOrCriteria, criteria) => {
+      if (criteria === undefined) {
+        return this.filter(dataOrCriteria as FilterCriterion<T>[]);
+      }
+
+      return this.filter(dataOrCriteria as T[], criteria);
+    },
+    getOriginData: () => this.getOriginData(),
+    data: (data) => this.data(data),
+    clearIndexes: (module) => this.clearIndexes(module),
+    clearData: (module) => this.clearData(module),
+  });
 
   /**
    * Creates a new MergeEngines instance with the given options.
@@ -240,26 +258,23 @@ export class MergeEngines<T extends CollectionItem> {
     const method = this.engine?.[methodName];
 
     if (!method) {
-      throw new Error(
-        `MergeEngines: Method "${methodName}" is not available. ` +
-          `Add module with method "${methodName}" to the \`imports\` array.`,
-      );
+      throw MergeEnginesError.unavailableMethod(methodName);
     }
 
     return method(...args) as TResult;
   }
 
   search(query: string): T[] & MergeEnginesChain<T>;
-  search(field: keyof T & string, query: string): T[] & MergeEnginesChain<T>;
+  search(
+    field: (keyof T & string) | (string & {}),
+    query: string,
+  ): T[] & MergeEnginesChain<T>;
   search(
     fieldOrQuery: string,
     maybeQuery?: string,
   ): T[] & MergeEnginesChain<T> {
     if (!this.engine?.search) {
-      throw new Error(
-        "MergeEngines: TextSearchEngine is not available. " +
-          "Add TextSearchEngine to the `imports` array.",
-      );
+      throw MergeEnginesError.unavailableEngine("search");
     }
 
     if (maybeQuery === undefined) {
@@ -270,7 +285,7 @@ export class MergeEngines<T extends CollectionItem> {
 
     return this.withChain(
       this.callEngineMethod<T[]>("search", [
-        fieldOrQuery as keyof T & string,
+        fieldOrQuery as (keyof T & string) | (string & {}),
         maybeQuery,
       ]),
     );
@@ -288,10 +303,7 @@ export class MergeEngines<T extends CollectionItem> {
     inPlace?: boolean,
   ): T[] & MergeEnginesChain<T> {
     if (!this.engine?.sort) {
-      throw new Error(
-        "MergeEngines: SortEngine is not available. " +
-          "Add SortEngine to the `imports` array.",
-      );
+      throw MergeEnginesError.unavailableEngine("sort");
     }
 
     if (descriptors === undefined) {
@@ -318,10 +330,7 @@ export class MergeEngines<T extends CollectionItem> {
     criteria?: FilterCriterion<T>[],
   ): T[] & MergeEnginesChain<T> {
     if (!this.engine?.filter) {
-      throw new Error(
-        "MergeEngines: FilterEngine is not available. " +
-          "Add FilterEngine to the `imports` array.",
-      );
+      throw MergeEnginesError.unavailableEngine("filter");
     }
 
     if (criteria === undefined) {
@@ -338,90 +347,7 @@ export class MergeEngines<T extends CollectionItem> {
   }
 
   private withChain(result: T[]): T[] & MergeEnginesChain<T> {
-    const chainResult = result as T[] & MergeEnginesChain<T>;
-
-    Object.defineProperty(chainResult, "search", {
-      value: (fieldOrQuery: string, maybeQuery?: string) =>
-        maybeQuery === undefined
-          ? this.search(fieldOrQuery)
-          : this.search(fieldOrQuery as keyof T & string, maybeQuery),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "sort", {
-      value: (
-        dataOrDescriptors: T[] | SortDescriptor<T>[],
-        descriptors?: SortDescriptor<T>[],
-        inPlace?: boolean,
-      ) => {
-        if (descriptors === undefined) {
-          return this.sort(
-            result,
-            dataOrDescriptors as SortDescriptor<T>[],
-            inPlace,
-          );
-        }
-
-        return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
-      },
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "filter", {
-      value: (
-        dataOrCriteria: T[] | FilterCriterion<T>[],
-        criteria?: FilterCriterion<T>[],
-      ) => {
-        if (criteria === undefined) {
-          return this.filter(result, dataOrCriteria as FilterCriterion<T>[]);
-        }
-
-        return this.filter(dataOrCriteria as T[], criteria);
-      },
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearIndexes", {
-      value: (module: MergeModuleName) => {
-        this.clearIndexes(module);
-        return this.withChain(result);
-      },
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearData", {
-      value: (module: MergeModuleName) => {
-        this.clearData(module);
-        return this.withChain(result);
-      },
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "data", {
-      value: (data: T[]) => this.data(data),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "getOriginData", {
-      value: () => this.getOriginData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    return chainResult;
+    return this.chainBuilder.create(result);
   }
 
   getOriginData(): T[] {
@@ -429,10 +355,7 @@ export class MergeEngines<T extends CollectionItem> {
       return this.getOriginDataMethod();
     }
 
-    throw new Error(
-      "MergeEngines: getOriginData is not available. " +
-        "Add TextSearchEngine, SortEngine, or FilterEngine to the `imports` array.",
-    );
+    throw MergeEnginesError.unavailableGetOriginData();
   }
 
   clearIndexes(module: MergeModuleName): this {
@@ -443,16 +366,7 @@ export class MergeEngines<T extends CollectionItem> {
       return this;
     }
 
-    const moduleToEngine = {
-      search: "TextSearchEngine",
-      sort: "SortEngine",
-      filter: "FilterEngine",
-    } as const;
-
-    throw new Error(
-      `MergeEngines: ${moduleToEngine[module]} is not available. ` +
-        `Add ${moduleToEngine[module]} to the \`imports\` array.`,
-    );
+    throw MergeEnginesError.unavailableEngine(module);
   }
 
   data(data: T[]): this {
@@ -475,15 +389,6 @@ export class MergeEngines<T extends CollectionItem> {
       return this;
     }
 
-    const moduleToEngine = {
-      search: "TextSearchEngine",
-      sort: "SortEngine",
-      filter: "FilterEngine",
-    } as const;
-
-    throw new Error(
-      `MergeEngines: ${moduleToEngine[module]} is not available. ` +
-        `Add ${moduleToEngine[module]} to the \`imports\` array.`,
-    );
+    throw MergeEnginesError.unavailableEngine(module);
   }
 }

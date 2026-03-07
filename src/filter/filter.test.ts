@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { FilterEngineError } from "./errors";
 import { FilterEngine } from "./filter";
 
 type User = {
@@ -67,6 +68,9 @@ describe("FilterEngine", () => {
     ).toEqual([4]);
 
     const empty = new FilterEngine<User>();
+    expect(() =>
+      empty.filter([{ field: "city", values: ["Kyiv"] }]),
+    ).toThrowError(FilterEngineError);
     expect(() => empty.filter([{ field: "city", values: ["Kyiv"] }])).toThrow(
       "no dataset in memory",
     );

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { FilterEngine } from "../filter/filter";
 import { TextSearchEngine } from "../search/text-search";
 import { SortEngine } from "../sort/sorter";
+import { MergeEnginesError } from "./errors";
 import { MergeEngines } from "./merge-engines";
 
 type User = {
@@ -64,6 +65,9 @@ describe("MergeEngines", () => {
       search: { fields: ["name"] },
     });
 
+    expect(() =>
+      searchOnly.sort([{ field: "age", direction: "asc" }]),
+    ).toThrowError(MergeEnginesError);
     expect(() => searchOnly.sort([{ field: "age", direction: "asc" }])).toThrow(
       "SortEngine is not available",
     );

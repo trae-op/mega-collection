@@ -5,6 +5,8 @@
 
 import { CollectionItem, FilterCriterion } from "../types";
 import { Indexer } from "../indexer";
+import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
+import { FilterEngineError } from "./errors";
 
 export interface FilterEngineOptions<
   T extends CollectionItem = CollectionItem,
@@ -16,16 +18,6 @@ export interface FilterEngineOptions<
   nestedFields?: string[];
 
   filterByPreviousResult?: boolean;
-}
-
-export interface FilterEngineChain<T extends CollectionItem> {
-  filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
-  filter(data: T[], criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): FilterEngine<T>;
-  clearIndexes(): FilterEngine<T>;
-  clearData(): FilterEngine<T>;
-  resetFilterState(): FilterEngine<T>;
 }
 
 type NestedFieldDescriptor = {
@@ -55,6 +47,21 @@ export class FilterEngine<T extends CollectionItem> {
   private previousCriteria: FilterCriterion<T>[] | null = null;
 
   private previousBaseData: T[] | null = null;
+
+  private readonly chainBuilder = new FilterEngineChainBuilder<T>({
+    filter: (dataOrCriteria, criteria) => {
+      if (criteria === undefined) {
+        return this.filter(dataOrCriteria as FilterCriterion<T>[]);
+      }
+
+      return this.filter(dataOrCriteria as T[], criteria);
+    },
+    getOriginData: () => this.getOriginData(),
+    data: (data) => this.data(data),
+    clearIndexes: () => this.clearIndexes(),
+    clearData: () => this.clearData(),
+    resetFilterState: () => this.resetFilterState(),
+  });
 
   /**
    * Creates a new FilterEngine with optional data and fields to index.
@@ -131,10 +138,7 @@ export class FilterEngine<T extends CollectionItem> {
   ): this {
     if (!Array.isArray(dataOrField)) {
       if (!this.dataset.length) {
-        throw new Error(
-          "FilterEngine: no dataset in memory. " +
-            "Either pass `data` in the constructor options, or call buildIndex(data, field).",
-        );
+        throw FilterEngineError.missingDatasetForBuildIndex();
       }
 
       this.indexer.buildIndex(this.dataset, dataOrField);
@@ -198,10 +202,7 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (usesStoredData) {
       if (!this.dataset.length) {
-        throw new Error(
-          "FilterEngine: no dataset in memory. " +
-            "Either pass `data` in the constructor options, or call filter(data, criteria).",
-        );
+        throw FilterEngineError.missingDatasetForFilter();
       }
 
       resolvedCriteria = dataOrCriteria as FilterCriterion<T>[];
@@ -388,60 +389,7 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   private withChain(result: T[]): T[] & FilterEngineChain<T> {
-    const chainResult = result as T[] & FilterEngineChain<T>;
-
-    Object.defineProperty(chainResult, "filter", {
-      value: (
-        dataOrCriteria: T[] | FilterCriterion<T>[],
-        criteria?: FilterCriterion<T>[],
-      ) => {
-        if (criteria === undefined) {
-          return this.filter(result, dataOrCriteria as FilterCriterion<T>[]);
-        }
-
-        return this.filter(dataOrCriteria as T[], criteria);
-      },
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearIndexes", {
-      value: () => this.clearIndexes(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "data", {
-      value: (data: T[]) => this.data(data),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "getOriginData", {
-      value: () => this.getOriginData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearData", {
-      value: () => this.clearData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "resetFilterState", {
-      value: () => this.resetFilterState(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    return chainResult;
+    return this.chainBuilder.create(result);
   }
 
   private cloneCriteria(criteria: FilterCriterion<T>[]): FilterCriterion<T>[] {
