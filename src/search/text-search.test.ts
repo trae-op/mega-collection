@@ -318,6 +318,43 @@ describe("TextSearchEngine — nestedFields", () => {
     expect(engine.search("orders.status", "cancelled")).toEqual([]);
   });
 
+  it("clearIndexes clears nested indexes and keeps linear fallback working", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    engine.clearIndexes();
+
+    expect(
+      engine.search("orders.status", "delivered").map((u) => u.id),
+    ).toEqual(["1"]);
+  });
+
+  it("data() rebuilds nested indexes for a new dataset", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    const nextUsers: UserWithOrders[] = [
+      {
+        id: "10",
+        name: "Lia",
+        city: "Berlin",
+        age: 28,
+        orders: [{ id: "10", status: "shipped" }],
+      },
+    ];
+
+    engine.data(nextUsers);
+
+    expect(engine.search("orders.status", "pending")).toEqual([]);
+    expect(engine.search("orders.status", "shipped").map((u) => u.id)).toEqual([
+      "10",
+    ]);
+  });
+
   it("clearIndexes clears nested indexes; linear fallback works", () => {
     const engine = new TextSearchEngine<UserWithOrders>({
       data: usersWithOrders,
