@@ -34,11 +34,13 @@ export class FilterEngine<T extends CollectionItem> {
 
   private dataset: T[] = [];
 
+  private readonly datasetItemIndexes = new Map<T, number>();
+
   private readonly indexedFields = new Set<keyof T & string>();
 
   private readonly nestedIndexedFields = new Set<string>();
 
-  private nestedIndexes = new Map<string, Map<any, T[]>>();
+  private nestedIndexes = new Map<string, Map<any, number[]>>();
 
   private previousResult: T[] | null = null;
 
@@ -62,6 +64,7 @@ export class FilterEngine<T extends CollectionItem> {
     if (!options.data) return;
 
     this.dataset = options.data;
+    this.rebuildDatasetItemIndexes();
 
     const hasFields = options.fields?.length;
     const hasNestedFields = this.nestedIndexedFields.size > 0;
@@ -80,6 +83,7 @@ export class FilterEngine<T extends CollectionItem> {
   private rebuildConfiguredIndexes(): void {
     this.indexer.clear();
     this.nestedIndexes.clear();
+    this.rebuildDatasetItemIndexes();
 
     for (const field of this.indexedFields) {
       this.buildIndex(this.dataset, field);
@@ -87,6 +91,18 @@ export class FilterEngine<T extends CollectionItem> {
 
     for (const nestedField of this.nestedIndexedFields) {
       this.buildNestedFilterIndex(this.dataset, nestedField);
+    }
+  }
+
+  private rebuildDatasetItemIndexes(): void {
+    this.datasetItemIndexes.clear();
+
+    for (
+      let itemIndex = 0, dataLength = this.dataset.length;
+      itemIndex < dataLength;
+      itemIndex++
+    ) {
+      this.datasetItemIndexes.set(this.dataset[itemIndex], itemIndex);
     }
   }
 
@@ -112,6 +128,7 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     this.dataset = dataOrField;
+    this.rebuildDatasetItemIndexes();
     this.previousResult = null;
     this.previousCriteria = null;
     this.previousBaseData = null;
@@ -134,6 +151,7 @@ export class FilterEngine<T extends CollectionItem> {
 
   clearData(): this {
     this.dataset = [];
+    this.datasetItemIndexes.clear();
     this.indexer.clear();
     this.nestedIndexes.clear();
     this.resetFilterState();
@@ -647,7 +665,7 @@ export class FilterEngine<T extends CollectionItem> {
 
     const collectionKey = nestedFieldPath.substring(0, dotIndex);
     const nestedKey = nestedFieldPath.substring(dotIndex + 1);
-    const indexMap = new Map<any, T[]>();
+    const indexMap = new Map<any, number[]>();
 
     for (
       let itemIndex = 0, dataLength = data.length;
@@ -668,11 +686,11 @@ export class FilterEngine<T extends CollectionItem> {
 
         const bucket = indexMap.get(value);
         if (bucket) {
-          if (bucket[bucket.length - 1] !== item) {
-            bucket.push(item);
+          if (bucket[bucket.length - 1] !== itemIndex) {
+            bucket.push(itemIndex);
           }
         } else {
-          indexMap.set(value, [item]);
+          indexMap.set(value, [itemIndex]);
         }
       }
     }
@@ -687,7 +705,12 @@ export class FilterEngine<T extends CollectionItem> {
     sourceData: T[],
     nestedCriteria: FilterCriterion<T>[],
   ): T[] {
-    let result = sourceData;
+    if (sourceData.length === 0 || nestedCriteria.length === 0) {
+      return sourceData;
+    }
+
+    const indexedCriteria: FilterCriterion<T>[] = [];
+    const linearCriteria: FilterCriterion<T>[] = [];
 
     for (
       let criterionIndex = 0;
@@ -695,19 +718,35 @@ export class FilterEngine<T extends CollectionItem> {
       criterionIndex++
     ) {
       const criterion = nestedCriteria[criterionIndex];
-      const nestedIndex = this.nestedIndexes.get(criterion.field);
-
-      if (nestedIndex) {
-        const matchingItems = this.getNestedByValues(
-          nestedIndex,
-          criterion.values,
-        );
-        const matchingSet = new Set<T>(matchingItems);
-        result = result.filter((item) => matchingSet.has(item));
+      if (this.nestedIndexes.has(criterion.field)) {
+        indexedCriteria.push(criterion);
       } else {
-        result = this.filterNestedLinear(result, criterion);
+        linearCriteria.push(criterion);
+      }
+    }
+
+    let result = sourceData;
+    const sourceIndexes =
+      sourceData === this.dataset
+        ? null
+        : this.resolveSourceIndexes(sourceData);
+
+    if (indexedCriteria.length > 0) {
+      if (sourceData === this.dataset || sourceIndexes !== null) {
+        result = this.filterByNestedIndexes(indexedCriteria, sourceIndexes);
+      } else {
+        linearCriteria.unshift(...indexedCriteria);
       }
 
+      if (result.length === 0) return result;
+    }
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < linearCriteria.length;
+      criterionIndex++
+    ) {
+      result = this.filterNestedLinear(result, linearCriteria[criterionIndex]);
       if (result.length === 0) return result;
     }
 
@@ -715,27 +754,136 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   /**
-   * Gets parent items matching any of the given values from a nested index.
+   * Filters nested criteria using parent item indexes.
    */
-  private getNestedByValues(nestedIndex: Map<any, T[]>, values: any[]): T[] {
+  private filterByNestedIndexes(
+    criteria: FilterCriterion<T>[],
+    sourceIndexes: Set<number> | null,
+  ): T[] {
+    const estimatedCriteria = criteria
+      .map((criterion) => ({
+        criterion,
+        size: this.estimateNestedIndexSize(criterion),
+      }))
+      .sort(
+        (leftEstimate, rightEstimate) => leftEstimate.size - rightEstimate.size,
+      );
+
+    let allowedIndexes = sourceIndexes;
+    let matchingIndexes: number[] = [];
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < estimatedCriteria.length;
+      criterionIndex++
+    ) {
+      const { criterion } = estimatedCriteria[criterionIndex];
+      const nestedIndex = this.nestedIndexes.get(criterion.field);
+
+      if (!nestedIndex) return [];
+
+      const nextMatchingIndexes = this.getNestedIndexesByValues(
+        nestedIndex,
+        criterion.values,
+      );
+      if (nextMatchingIndexes.length === 0) return [];
+
+      if (allowedIndexes === null) {
+        matchingIndexes = nextMatchingIndexes;
+      } else {
+        matchingIndexes = [];
+
+        for (
+          let indexPosition = 0;
+          indexPosition < nextMatchingIndexes.length;
+          indexPosition++
+        ) {
+          const itemIndex = nextMatchingIndexes[indexPosition];
+          if (allowedIndexes.has(itemIndex)) {
+            matchingIndexes.push(itemIndex);
+          }
+        }
+      }
+
+      if (matchingIndexes.length === 0) return [];
+
+      allowedIndexes = new Set<number>(matchingIndexes);
+    }
+
+    return this.mapIndexesToItems(matchingIndexes);
+  }
+
+  /**
+   * Gets parent item indexes matching any of the given values from a nested index.
+   */
+  private getNestedIndexesByValues(
+    nestedIndex: Map<any, number[]>,
+    values: any[],
+  ): number[] {
     if (values.length === 1) {
       return nestedIndex.get(values[0]) ?? [];
     }
 
-    const seenItems = new Set<T>();
-    const result: T[] = [];
+    const seenIndexes = new Set<number>();
+    const result: number[] = [];
 
     for (let valueIndex = 0; valueIndex < values.length; valueIndex++) {
       const bucket = nestedIndex.get(values[valueIndex]);
       if (!bucket) continue;
 
       for (let bucketIndex = 0; bucketIndex < bucket.length; bucketIndex++) {
-        const item = bucket[bucketIndex];
-        if (!seenItems.has(item)) {
-          seenItems.add(item);
-          result.push(item);
+        const itemIndex = bucket[bucketIndex];
+        if (!seenIndexes.has(itemIndex)) {
+          seenIndexes.add(itemIndex);
+          result.push(itemIndex);
         }
       }
+    }
+
+    return result;
+  }
+
+  /**
+   * Estimates the size of the nested index for a criterion.
+   */
+  private estimateNestedIndexSize(criterion: FilterCriterion<T>): number {
+    const nestedIndex = this.nestedIndexes.get(criterion.field);
+    if (!nestedIndex) return Infinity;
+
+    return criterion.values.reduce((totalSize, value) => {
+      const bucket = nestedIndex.get(value);
+      return bucket ? totalSize + bucket.length : totalSize;
+    }, 0);
+  }
+
+  private resolveSourceIndexes(sourceData: T[]): Set<number> | null {
+    const sourceIndexes = new Set<number>();
+
+    for (
+      let itemIndex = 0, dataLength = sourceData.length;
+      itemIndex < dataLength;
+      itemIndex++
+    ) {
+      const sourceIndex = this.datasetItemIndexes.get(sourceData[itemIndex]);
+      if (sourceIndex === undefined) {
+        return null;
+      }
+
+      sourceIndexes.add(sourceIndex);
+    }
+
+    return sourceIndexes;
+  }
+
+  private mapIndexesToItems(indexes: number[]): T[] {
+    const result = new Array<T>(indexes.length);
+
+    for (
+      let indexPosition = 0;
+      indexPosition < indexes.length;
+      indexPosition++
+    ) {
+      result[indexPosition] = this.dataset[indexes[indexPosition]];
     }
 
     return result;

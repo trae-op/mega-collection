@@ -271,6 +271,20 @@ describe("FilterEngine — nestedFields", () => {
     expect(result.map((u) => u.id)).toEqual(["2"]);
   });
 
+  it("intersects multiple nested indexed criteria", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status", "orders.id"],
+    });
+
+    const result = engine.filter([
+      { field: "orders.status", values: ["pending"] },
+      { field: "orders.id", values: ["3"] },
+    ]);
+
+    expect(result.map((u) => u.id)).toEqual(["2"]);
+  });
+
   it("returns empty when no nested match", () => {
     const engine = new FilterEngine<UserWithOrders>({
       data: usersWithOrders,
@@ -401,6 +415,17 @@ describe("FilterEngine — nestedFields", () => {
         { field: "orders.status", values: ["pending"] },
       ]);
       expect(result.map((u) => u.id)).toEqual(["1", "2"]);
+    });
+
+    it("reuses nested indexes when filtering a subset of the stored dataset", () => {
+      const subset = usersWithOrders.slice(0, 2);
+
+      const result = engine.filter(subset, [
+        { field: "orders.status", values: ["pending"] },
+        { field: "city", values: ["New-York"] },
+      ]);
+
+      expect(result.map((u) => u.id)).toEqual(["1"]);
     });
   });
 });

@@ -76,7 +76,7 @@ export interface TextSearchEngineChain<T extends CollectionItem> {
 export class TextSearchEngine<T extends CollectionItem> {
   private ngramIndexes = new Map<string, Map<string, Set<number>>>();
 
-  private nestedFieldValues = new Map<string, Map<number, string[]>>();
+  private nestedFieldValues = new Map<string, Map<number, string>>();
 
   private dataset: T[] = [];
 
@@ -326,18 +326,8 @@ export class TextSearchEngine<T extends CollectionItem> {
       if (!candidateItem) continue;
 
       if (isNested) {
-        const values = nestedValues?.get(candidateIndex);
-        if (!values) continue;
-
-        let hasMatch = false;
-        for (let valueIndex = 0; valueIndex < values.length; valueIndex++) {
-          if (values[valueIndex].includes(lowerQuery)) {
-            hasMatch = true;
-            break;
-          }
-        }
-
-        if (hasMatch) {
+        const nestedValue = nestedValues?.get(candidateIndex);
+        if (nestedValue?.includes(lowerQuery)) {
           matchedItems.push(candidateItem);
         }
       } else {
@@ -486,7 +476,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     const nestedKey = nestedFieldPath.substring(dotIndex + 1);
 
     const ngramMap = new Map<string, Set<number>>();
-    const fieldValues = new Map<number, string[]>();
+    const fieldValues = new Map<number, string>();
 
     for (
       let itemIndex = 0, dataLength = data.length;
@@ -496,7 +486,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       const collection = data[itemIndex][collectionKey];
       if (!Array.isArray(collection)) continue;
 
-      const values: string[] = [];
+      let combinedValue = "";
 
       for (
         let nestedIndex = 0;
@@ -507,7 +497,7 @@ export class TextSearchEngine<T extends CollectionItem> {
         if (typeof rawValue !== "string") continue;
 
         const lower = rawValue.toLowerCase();
-        values.push(lower);
+        combinedValue = combinedValue ? `${combinedValue}\n${lower}` : lower;
 
         for (
           let startIndex = 0, lowerLength = lower.length;
@@ -530,8 +520,8 @@ export class TextSearchEngine<T extends CollectionItem> {
         }
       }
 
-      if (values.length > 0) {
-        fieldValues.set(itemIndex, values);
+      if (combinedValue) {
+        fieldValues.set(itemIndex, combinedValue);
       }
     }
 

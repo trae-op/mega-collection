@@ -277,6 +277,15 @@ describe("TextSearchEngine — nestedFields", () => {
     expect(result.map((u) => u.id)).toEqual(["1"]);
   });
 
+  it("does not match across separate nested values", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    expect(engine.search("orders.status", "pendingdelivered")).toEqual([]);
+  });
+
   it("search(query) includes nested fields in all-fields search", () => {
     const engine = new TextSearchEngine<UserWithOrders>({
       data: usersWithOrders,
