@@ -7,6 +7,7 @@ import { CollectionItem, FilterCriterion } from "../types";
 import { Indexer } from "../indexer";
 import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
 import { FilterEngineError } from "./errors";
+import { FilterNestedCollection } from "./nested";
 
 export interface FilterEngineOptions<
   T extends CollectionItem = CollectionItem,
@@ -20,11 +21,6 @@ export interface FilterEngineOptions<
   filterByPreviousResult?: boolean;
 }
 
-type NestedFieldDescriptor = {
-  collectionKey: string;
-  nestedKey: string;
-};
-
 export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;
   private readonly filterByPreviousResult: boolean;
@@ -33,14 +29,7 @@ export class FilterEngine<T extends CollectionItem> {
 
   private readonly indexedFields = new Set<keyof T & string>();
 
-  private readonly nestedIndexedFields = new Set<string>();
-
-  private readonly nestedFieldDescriptors = new Map<
-    string,
-    NestedFieldDescriptor
-  >();
-
-  private nestedIndexes = new Map<string, Map<any, T[]>>();
+  private readonly nestedCollection = new FilterNestedCollection<T>();
 
   private previousResult: T[] | null = null;
 
@@ -69,19 +58,14 @@ export class FilterEngine<T extends CollectionItem> {
   constructor(options: FilterEngineOptions<T> = {}) {
     this.indexer = new Indexer<T>();
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
-
-    if (options.nestedFields?.length) {
-      for (const nestedField of options.nestedFields) {
-        this.registerNestedField(nestedField);
-      }
-    }
+    this.nestedCollection.registerFields(options.nestedFields);
 
     if (!options.data) return;
 
     this.dataset = options.data;
 
     const hasFields = options.fields?.length;
-    const hasNestedFields = this.nestedIndexedFields.size > 0;
+    const hasNestedFields = this.nestedCollection.hasRegisteredFields();
 
     if (hasFields) {
       for (const field of options.fields!) {
@@ -96,35 +80,15 @@ export class FilterEngine<T extends CollectionItem> {
 
   private rebuildConfiguredIndexes(): void {
     this.indexer.clear();
-    this.nestedIndexes.clear();
+    this.nestedCollection.clearIndexes();
 
     for (const field of this.indexedFields) {
       this.buildIndex(this.dataset, field);
     }
 
-    for (const nestedField of this.nestedIndexedFields) {
-      this.buildNestedFilterIndex(this.dataset, nestedField);
+    if (this.nestedCollection.hasRegisteredFields()) {
+      this.nestedCollection.buildIndexes(this.dataset);
     }
-  }
-
-  private registerNestedField(fieldPath: string): void {
-    const descriptor = this.createNestedFieldDescriptor(fieldPath);
-    if (!descriptor) return;
-
-    this.nestedIndexedFields.add(fieldPath);
-    this.nestedFieldDescriptors.set(fieldPath, descriptor);
-  }
-
-  private createNestedFieldDescriptor(
-    fieldPath: string,
-  ): NestedFieldDescriptor | null {
-    const dotIndex = fieldPath.indexOf(".");
-    if (dotIndex === -1) return null;
-
-    return {
-      collectionKey: fieldPath.substring(0, dotIndex),
-      nestedKey: fieldPath.substring(dotIndex + 1),
-    };
   }
 
   /**
@@ -155,7 +119,7 @@ export class FilterEngine<T extends CollectionItem> {
 
   clearIndexes(): this {
     this.indexer.clear();
-    this.nestedIndexes.clear();
+    this.nestedCollection.clearIndexes();
     return this;
   }
 
@@ -169,7 +133,7 @@ export class FilterEngine<T extends CollectionItem> {
   clearData(): this {
     this.dataset = [];
     this.indexer.clear();
-    this.nestedIndexes.clear();
+    this.nestedCollection.clearIndexes();
     this.resetFilterState();
     return this;
   }
@@ -299,7 +263,7 @@ export class FilterEngine<T extends CollectionItem> {
       criterionIndex++
     ) {
       const criterion = executionCriteria[criterionIndex];
-      if (this.nestedIndexedFields.has(criterion.field)) {
+      if (this.nestedCollection.hasField(criterion.field)) {
         nestedCriteria.push(criterion);
       } else {
         flatCriteria.push(criterion);
@@ -307,7 +271,11 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     if (nestedCriteria.length > 0) {
-      sourceData = this.filterByNested(sourceData, nestedCriteria);
+      sourceData = this.nestedCollection.filter(
+        sourceData,
+        nestedCriteria,
+        this.dataset,
+      );
       if (sourceData.length === 0) {
         const emptyResult: T[] = [];
         if (this.filterByPreviousResult) {
@@ -614,260 +582,5 @@ export class FilterEngine<T extends CollectionItem> {
       const bucket = indexMap.get(value);
       return bucket ? totalSize + bucket.length : totalSize;
     }, 0);
-  }
-
-  /**
-   * Builds an index for a nested collection field (e.g. "orders.status").
-   */
-  private buildNestedFilterIndex(data: T[], nestedFieldPath: string): void {
-    const descriptor = this.nestedFieldDescriptors.get(nestedFieldPath);
-    if (!descriptor) return;
-
-    const { collectionKey, nestedKey } = descriptor;
-    const indexMap = new Map<any, T[]>();
-
-    for (
-      let itemIndex = 0, dataLength = data.length;
-      itemIndex < dataLength;
-      itemIndex++
-    ) {
-      const item = data[itemIndex];
-      const collection = item[collectionKey];
-      if (!Array.isArray(collection)) continue;
-
-      for (
-        let nestedIndex = 0;
-        nestedIndex < collection.length;
-        nestedIndex++
-      ) {
-        const value = collection[nestedIndex][nestedKey];
-        if (value === undefined || value === null) continue;
-
-        const bucket = indexMap.get(value);
-        if (bucket) {
-          if (bucket[bucket.length - 1] !== item) {
-            bucket.push(item);
-          }
-        } else {
-          indexMap.set(value, [item]);
-        }
-      }
-    }
-
-    this.nestedIndexes.set(nestedFieldPath, indexMap);
-  }
-
-  /**
-   * Filters source data by nested criteria using indexes or linear scan.
-   */
-  private filterByNested(
-    sourceData: T[],
-    nestedCriteria: FilterCriterion<T>[],
-  ): T[] {
-    if (sourceData.length === 0 || nestedCriteria.length === 0) {
-      return sourceData;
-    }
-
-    const indexedCriteria: FilterCriterion<T>[] = [];
-    const linearCriteria: FilterCriterion<T>[] = [];
-
-    for (
-      let criterionIndex = 0;
-      criterionIndex < nestedCriteria.length;
-      criterionIndex++
-    ) {
-      const criterion = nestedCriteria[criterionIndex];
-      if (this.nestedIndexes.has(criterion.field)) {
-        indexedCriteria.push(criterion);
-      } else {
-        linearCriteria.push(criterion);
-      }
-    }
-
-    let result = sourceData;
-    const allowedItems =
-      sourceData === this.dataset ? null : new Set(sourceData);
-
-    if (indexedCriteria.length > 0) {
-      result = this.filterByNestedIndexes(indexedCriteria, allowedItems);
-
-      if (result.length === 0) return result;
-    }
-
-    for (
-      let criterionIndex = 0;
-      criterionIndex < linearCriteria.length;
-      criterionIndex++
-    ) {
-      result = this.filterNestedLinear(result, linearCriteria[criterionIndex]);
-      if (result.length === 0) return result;
-    }
-
-    return result;
-  }
-
-  /**
-   * Filters nested criteria using parent item indexes.
-   */
-  private filterByNestedIndexes(
-    criteria: FilterCriterion<T>[],
-    allowedItems: Set<T> | null,
-  ): T[] {
-    if (criteria.length === 1) {
-      const nestedIndex = this.nestedIndexes.get(criteria[0].field);
-      if (!nestedIndex) return [];
-
-      const matchingItems = this.getNestedItemsByValues(
-        nestedIndex,
-        criteria[0].values,
-      );
-      if (matchingItems.length === 0) return [];
-
-      if (allowedItems === null) {
-        return matchingItems;
-      }
-
-      const filteredItems: T[] = [];
-
-      for (let itemIndex = 0; itemIndex < matchingItems.length; itemIndex++) {
-        const item = matchingItems[itemIndex];
-        if (allowedItems.has(item)) {
-          filteredItems.push(item);
-        }
-      }
-
-      return filteredItems;
-    }
-
-    const estimatedCriteria = criteria
-      .map((criterion) => ({
-        criterion,
-        size: this.estimateNestedIndexSize(criterion),
-      }))
-      .sort(
-        (leftEstimate, rightEstimate) => leftEstimate.size - rightEstimate.size,
-      );
-
-    let currentAllowedItems = allowedItems;
-    let matchingItems: T[] = [];
-
-    for (
-      let criterionIndex = 0;
-      criterionIndex < estimatedCriteria.length;
-      criterionIndex++
-    ) {
-      const { criterion } = estimatedCriteria[criterionIndex];
-      const nestedIndex = this.nestedIndexes.get(criterion.field);
-
-      if (!nestedIndex) return [];
-
-      const nextMatchingItems = this.getNestedItemsByValues(
-        nestedIndex,
-        criterion.values,
-      );
-      if (nextMatchingItems.length === 0) return [];
-
-      if (currentAllowedItems === null) {
-        matchingItems = nextMatchingItems;
-      } else {
-        matchingItems = [];
-
-        for (
-          let itemIndex = 0;
-          itemIndex < nextMatchingItems.length;
-          itemIndex++
-        ) {
-          const item = nextMatchingItems[itemIndex];
-          if (currentAllowedItems.has(item)) {
-            matchingItems.push(item);
-          }
-        }
-      }
-
-      if (matchingItems.length === 0) return [];
-
-      currentAllowedItems = new Set<T>(matchingItems);
-    }
-
-    return matchingItems;
-  }
-
-  /**
-   * Gets parent item indexes matching any of the given values from a nested index.
-   */
-  private getNestedItemsByValues(
-    nestedIndex: Map<any, T[]>,
-    values: any[],
-  ): T[] {
-    if (values.length === 1) {
-      return nestedIndex.get(values[0]) ?? [];
-    }
-
-    const seenItems = new Set<T>();
-    const result: T[] = [];
-
-    for (let valueIndex = 0; valueIndex < values.length; valueIndex++) {
-      const bucket = nestedIndex.get(values[valueIndex]);
-      if (!bucket) continue;
-
-      for (let itemIndex = 0; itemIndex < bucket.length; itemIndex++) {
-        const item = bucket[itemIndex];
-        if (!seenItems.has(item)) {
-          seenItems.add(item);
-          result.push(item);
-        }
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Estimates the size of the nested index for a criterion.
-   */
-  private estimateNestedIndexSize(criterion: FilterCriterion<T>): number {
-    const nestedIndex = this.nestedIndexes.get(criterion.field);
-    if (!nestedIndex) return Infinity;
-
-    return criterion.values.reduce((totalSize, value) => {
-      const bucket = nestedIndex.get(value);
-      return bucket ? totalSize + bucket.length : totalSize;
-    }, 0);
-  }
-
-  /**
-   * Linearly filters data by a nested field criterion.
-   */
-  private filterNestedLinear(data: T[], criterion: FilterCriterion<T>): T[] {
-    const descriptor = this.nestedFieldDescriptors.get(criterion.field);
-    if (!descriptor) return data;
-
-    const { collectionKey, nestedKey } = descriptor;
-    const acceptableValues = new Set(criterion.values);
-    const result: T[] = [];
-
-    for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
-      const collection = data[itemIndex][collectionKey];
-      if (!Array.isArray(collection)) continue;
-
-      let hasMatch = false;
-
-      for (
-        let nestedIndex = 0;
-        nestedIndex < collection.length;
-        nestedIndex++
-      ) {
-        if (acceptableValues.has(collection[nestedIndex][nestedKey])) {
-          hasMatch = true;
-          break;
-        }
-      }
-
-      if (hasMatch) {
-        result.push(data[itemIndex]);
-      }
-    }
-
-    return result;
   }
 }
