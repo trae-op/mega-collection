@@ -179,3 +179,228 @@ describe("FilterEngine", () => {
     });
   });
 });
+
+type Order = {
+  id: string;
+  status: string;
+};
+
+type UserWithOrders = {
+  id: string;
+  name: string;
+  city: string;
+  age: number;
+  orders: Order[];
+};
+
+const usersWithOrders: UserWithOrders[] = [
+  {
+    id: "1",
+    name: "Tim",
+    city: "New-York",
+    age: 20,
+    orders: [
+      { id: "1", status: "pending" },
+      { id: "2", status: "delivered" },
+    ],
+  },
+  {
+    id: "2",
+    name: "Tom",
+    city: "LA",
+    age: 40,
+    orders: [{ id: "3", status: "pending" }],
+  },
+  {
+    id: "3",
+    name: "Sara",
+    city: "Chicago",
+    age: 30,
+    orders: [],
+  },
+];
+
+describe("FilterEngine — nestedFields", () => {
+  it("filters by nested field using indexed path", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.filter([
+      { field: "orders.status", values: ["pending"] },
+    ]);
+    expect(result.map((u) => u.id)).toEqual(["1", "2"]);
+  });
+
+  it("filters by nested field with multiple values", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.filter([
+      { field: "orders.status", values: ["pending", "delivered"] },
+    ]);
+    expect(result.map((u) => u.id)).toEqual(["1", "2"]);
+  });
+
+  it("filters by nested field matching single value", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.filter([
+      { field: "orders.status", values: ["delivered"] },
+    ]);
+    expect(result.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("combines nested and flat field criteria", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      fields: ["city"],
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.filter([
+      { field: "orders.status", values: ["pending"] },
+      { field: "city", values: ["LA"] },
+    ]);
+    expect(result.map((u) => u.id)).toEqual(["2"]);
+  });
+
+  it("returns empty when no nested match", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.filter([
+      { field: "orders.status", values: ["cancelled"] },
+    ]);
+    expect(result).toEqual([]);
+  });
+
+  it("clearIndexes clears nested indexes; linear fallback works", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    engine.clearIndexes();
+
+    const result = engine.filter([
+      { field: "orders.status", values: ["delivered"] },
+    ]);
+    expect(result.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("clearData clears nested indexes too", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    engine.clearData();
+    expect(() =>
+      engine.filter([{ field: "orders.status", values: ["pending"] }]),
+    ).toThrow("no dataset in memory");
+  });
+
+  it("data() rebuilds nested indexes for new dataset", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+      filterByPreviousResult: true,
+    });
+
+    expect(
+      engine
+        .filter([{ field: "orders.status", values: ["pending"] }])
+        .map((u) => u.id),
+    ).toEqual(["1", "2"]);
+
+    const newUsers: UserWithOrders[] = [
+      {
+        id: "10",
+        name: "Lia",
+        city: "Berlin",
+        age: 28,
+        orders: [{ id: "10", status: "shipped" }],
+      },
+    ];
+
+    engine.data(newUsers);
+
+    expect(
+      engine.filter([{ field: "orders.status", values: ["pending"] }]),
+    ).toEqual([]);
+    expect(
+      engine
+        .filter([{ field: "orders.status", values: ["shipped"] }])
+        .map((u) => u.id),
+    ).toEqual(["10"]);
+  });
+
+  it("resetFilterState works with nested criteria", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      fields: ["city"],
+      nestedFields: ["orders.status"],
+      filterByPreviousResult: true,
+    });
+
+    engine.filter([{ field: "orders.status", values: ["pending"] }]);
+    engine.resetFilterState();
+
+    const result = engine.filter([
+      { field: "orders.status", values: ["delivered"] },
+    ]);
+    expect(result.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  describe("filterByPreviousResult with nested criteria", () => {
+    let engine: FilterEngine<UserWithOrders>;
+
+    beforeEach(() => {
+      engine = new FilterEngine<UserWithOrders>({
+        data: usersWithOrders,
+        fields: ["city"],
+        nestedFields: ["orders.status"],
+        filterByPreviousResult: true,
+      });
+    });
+
+    it("narrows result when flat criterion is added to nested", () => {
+      engine.filter([{ field: "orders.status", values: ["pending"] }]);
+      const result = engine.filter([
+        { field: "orders.status", values: ["pending"] },
+        { field: "city", values: ["LA"] },
+      ]);
+      expect(result.map((u) => u.id)).toEqual(["2"]);
+    });
+
+    it("returns cached result when nested criteria unchanged", () => {
+      const first = engine.filter([
+        { field: "orders.status", values: ["pending"] },
+      ]);
+      const second = engine.filter([
+        { field: "orders.status", values: ["pending"] },
+      ]);
+      expect(second).toBe(first);
+    });
+
+    it("recalculates from full dataset when nested criterion is removed", () => {
+      engine.filter([
+        { field: "orders.status", values: ["pending"] },
+        { field: "city", values: ["New-York"] },
+      ]);
+      const result = engine.filter([
+        { field: "orders.status", values: ["pending"] },
+      ]);
+      expect(result.map((u) => u.id)).toEqual(["1", "2"]);
+    });
+  });
+});

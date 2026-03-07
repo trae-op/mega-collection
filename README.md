@@ -47,12 +47,14 @@ you only pull in `TextSearchEngine` the filter and sort logic won’t be include
 
 ## Features
 
-| Capability                 | Strategy                               | Complexity                         |
-| -------------------------- | -------------------------------------- | ---------------------------------- |
-| **Indexed filter**         | Hash-Map index (`Map<value, T[]>`)     | **O(1)**                           |
-| **Multi-value filter**     | Index intersection + `Set` membership  | **O(k)** indexed / **O(n)** linear |
-| **Text search** (contains) | Trigram inverted index + verify        | **O(candidates)**                  |
-| **Sorting**                | Pre-sorted index (cached) / V8 TimSort | **O(n)** cached / **O(n log n)**   |
+| Capability                   | Strategy                               | Complexity                         |
+| ---------------------------- | -------------------------------------- | ---------------------------------- |
+| **Indexed filter**           | Hash-Map index (`Map<value, T[]>`)     | **O(1)**                           |
+| **Multi-value filter**       | Index intersection + `Set` membership  | **O(k)** indexed / **O(n)** linear |
+| **Nested collection filter** | Pre-built nested index + `Set` lookup  | **O(k)** indexed / **O(n)** linear |
+| **Text search** (contains)   | Trigram inverted index + verify        | **O(candidates)**                  |
+| **Nested collection search** | Nested trigram index + verify          | **O(candidates)**                  |
+| **Sorting**                  | Pre-sorted index (cached) / V8 TimSort | **O(n)** cached / **O(n log n)**   |
 
 ## React demo
 
@@ -77,6 +79,15 @@ interface User {
   name: string;
   city: string;
   age: number;
+}
+
+interface Order {
+  id: string;
+  status: string;
+}
+
+interface UserWithOrders extends User {
+  orders: Order[];
 }
 ```
 
@@ -110,6 +121,26 @@ engine
   .search("john")
   .sort([{ field: "age", direction: "asc" }])
   .filter([{ field: "city", values: ["Miami", "New York"] }]);
+
+// with nested collection fields (e.g. orders inside each user)
+const nestedEngine = new MergeEngines<UserWithOrders>({
+  imports: [TextSearchEngine, SortEngine, FilterEngine],
+  data: usersWithOrders,
+  search: {
+    fields: ["name", "city"],
+    nestedFields: ["orders.status"],
+    minQueryLength: 2,
+  },
+  filter: {
+    fields: ["city", "age"],
+    nestedFields: ["orders.status"],
+    filterByPreviousResult: true,
+  },
+  sort: { fields: ["age", "name", "city"] },
+});
+
+nestedEngine.search("pending"); // finds users whose orders contain "pending"
+nestedEngine.filter([{ field: "orders.status", values: ["delivered"] }]);
 
 // update dataset later without creating a new instance
 engine.data([
@@ -163,6 +194,17 @@ engine.getOriginData();
 
 // chain support
 engine.search("john").clearIndexes().clearData();
+
+// search nested collections — indexes are built once at init
+const nestedSearch = new TextSearchEngine<UserWithOrders>({
+  data: usersWithOrders,
+  fields: ["name", "city"],
+  nestedFields: ["orders.status"],
+  minQueryLength: 2,
+});
+
+nestedSearch.search("pending"); // finds users whose orders match
+nestedSearch.search("orders.status", "delivered"); // search a specific nested field
 ```
 
 ### Filter only
@@ -203,6 +245,20 @@ engine
 const byCity = engine.filter([{ field: "city", values: ["Miami"] }]);
 // 2) Second call filters only inside previous result
 const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
+
+// filter nested collections — indexes are built once at init
+const nestedFilter = new FilterEngine<UserWithOrders>({
+  data: usersWithOrders,
+  fields: ["city", "age"],
+  nestedFields: ["orders.status"],
+  filterByPreviousResult: true,
+});
+
+nestedFilter.filter([{ field: "orders.status", values: ["pending"] }]);
+nestedFilter.filter([
+  { field: "orders.status", values: ["pending"] },
+  { field: "city", values: ["New-York"] },
+]);
 ```
 
 ### Sort only
@@ -257,8 +313,8 @@ Unified facade that composes all three engines around a shared dataset.
 | --------- | ----------------------------------------------------------- | -------------------------------------------- |
 | `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to activate                   |
 | `data`    | `T[]`                                                       | Shared dataset — passed once at construction |
-| `search`  | `{ fields, minQueryLength? }`                               | Config for TextSearchEngine                  |
-| `filter`  | `{ fields, filterByPreviousResult? }`                       | Config for FilterEngine                      |
+| `search`  | `{ fields, nestedFields?, minQueryLength? }`                | Config for TextSearchEngine                  |
+| `filter`  | `{ fields, nestedFields?, filterByPreviousResult? }`        | Config for FilterEngine                      |
 | `sort`    | `{ fields }`                                                | Config for SortEngine                        |
 
 **Methods:**
@@ -280,35 +336,40 @@ Unified facade that composes all three engines around a shared dataset.
 
 ### `TextSearchEngine<T>` (search module)
 
-Trigram-based text search engine.
+Trigram-based text search engine. Supports `nestedFields` for searching inside nested
+collections (e.g. `["orders.status"]`). Nested indexes are built once and reused for
+fast substring matching against child-item string values.
 
-| Method                 | Description                                           |
-| ---------------------- | ----------------------------------------------------- |
-| `search(query)`        | Search all indexed fields, deduplicated               |
-| `search(field, query)` | Search a specific indexed field                       |
-| `getOriginData()`      | Get the original stored dataset                       |
-| `data(data)`           | Replace stored dataset and rebuild configured indexes |
-| `clearIndexes()`       | Clear n-gram indexes                                  |
-| `clearData()`          | Clear stored data                                     |
+| Method                 | Description                                                |
+| ---------------------- | ---------------------------------------------------------- |
+| `search(query)`        | Search all indexed fields (including nested), deduplicated |
+| `search(field, query)` | Search a specific indexed field or nested field path       |
+| `getOriginData()`      | Get the original stored dataset                            |
+| `data(data)`           | Replace stored dataset and rebuild configured indexes      |
+| `clearIndexes()`       | Clear n-gram indexes (including nested)                    |
+| `clearData()`          | Clear stored data                                          |
 
 ### `FilterEngine<T>` (filter module)
 
-Multi-criteria AND filter with index-accelerated fast path.
+Multi-criteria AND filter with index-accelerated fast path. Supports `nestedFields`
+for filtering by values inside nested collections (e.g. `["orders.status"]`). Nested
+indexes map child-item values to parent items for O(1) lookups.
 
 Constructor option highlights:
 
-| Option                   | Type      | Description                                                                                                                               |
-| ------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `filterByPreviousResult` | `boolean` | When `true`, each `filter(criteria)` call filters from previous result. Defaults to `false` (each call starts from the original dataset). |
+| Option                   | Type       | Description                                                                                                                               |
+| ------------------------ | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `filterByPreviousResult` | `boolean`  | When `true`, each `filter(criteria)` call filters from previous result. Defaults to `false` (each call starts from the original dataset). |
+| `nestedFields`           | `string[]` | Dot-notation paths to nested collection fields to index (e.g. `["orders.status"]`).                                                       |
 
 | Method                   | Description                                                                |
 | ------------------------ | -------------------------------------------------------------------------- |
-| `filter(criteria)`       | Filter using stored dataset                                                |
+| `filter(criteria)`       | Filter using stored dataset (supports nested field criteria)               |
 | `filter(data, criteria)` | Filter with an explicit dataset                                            |
 | `getOriginData()`        | Get the original stored dataset                                            |
 | `data(data)`             | Replace stored dataset, rebuild configured indexes, and reset filter state |
 | `resetFilterState()`     | Reset previous-result state for sequential filtering                       |
-| `clearIndexes()`         | Free all index memory                                                      |
+| `clearIndexes()`         | Free all index memory (including nested indexes)                           |
 | `clearData()`            | Clear stored data                                                          |
 
 ### `SortEngine<T>` (sort module)

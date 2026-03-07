@@ -1,4 +1,3 @@
-
 export type CollectionItem = Record<string, any>;
 
 export type IndexableKey<T> = {
@@ -6,7 +5,7 @@ export type IndexableKey<T> = {
 }[keyof T];
 
 export interface FilterCriterion<T extends CollectionItem> {
-  field: keyof T & string;
+  field: (keyof T & string) | (string & {});
   values: any[];
 }
 

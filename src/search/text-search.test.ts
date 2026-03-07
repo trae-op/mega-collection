@@ -212,3 +212,198 @@ describe("TextSearchEngine", () => {
     expect(engine.search("city", "Dnipro")).toHaveLength(1);
   });
 });
+
+type Order = {
+  id: string;
+  status: string;
+};
+
+type UserWithOrders = {
+  id: string;
+  name: string;
+  city: string;
+  age: number;
+  orders: Order[];
+};
+
+const usersWithOrders: UserWithOrders[] = [
+  {
+    id: "1",
+    name: "Tim",
+    city: "New-York",
+    age: 20,
+    orders: [
+      { id: "1", status: "pending" },
+      { id: "2", status: "delivered" },
+    ],
+  },
+  {
+    id: "2",
+    name: "Tom",
+    city: "LA",
+    age: 40,
+    orders: [{ id: "3", status: "pending" }],
+  },
+  {
+    id: "3",
+    name: "Sara",
+    city: "Chicago",
+    age: 30,
+    orders: [],
+  },
+];
+
+describe("TextSearchEngine — nestedFields", () => {
+  it("searches nested field by specific field path", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      fields: ["name", "city"],
+      nestedFields: ["orders.status"],
+      minQueryLength: 2,
+    });
+
+    const result = engine.search("orders.status", "pending");
+    expect(result.map((u) => u.id)).toEqual(["1", "2"]);
+  });
+
+  it("searches nested field matching only one value", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      fields: ["name"],
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.search("orders.status", "delivered");
+    expect(result.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("search(query) includes nested fields in all-fields search", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      fields: ["name"],
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.search("delivered");
+    expect(result.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("deduplicates when item matches both flat and nested field", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      fields: ["name", "city"],
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.search("pending");
+    const uniqueIds = new Set(result.map((u) => u.id));
+    expect(uniqueIds.size).toBe(result.length);
+  });
+
+  it("returns empty for non-matching nested search", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    expect(engine.search("orders.status", "cancelled")).toEqual([]);
+  });
+
+  it("clearIndexes clears nested indexes; linear fallback works", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      fields: ["name"],
+      nestedFields: ["orders.status"],
+    });
+
+    engine.clearIndexes();
+
+    const result = engine.search("orders.status", "delivered");
+    expect(result.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("clearData clears everything including nested", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    engine.clearData();
+    expect(engine.search("orders.status", "pending")).toEqual([]);
+  });
+
+  it("data() rebuilds nested indexes for new dataset", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      fields: ["name"],
+      nestedFields: ["orders.status"],
+    });
+
+    expect(engine.search("orders.status", "pending")).toHaveLength(2);
+
+    const newUsers: UserWithOrders[] = [
+      {
+        id: "10",
+        name: "Lia",
+        city: "Berlin",
+        age: 28,
+        orders: [{ id: "10", status: "shipped" }],
+      },
+    ];
+
+    engine.data(newUsers);
+
+    expect(engine.search("orders.status", "pending")).toEqual([]);
+    expect(engine.search("orders.status", "shipped").map((u) => u.id)).toEqual([
+      "10",
+    ]);
+  });
+
+  it("works without flat fields, only nestedFields", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    expect(engine.search("orders.status", "pending").map((u) => u.id)).toEqual([
+      "1",
+      "2",
+    ]);
+  });
+
+  it("skips items with empty nested collection", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.search("orders.status", "pending");
+    expect(result.map((u) => u.id)).not.toContain("3");
+  });
+
+  it("linear fallback for all-fields search includes nested", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    engine.clearIndexes();
+
+    const result = engine.search("delivered");
+    expect(result.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("minQueryLength applies to nested field searches", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+      minQueryLength: 3,
+    });
+
+    expect(engine.search("orders.status", "pe")).toEqual(usersWithOrders);
+    expect(engine.search("orders.status", "pen").map((u) => u.id)).toEqual([
+      "1",
+      "2",
+    ]);
+  });
+});

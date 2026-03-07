@@ -56,13 +56,15 @@ export interface TextSearchEngineOptions<
 
   fields?: (keyof T & string)[];
 
+  nestedFields?: string[];
+
   minQueryLength?: number;
 }
 
 export interface TextSearchEngineChain<T extends CollectionItem> {
   search(query: string): T[] & TextSearchEngineChain<T>;
   search(
-    field: keyof T & string,
+    field: (keyof T & string) | (string & {}),
     query: string,
   ): T[] & TextSearchEngineChain<T>;
   getOriginData(): T[];
@@ -74,9 +76,13 @@ export interface TextSearchEngineChain<T extends CollectionItem> {
 export class TextSearchEngine<T extends CollectionItem> {
   private ngramIndexes = new Map<string, Map<string, Set<number>>>();
 
+  private nestedFieldValues = new Map<string, Map<number, string[]>>();
+
   private dataset: T[] = [];
 
   private readonly indexedFields = new Set<keyof T & string>();
+
+  private readonly nestedIndexedFields = new Set<string>();
 
   private readonly minQueryLength: number;
 
@@ -86,23 +92,40 @@ export class TextSearchEngine<T extends CollectionItem> {
   constructor(options: TextSearchEngineOptions<T> = {}) {
     this.minQueryLength = options.minQueryLength ?? 1;
 
+    if (options.nestedFields?.length) {
+      for (const nestedField of options.nestedFields) {
+        this.nestedIndexedFields.add(nestedField);
+      }
+    }
+
     if (!options.data) return;
 
     this.dataset = options.data;
-    if (options.fields?.length) {
-      for (const field of options.fields) {
+
+    const hasFields = options.fields?.length;
+    const hasNestedFields = this.nestedIndexedFields.size > 0;
+
+    if (hasFields) {
+      for (const field of options.fields!) {
         this.indexedFields.add(field);
       }
+    }
 
+    if (hasFields || hasNestedFields) {
       this.rebuildConfiguredIndexes();
     }
   }
 
   private rebuildConfiguredIndexes(): void {
     this.ngramIndexes.clear();
+    this.nestedFieldValues.clear();
 
     for (const field of this.indexedFields) {
       this.buildIndex(this.dataset, field);
+    }
+
+    for (const nestedField of this.nestedIndexedFields) {
+      this.buildNestedIndex(this.dataset, nestedField);
     }
   }
 
@@ -174,7 +197,7 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   search(query: string): T[] & TextSearchEngineChain<T>;
   search(
-    field: keyof T & string,
+    field: (keyof T & string) | (string & {}),
     query: string,
   ): T[] & TextSearchEngineChain<T>;
   search(
@@ -185,9 +208,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       return this.withChain(this.searchAllFields(fieldOrQuery));
     }
 
-    return this.withChain(
-      this.searchField(fieldOrQuery as keyof T & string, maybeQuery),
-    );
+    return this.withChain(this.searchField(fieldOrQuery, maybeQuery));
   }
 
   private normalizeQuery(query: string): string {
@@ -238,19 +259,12 @@ export class TextSearchEngine<T extends CollectionItem> {
   /**
    * Searches a specific field.
    */
-  private searchField(field: keyof T & string, query: string): T[] {
+  private searchField(field: string, query: string): T[] {
     const lowerQuery = this.normalizeQuery(query);
 
-    // empty queries should return original data
-    if (!lowerQuery) {
-      return this.dataset;
-    }
+    if (!lowerQuery) return this.dataset;
 
-    if (lowerQuery.length < this.minQueryLength) {
-      // nonempty but shorter than threshold: return all data rather than
-      // an empty list
-      return this.dataset;
-    }
+    if (lowerQuery.length < this.minQueryLength) return this.dataset;
 
     if (!this.ngramIndexes.size) {
       return this.searchFieldLinear(field, lowerQuery);
@@ -270,11 +284,11 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Searches a field using prepared query grams.
    */
   private searchFieldWithPreparedQuery(
-    field: keyof T & string,
+    field: string,
     lowerQuery: string,
     uniqueQueryGrams: ReadonlySet<string>,
   ): T[] {
-    const ngramMap = this.ngramIndexes.get(field as string);
+    const ngramMap = this.ngramIndexes.get(field);
     if (!ngramMap) return [];
 
     const postingLists: Set<number>[] = [];
@@ -293,6 +307,10 @@ export class TextSearchEngine<T extends CollectionItem> {
     const smallestPostingList = postingLists[0];
     const totalPostingLists = postingLists.length;
     const matchedItems: T[] = [];
+    const isNested = this.nestedIndexedFields.has(field);
+    const nestedValues = isNested
+      ? this.nestedFieldValues.get(field)
+      : undefined;
 
     for (const candidateIndex of smallestPostingList) {
       let isCandidate = true;
@@ -307,12 +325,29 @@ export class TextSearchEngine<T extends CollectionItem> {
       const candidateItem = this.dataset[candidateIndex];
       if (!candidateItem) continue;
 
-      const fieldValue = candidateItem[field];
-      if (
-        typeof fieldValue === "string" &&
-        fieldValue.toLowerCase().includes(lowerQuery)
-      ) {
-        matchedItems.push(candidateItem);
+      if (isNested) {
+        const values = nestedValues?.get(candidateIndex);
+        if (!values) continue;
+
+        let hasMatch = false;
+        for (let valueIndex = 0; valueIndex < values.length; valueIndex++) {
+          if (values[valueIndex].includes(lowerQuery)) {
+            hasMatch = true;
+            break;
+          }
+        }
+
+        if (hasMatch) {
+          matchedItems.push(candidateItem);
+        }
+      } else {
+        const fieldValue = candidateItem[field];
+        if (
+          typeof fieldValue === "string" &&
+          fieldValue.toLowerCase().includes(lowerQuery)
+        ) {
+          matchedItems.push(candidateItem);
+        }
       }
     }
 
@@ -339,6 +374,10 @@ export class TextSearchEngine<T extends CollectionItem> {
         break;
       }
 
+      if (!hasMatch) {
+        hasMatch = this.matchNestedFieldsLinear(item, lowerQuery);
+      }
+
       if (hasMatch) {
         matchedItems.push(item);
       }
@@ -350,8 +389,12 @@ export class TextSearchEngine<T extends CollectionItem> {
   /**
    * Searches a specific field linearly without index.
    */
-  private searchFieldLinear(field: keyof T & string, lowerQuery: string): T[] {
+  private searchFieldLinear(field: string, lowerQuery: string): T[] {
     if (!this.dataset.length) return [];
+
+    if (this.nestedIndexedFields.has(field)) {
+      return this.searchNestedFieldLinear(field, lowerQuery);
+    }
 
     const matchedItems: T[] = [];
 
@@ -411,6 +454,7 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   clearIndexes(): this {
     this.ngramIndexes.clear();
+    this.nestedFieldValues.clear();
     return this;
   }
 
@@ -427,6 +471,141 @@ export class TextSearchEngine<T extends CollectionItem> {
   clearData(): this {
     this.dataset = [];
     this.ngramIndexes.clear();
+    this.nestedFieldValues.clear();
     return this;
+  }
+
+  /**
+   * Builds an n-gram index for a nested collection field (e.g. "orders.status").
+   */
+  private buildNestedIndex(data: T[], nestedFieldPath: string): void {
+    const dotIndex = nestedFieldPath.indexOf(".");
+    if (dotIndex === -1) return;
+
+    const collectionKey = nestedFieldPath.substring(0, dotIndex);
+    const nestedKey = nestedFieldPath.substring(dotIndex + 1);
+
+    const ngramMap = new Map<string, Set<number>>();
+    const fieldValues = new Map<number, string[]>();
+
+    for (
+      let itemIndex = 0, dataLength = data.length;
+      itemIndex < dataLength;
+      itemIndex++
+    ) {
+      const collection = data[itemIndex][collectionKey];
+      if (!Array.isArray(collection)) continue;
+
+      const values: string[] = [];
+
+      for (
+        let nestedIndex = 0;
+        nestedIndex < collection.length;
+        nestedIndex++
+      ) {
+        const rawValue = collection[nestedIndex][nestedKey];
+        if (typeof rawValue !== "string") continue;
+
+        const lower = rawValue.toLowerCase();
+        values.push(lower);
+
+        for (
+          let startIndex = 0, lowerLength = lower.length;
+          startIndex < lowerLength;
+          startIndex++
+        ) {
+          const remainingLength = lowerLength - startIndex;
+          const maxLengthAtPosition = Math.min(
+            MAXIMUM_NGRAM_LENGTH,
+            remainingLength,
+          );
+          for (
+            let gramLength = 1;
+            gramLength <= maxLengthAtPosition;
+            gramLength++
+          ) {
+            const ngram = lower.substring(startIndex, startIndex + gramLength);
+            getOrCreatePostingList(ngramMap, ngram).add(itemIndex);
+          }
+        }
+      }
+
+      if (values.length > 0) {
+        fieldValues.set(itemIndex, values);
+      }
+    }
+
+    this.ngramIndexes.set(nestedFieldPath, ngramMap);
+    this.nestedFieldValues.set(nestedFieldPath, fieldValues);
+  }
+
+  /**
+   * Linearly searches a nested field path across all dataset items.
+   */
+  private searchNestedFieldLinear(fieldPath: string, lowerQuery: string): T[] {
+    const dotIndex = fieldPath.indexOf(".");
+    if (dotIndex === -1) return [];
+
+    const collectionKey = fieldPath.substring(0, dotIndex);
+    const nestedKey = fieldPath.substring(dotIndex + 1);
+    const matchedItems: T[] = [];
+
+    for (let itemIndex = 0; itemIndex < this.dataset.length; itemIndex++) {
+      const collection = this.dataset[itemIndex][collectionKey];
+      if (!Array.isArray(collection)) continue;
+
+      let hasMatch = false;
+
+      for (
+        let nestedIndex = 0;
+        nestedIndex < collection.length;
+        nestedIndex++
+      ) {
+        const rawValue = collection[nestedIndex][nestedKey];
+        if (typeof rawValue !== "string") continue;
+
+        if (rawValue.toLowerCase().includes(lowerQuery)) {
+          hasMatch = true;
+          break;
+        }
+      }
+
+      if (hasMatch) {
+        matchedItems.push(this.dataset[itemIndex]);
+      }
+    }
+
+    return matchedItems;
+  }
+
+  /**
+   * Checks if any configured nested field matches the query for a single item.
+   */
+  private matchNestedFieldsLinear(item: T, lowerQuery: string): boolean {
+    for (const fieldPath of this.nestedIndexedFields) {
+      const dotIndex = fieldPath.indexOf(".");
+      if (dotIndex === -1) continue;
+
+      const collectionKey = fieldPath.substring(0, dotIndex);
+      const nestedKey = fieldPath.substring(dotIndex + 1);
+      const collection = item[collectionKey];
+
+      if (!Array.isArray(collection)) continue;
+
+      for (
+        let nestedIndex = 0;
+        nestedIndex < collection.length;
+        nestedIndex++
+      ) {
+        const rawValue = collection[nestedIndex][nestedKey];
+        if (typeof rawValue !== "string") continue;
+
+        if (rawValue.toLowerCase().includes(lowerQuery)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 }
