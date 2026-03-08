@@ -1,6 +1,6 @@
 {
   "name": "@devisfuture/mega-collection",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "High-performance search, filter & sort engine for 100K+ item collections in JavaScript/TypeScript",
   "exports": {
     ".": {

@@ -129,6 +129,22 @@ describe("SortEngine", () => {
       expect(result.map((u) => u.id)).toEqual([5, 2, 3, 1, 4]);
     });
 
+    it("sort(data, descriptors) recalculates against live values", () => {
+      const mutableUsers = users.map((user) => ({ ...user }));
+      const engine = new SortEngine<User>({
+        data: mutableUsers,
+        fields: ["age"],
+      });
+
+      mutableUsers[0].age = 10;
+
+      const result = engine.sort(mutableUsers, [
+        { field: "age", direction: "asc" },
+      ]);
+
+      expect(result.map((user) => user.id)).toEqual([1, 2, 3, 4]);
+    });
+
     it("clearIndexes frees cache (falls back to radix sort)", () => {
       const engine = new SortEngine<User>({ data: users, fields: ["age"] });
       engine.clearIndexes();

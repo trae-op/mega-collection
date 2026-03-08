@@ -65,9 +65,13 @@ export class SortEngine<T extends CollectionItem> {
     this.dataset = data;
     const itemCount = data.length;
     const indexes = new Uint32Array(itemCount);
-    for (let i = 0; i < itemCount; i++) indexes[i] = i;
+    const fieldValues = new Array<unknown>(itemCount);
 
-    const fieldValues = data.map((item) => item[resolvedField]);
+    for (let index = 0; index < itemCount; index++) {
+      indexes[index] = index;
+      fieldValues[index] = data[index][resolvedField];
+    }
+
     const firstValue = fieldValues[0];
 
     if (typeof firstValue === "number") {
@@ -87,7 +91,6 @@ export class SortEngine<T extends CollectionItem> {
       indexes,
       dataRef: data,
       itemCount,
-      fieldSnapshot: fieldValues,
     });
     return this;
   }
@@ -128,6 +131,7 @@ export class SortEngine<T extends CollectionItem> {
   ): T[] {
     let data: T[];
     let resolvedDescriptors: SortDescriptor<T>[];
+    const usesStoredDataset = descriptors === undefined;
 
     if (descriptors === undefined) {
       if (!this.dataset.length) {
@@ -150,10 +154,9 @@ export class SortEngine<T extends CollectionItem> {
       const cached = this.cache.get(field as string);
 
       if (
-        cached &&
-        cached.dataRef === data &&
-        cached.itemCount === data.length &&
-        this.isFieldSnapshotValid(data, field, cached.fieldSnapshot)
+        usesStoredDataset &&
+        cached?.dataRef === data &&
+        cached.itemCount === data.length
       ) {
         return this.reconstructFromIndex(data, cached.indexes, direction);
       }
@@ -197,21 +200,6 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     return result;
-  }
-
-  /**
-   * Checks if the field snapshot is still valid.
-   */
-  private isFieldSnapshotValid(
-    data: T[],
-    field: keyof T & string,
-    snapshot: unknown[],
-  ): boolean {
-    for (let index = 0; index < data.length; index++) {
-      if (data[index][field] !== snapshot[index]) return false;
-    }
-
-    return true;
   }
 
   /**

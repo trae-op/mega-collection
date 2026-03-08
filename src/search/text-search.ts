@@ -126,7 +126,6 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Searches all indexed fields.
    */
   private searchAllFields(query: string): T[] {
-    const fields = [...this.ngramIndexes.keys()] as (keyof T & string)[];
     const lowerQuery = this.normalizeQuery(query);
 
     if (!lowerQuery) {
@@ -137,7 +136,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       return this.dataset;
     }
 
-    if (!fields.length && !this.nestedCollection.hasIndexes()) {
+    if (!this.ngramIndexes.size && !this.nestedCollection.hasIndexes()) {
       return this.searchAllFieldsLinear(lowerQuery);
     }
 
@@ -147,7 +146,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     const seenItems = new Set<T>();
     const combined: T[] = [];
 
-    for (const field of fields) {
+    for (const field of this.ngramIndexes.keys()) {
       for (const item of this.searchFieldWithPreparedQuery(
         field,
         lowerQuery,
@@ -281,7 +280,8 @@ export class TextSearchEngine<T extends CollectionItem> {
       const item = this.dataset[itemIndex];
       let hasMatch = false;
 
-      for (const value of Object.values(item)) {
+      for (const field in item) {
+        const value = item[field];
         if (typeof value !== "string") continue;
         if (!value.toLowerCase().includes(lowerQuery)) continue;
 
