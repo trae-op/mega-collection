@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { FilterEngine } from "../filter/filter";
 import { TextSearchEngine } from "../search/text-search";
 import { SortEngine } from "../sort/sorter";
+import { MergeEnginesError } from "./errors";
 import { MergeEngines } from "./merge-engines";
 
 type User = {
@@ -64,6 +65,9 @@ describe("MergeEngines", () => {
       search: { fields: ["name"] },
     });
 
+    expect(() =>
+      searchOnly.sort([{ field: "age", direction: "asc" }]),
+    ).toThrowError(MergeEnginesError);
     expect(() => searchOnly.sort([{ field: "age", direction: "asc" }])).toThrow(
       "SortEngine is not available",
     );
@@ -124,7 +128,7 @@ describe("MergeEngines", () => {
     );
   });
 
-  it("supports chaining across public methods", () => {
+  it("supports chaining across public methods without leaking filter chain methods", () => {
     const merge = new MergeEngines<User>({
       imports: [TextSearchEngine, SortEngine, FilterEngine],
       data: users,
@@ -139,6 +143,7 @@ describe("MergeEngines", () => {
       .filter([{ field: "city", values: ["Kyiv"] }]);
 
     expect(result.map((item) => item.id)).toEqual([1, 3]);
+    expect("resetFilterState" in result).toBe(false);
     expect(() =>
       result.clearIndexes("search").clearIndexes("sort").clearIndexes("filter"),
     ).not.toThrow();
@@ -239,5 +244,143 @@ describe("MergeEngines", () => {
     });
 
     expect(searchOnly.getOriginData()).toBe(users);
+  });
+});
+
+type Order = {
+  id: string;
+  status: string;
+};
+
+type UserWithOrders = {
+  id: string;
+  name: string;
+  city: string;
+  age: number;
+  orders: Order[];
+};
+
+const usersWithOrders: UserWithOrders[] = [
+  {
+    id: "1",
+    name: "Tim",
+    city: "New-York",
+    age: 20,
+    orders: [
+      { id: "1", status: "pending" },
+      { id: "2", status: "delivered" },
+    ],
+  },
+  {
+    id: "2",
+    name: "Tom",
+    city: "LA",
+    age: 40,
+    orders: [{ id: "3", status: "pending" }],
+  },
+  {
+    id: "3",
+    name: "Sara",
+    city: "Chicago",
+    age: 30,
+    orders: [],
+  },
+];
+
+describe("MergeEngines — nestedFields", () => {
+  it("search with nestedFields finds by nested values", () => {
+    const merge = new MergeEngines<UserWithOrders>({
+      imports: [TextSearchEngine, FilterEngine],
+      data: usersWithOrders,
+      search: {
+        fields: ["name", "city"],
+        nestedFields: ["orders.status"],
+        minQueryLength: 2,
+      },
+      filter: {
+        fields: ["city"],
+        nestedFields: ["orders.status"],
+      },
+    });
+
+    const searchResult = merge.search("delivered");
+    expect(searchResult.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("filter with nestedFields filters by nested values", () => {
+    const merge = new MergeEngines<UserWithOrders>({
+      imports: [TextSearchEngine, FilterEngine],
+      data: usersWithOrders,
+      search: {
+        fields: ["name"],
+        nestedFields: ["orders.status"],
+      },
+      filter: {
+        fields: ["city"],
+        nestedFields: ["orders.status"],
+      },
+    });
+
+    const filterResult = merge.filter([
+      { field: "orders.status", values: ["pending"] },
+    ]);
+    expect(filterResult.map((u) => u.id)).toEqual(["1", "2"]);
+  });
+
+  it("chains search and filter with nestedFields", () => {
+    const merge = new MergeEngines<UserWithOrders>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: usersWithOrders,
+      search: {
+        fields: ["name", "city"],
+        nestedFields: ["orders.status"],
+      },
+      filter: {
+        fields: ["city"],
+        nestedFields: ["orders.status"],
+      },
+      sort: { fields: ["age"] },
+    });
+
+    const result = merge
+      .search("pending")
+      .filter([{ field: "city", values: ["LA"] }]);
+    expect(result.map((u) => u.id)).toEqual(["2"]);
+  });
+
+  it("data() rebuilds nested indexes across all modules", () => {
+    const merge = new MergeEngines<UserWithOrders>({
+      imports: [TextSearchEngine, FilterEngine],
+      data: usersWithOrders,
+      search: {
+        fields: ["name"],
+        nestedFields: ["orders.status"],
+      },
+      filter: {
+        nestedFields: ["orders.status"],
+      },
+    });
+
+    const newUsers: UserWithOrders[] = [
+      {
+        id: "10",
+        name: "Lia",
+        city: "Berlin",
+        age: 28,
+        orders: [{ id: "10", status: "shipped" }],
+      },
+    ];
+
+    merge.data(newUsers);
+
+    expect(merge.search("orders.status", "shipped").map((u) => u.id)).toEqual([
+      "10",
+    ]);
+    expect(
+      merge
+        .filter([{ field: "orders.status", values: ["shipped"] }])
+        .map((u) => u.id),
+    ).toEqual(["10"]);
+    expect(merge.search("orders.status", "pending")).toEqual([]);
   });
 });

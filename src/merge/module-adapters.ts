@@ -1,0 +1,125 @@
+import { FilterEngine } from "../filter/filter";
+import { FILTER_ENGINE_EXECUTE } from "../filter/internal";
+import { TextSearchEngine } from "../search/text-search";
+import { SortEngine } from "../sort/sorter";
+import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
+import type {
+  BaseModuleAdapter,
+  EngineConstructor,
+  MergeModuleName,
+} from "./types";
+
+export type SearchModuleAdapter<T extends CollectionItem> = BaseModuleAdapter<
+  T,
+  TextSearchEngine<T>
+> & {
+  moduleName: "search";
+  executeSearch: (fieldOrQuery: string, maybeQuery?: string) => T[];
+};
+
+export type SortModuleAdapter<T extends CollectionItem> = BaseModuleAdapter<
+  T,
+  SortEngine<T>
+> & {
+  moduleName: "sort";
+  executeSort: (
+    dataOrDescriptors: T[] | SortDescriptor<T>[],
+    descriptors?: SortDescriptor<T>[],
+    inPlace?: boolean,
+  ) => T[];
+};
+
+export type FilterModuleAdapter<T extends CollectionItem> = BaseModuleAdapter<
+  T,
+  FilterEngine<T>
+> & {
+  moduleName: "filter";
+  executeFilter: (
+    dataOrCriteria: T[] | FilterCriterion<T>[],
+    criteria?: FilterCriterion<T>[],
+  ) => T[];
+};
+
+export type MergeModuleAdapter<T extends CollectionItem> =
+  | SearchModuleAdapter<T>
+  | SortModuleAdapter<T>
+  | FilterModuleAdapter<T>;
+
+export const getMergeModuleName = (
+  EngineModule: EngineConstructor,
+): MergeModuleName | null => {
+  if (EngineModule === TextSearchEngine) {
+    return "search";
+  }
+
+  if (EngineModule === SortEngine) {
+    return "sort";
+  }
+
+  if (EngineModule === FilterEngine) {
+    return "filter";
+  }
+
+  return null;
+};
+
+export const createMergeModuleAdapter = <T extends CollectionItem>(
+  EngineModule: EngineConstructor,
+  data: T[],
+  config: Record<string, unknown>,
+): MergeModuleAdapter<T> | null => {
+  if (EngineModule === TextSearchEngine) {
+    const engine = new TextSearchEngine<T>({ data, ...config });
+
+    return {
+      moduleName: "search",
+      executeSearch: (fieldOrQuery, maybeQuery) =>
+        maybeQuery === undefined
+          ? engine.search(fieldOrQuery)
+          : engine.search(
+              fieldOrQuery as (keyof T & string) | (string & {}),
+              maybeQuery,
+            ),
+      clearIndexes: () => engine.clearIndexes(),
+      clearData: () => engine.clearData(),
+      data: (nextData) => engine.data(nextData),
+      getOriginData: () => engine.getOriginData(),
+    };
+  }
+
+  if (EngineModule === SortEngine) {
+    const engine = new SortEngine<T>({ data, ...config });
+
+    return {
+      moduleName: "sort",
+      executeSort: (dataOrDescriptors, descriptors, inPlace) =>
+        descriptors === undefined
+          ? engine.sort(dataOrDescriptors as SortDescriptor<T>[])
+          : engine.sort(dataOrDescriptors as T[], descriptors, inPlace),
+      clearIndexes: () => engine.clearIndexes(),
+      clearData: () => engine.clearData(),
+      data: (nextData) => engine.data(nextData),
+      getOriginData: () => engine.getOriginData(),
+    };
+  }
+
+  if (EngineModule === FilterEngine) {
+    const engine = new FilterEngine<T>({ data, ...config });
+
+    return {
+      moduleName: "filter",
+      executeFilter: (dataOrCriteria, criteria) =>
+        criteria === undefined
+          ? engine[FILTER_ENGINE_EXECUTE](
+              dataOrCriteria as FilterCriterion<T>[],
+            )
+          : engine[FILTER_ENGINE_EXECUTE](dataOrCriteria as T[], criteria),
+      clearIndexes: () => engine.clearIndexes(),
+      clearData: () => engine.clearData(),
+      data: (nextData) => engine.data(nextData),
+      getOriginData: () => engine.getOriginData(),
+    };
+  }
+
+  return null;
+};

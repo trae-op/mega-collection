@@ -8,51 +8,56 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 
 # @devisfuture/mega-collection
 
-> Search, filter & sort engine for **100K+** item collections in JavaScript / TypeScript.
+> Tools to search, filter, and sort large arrays in JavaScript / TypeScript.
 
 ## Navigation
 
-- [What does this package solve](#what-does-this-package-solve) – explains the core problem addressed by the library
-- [Features](#features) – overview of package capabilities
-- [React demo](#react-demo) – link to example app and live demo
-- [Install](#install) – npm installation instructions
-- [Quick Start](#quick-start) – examples for using the engines
-  - [All-in-one: `MergeEngines`](#all-in-one-mergeengines) – combine search, filter, sort
-  - [Search only](#search-only) – text search engine usage
-  - [Filter only](#filter-only) – multi-criteria filter engine
-  - [Sort only](#sort-only) – sort engine examples
-- [API Reference](#api-reference) – detailed methods and options
-  - [`MergeEngines<T>`](#mergeenginest-root-module) – unified facade around dataset
-  - [`TextSearchEngine<T>`](#textsearchenginet-search-module) – trigram search engine
-  - [`FilterEngine<T>`](#filterenginet-filter-module) – indexed filter engine
-  - [`SortEngine<T>`](#sortenginet-sort-module) – pre-sorted comparators
-- [Types](#types) – exported TypeScript types
-- [Architecture](#architecture) – project structure overview
-- [Build](#build) – build and development commands
-- [Contributing](#contributing) – guidelines for contributors
-- [Security](#security) – policy information
-- [License](#license) – MIT license terms
+- [What does this package solve](#what-does-this-package-solve) – what problem this package helps with
+- [Features](#features) – what the package can do
+- [React demo](#react-demo) – example project and live demo
+- [Install](#install) – how to install the package
+- [Quick Start](#quick-start) – basic usage examples
+  - [All-in-one: `MergeEngines`](#all-in-one-mergeengines) – use search, filter, and sort from one engine
+  - [Search only](#search-only) – use only text search
+    - [Flat collections search](#flat-collections-search) – search simple fields like `name` or `city`
+    - [Nested collections search](#nested-collections-search) – search inside nested arrays like `orders.status`
+  - [Filter only](#filter-only) – use only filtering
+    - [Flat collections filter](#flat-collections-filter) – filter by simple top-level fields
+    - [Nested collections filter](#nested-collections-filter) – filter by nested array fields
+  - [Sort only](#sort-only) – use only sorting
+- [API Reference](#api-reference) – list of options and methods
+  - [`MergeEngines<T>`](#mergeenginest-root-module) – one engine that combines everything
+  - [`TextSearchEngine<T>`](#textsearchenginet-search-module) – engine for text search
+  - [`FilterEngine<T>`](#filterenginet-filter-module) – engine for filtering
+  - [`SortEngine<T>`](#sortenginet-sort-module) – engine for sorting
+- [Types](#types) – TypeScript types you can import
+- [Build](#build) – commands for build and development
+- [Contributing](#contributing) – contribution rules
+- [Security](#security) – security policy
+- [License](#license) – license information
 
 ## What does this package solve
 
 Sometimes in projects, you need to iterate through huge collections (100K+ elements in an array) that have come from the server. Usually, the most common features are searching, filtering, and sorting.
-So, this package helps to perform searching, filtering, and sorting of large collections faster than standard JavaScript methods. This operation is performed before rendering the UI content.
+This package helps you search, filter, and sort large collections faster than plain JavaScript methods. Usually you do this before showing data in the UI.
 
 Zero dependencies. Tree-shakeable. Import only what you need.
 
 Each engine lives in its own entry point (`/search`, `/filter`, `/sort`).
 Importing just `@devisfuture/mega-collection/search` or the other sub-modules means
-only that code ends up in your bundle — unused engines stay out. For example, if
-you only pull in `TextSearchEngine` the filter and sort logic won’t be included.
+only that code goes into your bundle. Unused engines stay out. For example, if
+you only import `TextSearchEngine`, the filter and sort code will not be included.
 
 ## Features
 
-| Capability                 | Strategy                               | Complexity                         |
-| -------------------------- | -------------------------------------- | ---------------------------------- |
-| **Indexed filter**         | Hash-Map index (`Map<value, T[]>`)     | **O(1)**                           |
-| **Multi-value filter**     | Index intersection + `Set` membership  | **O(k)** indexed / **O(n)** linear |
-| **Text search** (contains) | Trigram inverted index + verify        | **O(candidates)**                  |
-| **Sorting**                | Pre-sorted index (cached) / V8 TimSort | **O(n)** cached / **O(n log n)**   |
+| Capability                   | Strategy                               | Complexity                         |
+| ---------------------------- | -------------------------------------- | ---------------------------------- |
+| **Indexed filter**           | Hash-Map index (`Map<value, T[]>`)     | **O(1)**                           |
+| **Multi-value filter**       | Index intersection + `Set` membership  | **O(k)** indexed / **O(n)** linear |
+| **Nested collection filter** | Pre-built nested index + `Set` lookup  | **O(k)** indexed / **O(n)** linear |
+| **Text search** (contains)   | Trigram inverted index + verify        | **O(candidates)**                  |
+| **Nested collection search** | Nested trigram index + verify          | **O(candidates)**                  |
+| **Sorting**                  | Pre-sorted index (cached) / V8 TimSort | **O(n)** cached / **O(n log n)**   |
 
 ## React demo
 
@@ -78,18 +83,31 @@ interface User {
   city: string;
   age: number;
 }
+
+interface Order {
+  id: string;
+  status: string;
+}
+
+interface UserWithOrders extends User {
+  orders: Order[];
+}
 ```
 
 ### All-in-one: `MergeEngines`
 
-Use `MergeEngines` to combine search, filter and sort around a single shared dataset.
-Declare which engines you need in `imports` — only those are initialised.
+Use `MergeEngines` when you want one engine that works with the same dataset.
+Add the engines you need in `imports`. Only those engines will be created.
+
+You can create many engine instances in one project for different collections.
+Each instance keeps its own data and its own indexes, so they work separately
+and do not overwrite each other.
 
 Each engine accepts an optional `fields` array (set via the `search`,
 `filter` or `sort` option) which tells it which properties should be indexed up
-front. Indexes power the fast paths used throughout the library; you can leave
-these options out and everything still works, but the code will fall back to
-simple linear scans.
+front. This means the engine prepares those fields once so later calls can be
+faster. If you skip `fields`, everything still works, but the engine may need
+to scan the full array.
 
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
@@ -110,6 +128,26 @@ engine
   .search("john")
   .sort([{ field: "age", direction: "asc" }])
   .filter([{ field: "city", values: ["Miami", "New York"] }]);
+
+// with nested collection fields (e.g. orders inside each user)
+const nestedEngine = new MergeEngines<UserWithOrders>({
+  imports: [TextSearchEngine, SortEngine, FilterEngine],
+  data: usersWithOrders,
+  search: {
+    fields: ["name", "city"],
+    nestedFields: ["orders.status"],
+    minQueryLength: 2,
+  },
+  filter: {
+    fields: ["city", "age"],
+    nestedFields: ["orders.status"],
+    filterByPreviousResult: true,
+  },
+  sort: { fields: ["age", "name", "city"] },
+});
+
+nestedEngine.search("pending"); // finds users whose orders contain "pending"
+nestedEngine.filter([{ field: "orders.status", values: ["delivered"] }]);
 
 // update dataset later without creating a new instance
 engine.data([
@@ -133,24 +171,24 @@ engine.getOriginData();
 
 ### Search only
 
+Use `TextSearchEngine` when you only need text search.
+The examples below show the difference between simple fields and nested fields.
+
+#### Flat collections search
+
 ```ts
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 
-// `fields` tells the engine which properties to index for fast lookups. The
-// index is built once during construction; if you omit `fields` the engine
-// still works but every search will scan the entire dataset.
+// `fields` tells the engine which fields it should prepare for faster search.
+// If you skip `fields`, search still works, but it will scan the full dataset.
 const engine = new TextSearchEngine<User>({
   data: users,
   fields: ["name", "city"],
   minQueryLength: 2, // begins searching when query length >= 2
 });
 
-// note: inputs shorter than `minQueryLength` bypass the indexed search and
-// simply return the original dataset (rather than clearing the result).
-// A one‑character search usually matches most of the dataset, so avoiding
-// extra work makes typing feel snappier. Once the query reaches the
-// threshold the indexed search kicks in and performance improves
-// dramatically. Empty/blank queries return the original dataset.
+// If the query is shorter than `minQueryLength`, the engine returns the
+// original dataset. Empty or blank queries also return the original dataset.
 
 engine.search("john"); // searches all indexed fields, deduplicated
 engine.search("name", "john"); // searches a specific field
@@ -161,19 +199,40 @@ engine.data(users);
 // access original dataset stored in the engine
 engine.getOriginData();
 
-// chain support
-engine.search("john").clearIndexes().clearData();
+// service methods stay on the engine instance
+engine.clearIndexes();
+engine.clearData();
+```
+
+#### Nested collections search
+
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+
+// Search inside nested arrays. `nestedFields` uses dot notation.
+const nestedSearch = new TextSearchEngine<UserWithOrders>({
+  data: usersWithOrders,
+  fields: ["name", "city"],
+  nestedFields: ["orders.status"],
+  minQueryLength: 2,
+});
+
+nestedSearch.search("pending"); // finds users whose orders match
+nestedSearch.search("orders.status", "delivered"); // search a specific nested field
 ```
 
 ### Filter only
 
+Use `FilterEngine` when you only need filtering.
+The examples below show the difference between simple fields and nested fields.
+
+#### Flat collections filter
+
 ```ts
 import { FilterEngine } from "@devisfuture/mega-collection/filter";
 
-// `fields` config tells the filter engine which properties should have an
-// index built. Indexed lookups are O(1) per value, so multi-criteria queries
-// can be orders of magnitude faster. Without `fields` the engine still filters
-// correctly but always does a linear scan.
+// `fields` tells the engine which fields should be prepared for faster filter
+// lookups. Without `fields`, filtering still works, but it will scan the data.
 const engine = new FilterEngine<User>({
   data: users,
   fields: ["city", "age"],
@@ -201,26 +260,45 @@ engine
 // Sequential mode example:
 // 1) First call filters by city
 const byCity = engine.filter([{ field: "city", values: ["Miami"] }]);
-// 2) Second call filters only inside previous result
+// 2) Second call filters only inside the previous result
 const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
+```
+
+#### Nested collections filter
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+// Filter inside nested arrays. `nestedFields` uses dot notation.
+const nestedFilter = new FilterEngine<UserWithOrders>({
+  data: usersWithOrders,
+  fields: ["city", "age"],
+  nestedFields: ["orders.status"],
+  filterByPreviousResult: true,
+});
+
+nestedFilter.filter([{ field: "orders.status", values: ["pending"] }]);
+nestedFilter.filter([
+  { field: "orders.status", values: ["pending"] },
+  { field: "city", values: ["New-York"] },
+]);
 ```
 
 ### Sort only
 
+Use `SortEngine` when you only need sorting.
+
 ```ts
 import { SortEngine } from "@devisfuture/mega-collection/sort";
 
-// `fields` instructs the engine to pre-build a sorted index for each property.
-// When you later run a single-field sort the result can be pulled directly
-// from that index in linear time. If you leave out `fields` the engine still
-// sorts correctly, it merely falls back to standard `Array.prototype.sort`
-// (O(n log n)).
+// `fields` tells the engine which fields should be prepared for faster
+// single-field sorting. If you skip `fields`, sorting still works.
 const engine = new SortEngine<User>({
   data: users,
   fields: ["age", "name", "city"],
 });
 
-// Single-field sort — O(n) via cached index
+// Single-field sort
 engine.sort([{ field: "age", direction: "asc" }]);
 
 // replace dataset without re-initializing
@@ -229,14 +307,11 @@ engine.data(users);
 // access original dataset stored in the engine
 engine.getOriginData();
 
-// chain support
-engine
-  .sort([{ field: "age", direction: "asc" }])
-  .sort([{ field: "name", direction: "desc" }])
-  .clearIndexes()
-  .clearData();
+// service methods stay on the engine instance
+engine.clearIndexes();
+engine.clearData();
 
-// Multi-field sort — O(n log n)
+// Multi-field sort
 engine.sort([
   { field: "age", direction: "asc" },
   { field: "name", direction: "desc" },
@@ -249,7 +324,7 @@ engine.sort([
 
 ### `MergeEngines<T>` (root module)
 
-Unified facade that composes all three engines around a shared dataset.
+One engine that brings search, filter, and sort together on the same dataset.
 
 **Constructor options:**
 
@@ -257,8 +332,8 @@ Unified facade that composes all three engines around a shared dataset.
 | --------- | ----------------------------------------------------------- | -------------------------------------------- |
 | `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to activate                   |
 | `data`    | `T[]`                                                       | Shared dataset — passed once at construction |
-| `search`  | `{ fields, minQueryLength? }`                               | Config for TextSearchEngine                  |
-| `filter`  | `{ fields, filterByPreviousResult? }`                       | Config for FilterEngine                      |
+| `search`  | `{ fields, nestedFields?, minQueryLength? }`                | Config for TextSearchEngine                  |
+| `filter`  | `{ fields, nestedFields?, filterByPreviousResult? }`        | Config for FilterEngine                      |
 | `sort`    | `{ fields }`                                                | Config for SortEngine                        |
 
 **Methods:**
@@ -280,40 +355,45 @@ Unified facade that composes all three engines around a shared dataset.
 
 ### `TextSearchEngine<T>` (search module)
 
-Trigram-based text search engine.
+Text search engine. It supports `nestedFields` if you need to search inside
+nested collections such as `["orders.status"]`. Search methods return plain
+arrays.
 
-| Method                 | Description                                           |
-| ---------------------- | ----------------------------------------------------- |
-| `search(query)`        | Search all indexed fields, deduplicated               |
-| `search(field, query)` | Search a specific indexed field                       |
-| `getOriginData()`      | Get the original stored dataset                       |
-| `data(data)`           | Replace stored dataset and rebuild configured indexes |
-| `clearIndexes()`       | Clear n-gram indexes                                  |
-| `clearData()`          | Clear stored data                                     |
+| Method                 | Description                                                |
+| ---------------------- | ---------------------------------------------------------- |
+| `search(query)`        | Search all indexed fields (including nested), deduplicated |
+| `search(field, query)` | Search a specific indexed field or nested field path       |
+| `getOriginData()`      | Get the original stored dataset                            |
+| `data(data)`           | Replace stored dataset and rebuild configured indexes      |
+| `clearIndexes()`       | Clear n-gram indexes (including nested)                    |
+| `clearData()`          | Clear stored data                                          |
 
 ### `FilterEngine<T>` (filter module)
 
-Multi-criteria AND filter with index-accelerated fast path.
+Filter engine for one or more rules. It supports `nestedFields` if you need to
+filter by values inside nested collections such as `["orders.status"]`.
 
 Constructor option highlights:
 
-| Option                   | Type      | Description                                                                                                                               |
-| ------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `filterByPreviousResult` | `boolean` | When `true`, each `filter(criteria)` call filters from previous result. Defaults to `false` (each call starts from the original dataset). |
+| Option                   | Type       | Description                                                                                                                        |
+| ------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `filterByPreviousResult` | `boolean`  | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset. |
+| `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                               |
 
 | Method                   | Description                                                                |
 | ------------------------ | -------------------------------------------------------------------------- |
-| `filter(criteria)`       | Filter using stored dataset                                                |
+| `filter(criteria)`       | Filter using stored dataset (supports nested field criteria)               |
 | `filter(data, criteria)` | Filter with an explicit dataset                                            |
 | `getOriginData()`        | Get the original stored dataset                                            |
 | `data(data)`             | Replace stored dataset, rebuild configured indexes, and reset filter state |
 | `resetFilterState()`     | Reset previous-result state for sequential filtering                       |
-| `clearIndexes()`         | Free all index memory                                                      |
+| `clearIndexes()`         | Free all index memory (including nested indexes)                           |
 | `clearData()`            | Clear stored data                                                          |
 
 ### `SortEngine<T>` (sort module)
 
-Sorting with pre-compiled comparators and cached sort indexes.
+Sort engine with prepared indexes for faster sorting in common cases. Sort
+methods return plain arrays.
 
 | Method                              | Description                                           |
 | ----------------------------------- | ----------------------------------------------------- |
@@ -326,7 +406,7 @@ Sorting with pre-compiled comparators and cached sort indexes.
 
 ---
 
-**Note on `data` method:** Calling the `data` method automatically rebuilds configured indexes and resets any internal state (such as filter state in FilterEngine), so it is sufficient on its own without needing to call `clearIndexes` separately.
+**Note on `data` method:** Calling `data` updates the stored dataset. It also rebuilds configured indexes and resets internal state when needed, so you usually do not need to call `clearIndexes` before it.
 
 ## Types
 
@@ -358,27 +438,6 @@ import type {
 ```
 
 ---
-
-## Architecture
-
-```
-src/
-  types.ts               — Shared type definitions
-  indexer.ts             — Hash-Map index engine (internal, O(1) lookups)
-  search/
-    text-search.ts       — Trigram inverted index engine
-    index.ts             — Search module entry point
-  filter/
-    filter.ts            — Multi-criteria filter engine (owns Indexer internally)
-    index.ts             — Filter module entry point
-  sort/
-    sorter.ts            — Sort engine (TimSort + index-sort)
-    index.ts             — Sort module entry point
-  merge/
-    merge-engines.ts     — MergeEngines unified facade
-    index.ts             — Merge module entry point
-  index.ts               — Root barrel export
-```
 
 ## Build
 

@@ -4,32 +4,8 @@
  */
 
 import { CollectionItem, SortDescriptor, SortDirection } from "../types";
-
-interface SortIndex<T> {
-  indexes: Uint32Array;
-  dataRef: T[];
-  itemCount: number;
-  fieldSnapshot: unknown[];
-}
-
-export interface SortEngineOptions<T extends CollectionItem = CollectionItem> {
-  data?: T[];
-
-  fields?: (keyof T & string)[];
-}
-
-export interface SortEngineChain<T extends CollectionItem> {
-  sort(descriptors: SortDescriptor<T>[]): T[] & SortEngineChain<T>;
-  sort(
-    data: T[],
-    descriptors: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ): T[] & SortEngineChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): SortEngine<T>;
-  clearIndexes(): SortEngine<T>;
-  clearData(): SortEngine<T>;
-}
+import type { SortEngineOptions, SortIndex } from "./types";
+import { SortEngineError } from "./errors";
 
 export class SortEngine<T extends CollectionItem> {
   private cache = new Map<string, SortIndex<T>>();
@@ -76,10 +52,7 @@ export class SortEngine<T extends CollectionItem> {
 
     if (!Array.isArray(dataOrField)) {
       if (!this.dataset.length) {
-        throw new Error(
-          "SortEngine: no dataset in memory. " +
-            "Either pass `data` in the constructor options, or call buildIndex(data, field).",
-        );
+        throw SortEngineError.missingDatasetForBuildIndex();
       }
 
       data = this.dataset;
@@ -92,9 +65,13 @@ export class SortEngine<T extends CollectionItem> {
     this.dataset = data;
     const itemCount = data.length;
     const indexes = new Uint32Array(itemCount);
-    for (let i = 0; i < itemCount; i++) indexes[i] = i;
+    const fieldValues = new Array<unknown>(itemCount);
 
-    const fieldValues = data.map((item) => item[resolvedField]);
+    for (let index = 0; index < itemCount; index++) {
+      indexes[index] = index;
+      fieldValues[index] = data[index][resolvedField];
+    }
+
     const firstValue = fieldValues[0];
 
     if (typeof firstValue === "number") {
@@ -114,7 +91,6 @@ export class SortEngine<T extends CollectionItem> {
       indexes,
       dataRef: data,
       itemCount,
-      fieldSnapshot: fieldValues,
     });
     return this;
   }
@@ -146,26 +122,20 @@ export class SortEngine<T extends CollectionItem> {
   /**
    * Sorts the data based on the given descriptors.
    */
-  sort(descriptors: SortDescriptor<T>[]): T[] & SortEngineChain<T>;
-  sort(
-    data: T[],
-    descriptors: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ): T[] & SortEngineChain<T>;
+  sort(descriptors: SortDescriptor<T>[]): T[];
+  sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
   sort(
     dataOrDescriptors: T[] | SortDescriptor<T>[],
     descriptors?: SortDescriptor<T>[],
     inPlace = false,
-  ): T[] & SortEngineChain<T> {
+  ): T[] {
     let data: T[];
     let resolvedDescriptors: SortDescriptor<T>[];
+    const usesStoredDataset = descriptors === undefined;
 
     if (descriptors === undefined) {
       if (!this.dataset.length) {
-        throw new Error(
-          "SortEngine: no dataset in memory. " +
-            "Either pass `data` in the constructor options, or call sort(data, descriptors).",
-        );
+        throw SortEngineError.missingDatasetForSort();
       }
 
       data = this.dataset;
@@ -176,7 +146,7 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     if (resolvedDescriptors.length === 0 || data.length === 0) {
-      return this.withChain(data);
+      return data;
     }
 
     if (resolvedDescriptors.length === 1) {
@@ -184,14 +154,11 @@ export class SortEngine<T extends CollectionItem> {
       const cached = this.cache.get(field as string);
 
       if (
-        cached &&
-        cached.dataRef === data &&
-        cached.itemCount === data.length &&
-        this.isFieldSnapshotValid(data, field, cached.fieldSnapshot)
+        usesStoredDataset &&
+        cached?.dataRef === data &&
+        cached.itemCount === data.length
       ) {
-        return this.withChain(
-          this.reconstructFromIndex(data, cached.indexes, direction),
-        );
+        return this.reconstructFromIndex(data, cached.indexes, direction);
       }
     }
 
@@ -202,73 +169,16 @@ export class SortEngine<T extends CollectionItem> {
       data.length > 0 &&
       typeof data[0][resolvedDescriptors[0].field] === "number"
     ) {
-      return this.withChain(
-        this.radixSortNumeric(
-          sortableItems,
-          resolvedDescriptors[0].field,
-          resolvedDescriptors[0].direction,
-        ),
+      return this.radixSortNumeric(
+        sortableItems,
+        resolvedDescriptors[0].field,
+        resolvedDescriptors[0].direction,
       );
     }
 
     const comparator = this.buildComparator(resolvedDescriptors);
     sortableItems.sort(comparator);
-    return this.withChain(sortableItems);
-  }
-
-  private withChain(result: T[]): T[] & SortEngineChain<T> {
-    const chainResult = result as T[] & SortEngineChain<T>;
-
-    Object.defineProperty(chainResult, "sort", {
-      value: (
-        dataOrDescriptors: T[] | SortDescriptor<T>[],
-        descriptors?: SortDescriptor<T>[],
-        inPlace = false,
-      ) => {
-        if (descriptors === undefined) {
-          return this.sort(
-            result,
-            dataOrDescriptors as SortDescriptor<T>[],
-            inPlace,
-          );
-        }
-
-        return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
-      },
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearIndexes", {
-      value: () => this.clearIndexes(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "data", {
-      value: (data: T[]) => this.data(data),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "getOriginData", {
-      value: () => this.getOriginData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearData", {
-      value: () => this.clearData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    return chainResult;
+    return sortableItems;
   }
 
   /**
@@ -290,21 +200,6 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     return result;
-  }
-
-  /**
-   * Checks if the field snapshot is still valid.
-   */
-  private isFieldSnapshotValid(
-    data: T[],
-    field: keyof T & string,
-    snapshot: unknown[],
-  ): boolean {
-    for (let index = 0; index < data.length; index++) {
-      if (data[index][field] !== snapshot[index]) return false;
-    }
-
-    return true;
   }
 
   /**

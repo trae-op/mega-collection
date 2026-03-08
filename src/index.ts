@@ -1,13 +1,15 @@
 export { TextSearchEngine } from "./search/text-search";
 export { FilterEngine } from "./filter/filter";
 export { SortEngine } from "./sort/sorter";
-export { MergeEngines } from "./merge/merge-engines";
+export { MergeEngines } from "./merge";
 
 export type {
   MergeEnginesOptions,
   EngineApi,
   EngineConstructor,
-} from "./merge/merge-engines";
+  MergeEnginesChain,
+  MergeModuleName,
+} from "./merge";
 
 export type {
   CollectionItem,

@@ -4,79 +4,21 @@
  */
 
 import { CollectionItem } from "../types";
-
-const MAXIMUM_NGRAM_LENGTH = 3;
-const MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION = 12;
-
-function extractQueryGrams(input: string): string[] {
-  const lower = input.toLowerCase();
-  const gramLength = Math.min(MAXIMUM_NGRAM_LENGTH, lower.length);
-  const gramCount = lower.length - gramLength + 1;
-  const queryGrams = new Array<string>(gramCount);
-  for (let index = 0; index < gramCount; index++) {
-    queryGrams[index] = lower.substring(index, index + gramLength);
-  }
-  return queryGrams;
-}
-
-function buildIntersectionQueryGrams(lowerQuery: string): ReadonlySet<string> {
-  const allGrams = extractQueryGrams(lowerQuery);
-  if (allGrams.length <= MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION) {
-    return new Set(allGrams);
-  }
-
-  const selected = new Set<string>();
-  const maxIndex = allGrams.length - 1;
-  const steps = MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION - 1;
-
-  for (let step = 0; step <= steps; step++) {
-    const index = Math.round((step * maxIndex) / steps);
-    selected.add(allGrams[index]);
-  }
-
-  return selected;
-}
-
-function getOrCreatePostingList(
-  ngramMap: Map<string, Set<number>>,
-  ngram: string,
-): Set<number> {
-  const existingPostingList = ngramMap.get(ngram);
-  if (existingPostingList) return existingPostingList;
-
-  const newPostingList = new Set<number>();
-  ngramMap.set(ngram, newPostingList);
-  return newPostingList;
-}
-
-export interface TextSearchEngineOptions<
-  T extends CollectionItem = CollectionItem,
-> {
-  data?: T[];
-
-  fields?: (keyof T & string)[];
-
-  minQueryLength?: number;
-}
-
-export interface TextSearchEngineChain<T extends CollectionItem> {
-  search(query: string): T[] & TextSearchEngineChain<T>;
-  search(
-    field: keyof T & string,
-    query: string,
-  ): T[] & TextSearchEngineChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): TextSearchEngine<T>;
-  clearIndexes(): TextSearchEngine<T>;
-  clearData(): TextSearchEngine<T>;
-}
+import type { TextSearchEngineOptions } from "./types";
+import { TextSearchEngineError } from "./errors";
+import { buildIntersectionQueryGrams, indexLowerValue } from "./ngram";
+import { SearchNestedCollection } from "./nested";
 
 export class TextSearchEngine<T extends CollectionItem> {
   private ngramIndexes = new Map<string, Map<string, Set<number>>>();
 
+  private normalizedFieldValues = new Map<string, string[]>();
+
   private dataset: T[] = [];
 
   private readonly indexedFields = new Set<keyof T & string>();
+
+  private readonly nestedCollection = new SearchNestedCollection<T>();
 
   private readonly minQueryLength: number;
 
@@ -85,24 +27,37 @@ export class TextSearchEngine<T extends CollectionItem> {
    */
   constructor(options: TextSearchEngineOptions<T> = {}) {
     this.minQueryLength = options.minQueryLength ?? 1;
+    this.nestedCollection.registerFields(options.nestedFields);
 
     if (!options.data) return;
 
     this.dataset = options.data;
-    if (options.fields?.length) {
-      for (const field of options.fields) {
+
+    const hasFields = options.fields?.length;
+    const hasNestedFields = this.nestedCollection.hasRegisteredFields();
+
+    if (hasFields) {
+      for (const field of options.fields!) {
         this.indexedFields.add(field);
       }
+    }
 
+    if (hasFields || hasNestedFields) {
       this.rebuildConfiguredIndexes();
     }
   }
 
   private rebuildConfiguredIndexes(): void {
     this.ngramIndexes.clear();
+    this.normalizedFieldValues.clear();
+    this.nestedCollection.clearIndexes();
 
     for (const field of this.indexedFields) {
       this.buildIndex(this.dataset, field);
+    }
+
+    if (this.nestedCollection.hasRegisteredFields()) {
+      this.nestedCollection.buildIndexes(this.dataset);
     }
   }
 
@@ -120,10 +75,7 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     if (!Array.isArray(dataOrField)) {
       if (!this.dataset.length) {
-        throw new Error(
-          "TextSearchEngine: no dataset in memory. " +
-            "Either pass `data` in the constructor options, or call buildIndex(data, field).",
-        );
+        throw TextSearchEngineError.missingDatasetForBuildIndex();
       }
 
       data = this.dataset;
@@ -136,6 +88,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     this.dataset = data;
 
     const ngramMap = new Map<string, Set<number>>();
+    const normalizedValues = new Array<string>(data.length);
 
     for (
       let itemIndex = 0, dataLength = data.length;
@@ -146,48 +99,23 @@ export class TextSearchEngine<T extends CollectionItem> {
       if (typeof rawValue !== "string") continue;
 
       const lower = rawValue.toLowerCase();
-
-      for (
-        let startIndex = 0, lowerLength = lower.length;
-        startIndex < lowerLength;
-        startIndex++
-      ) {
-        const remainingLength = lowerLength - startIndex;
-        const maxLengthAtPosition = Math.min(
-          MAXIMUM_NGRAM_LENGTH,
-          remainingLength,
-        );
-        for (
-          let gramLength = 1;
-          gramLength <= maxLengthAtPosition;
-          gramLength++
-        ) {
-          const ngram = lower.substring(startIndex, startIndex + gramLength);
-          getOrCreatePostingList(ngramMap, ngram).add(itemIndex);
-        }
-      }
+      normalizedValues[itemIndex] = lower;
+      indexLowerValue(ngramMap, lower, itemIndex);
     }
 
     this.ngramIndexes.set(resolvedField as string, ngramMap);
+    this.normalizedFieldValues.set(resolvedField as string, normalizedValues);
     return this;
   }
 
-  search(query: string): T[] & TextSearchEngineChain<T>;
-  search(
-    field: keyof T & string,
-    query: string,
-  ): T[] & TextSearchEngineChain<T>;
-  search(
-    fieldOrQuery: string,
-    maybeQuery?: string,
-  ): T[] & TextSearchEngineChain<T> {
+  search(query: string): T[];
+  search(field: (keyof T & string) | (string & {}), query: string): T[];
+  search(fieldOrQuery: string, maybeQuery?: string): T[] {
     if (maybeQuery === undefined) {
-      return this.withChain(this.searchAllFields(fieldOrQuery));
+      return this.searchAllFields(fieldOrQuery);
     }
 
-    return this.withChain(
-      this.searchField(fieldOrQuery as keyof T & string, maybeQuery),
-    );
+    return this.searchField(fieldOrQuery, maybeQuery);
   }
 
   private normalizeQuery(query: string): string {
@@ -198,7 +126,6 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Searches all indexed fields.
    */
   private searchAllFields(query: string): T[] {
-    const fields = [...this.ngramIndexes.keys()] as (keyof T & string)[];
     const lowerQuery = this.normalizeQuery(query);
 
     if (!lowerQuery) {
@@ -209,7 +136,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       return this.dataset;
     }
 
-    if (!fields.length) {
+    if (!this.ngramIndexes.size && !this.nestedCollection.hasIndexes()) {
       return this.searchAllFieldsLinear(lowerQuery);
     }
 
@@ -219,7 +146,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     const seenItems = new Set<T>();
     const combined: T[] = [];
 
-    for (const field of fields) {
+    for (const field of this.ngramIndexes.keys()) {
       for (const item of this.searchFieldWithPreparedQuery(
         field,
         lowerQuery,
@@ -232,24 +159,48 @@ export class TextSearchEngine<T extends CollectionItem> {
       }
     }
 
+    for (const item of this.nestedCollection.searchAllIndexedFields(
+      this.dataset,
+      lowerQuery,
+      uniqueQueryGrams,
+    )) {
+      if (seenItems.has(item)) continue;
+
+      seenItems.add(item);
+      combined.push(item);
+    }
+
     return combined;
   }
 
   /**
    * Searches a specific field.
    */
-  private searchField(field: keyof T & string, query: string): T[] {
+  private searchField(field: string, query: string): T[] {
     const lowerQuery = this.normalizeQuery(query);
 
-    // empty queries should return original data
-    if (!lowerQuery) {
-      return this.dataset;
-    }
+    if (!lowerQuery) return this.dataset;
 
-    if (lowerQuery.length < this.minQueryLength) {
-      // nonempty but shorter than threshold: return all data rather than
-      // an empty list
-      return this.dataset;
+    if (lowerQuery.length < this.minQueryLength) return this.dataset;
+
+    if (this.nestedCollection.hasField(field)) {
+      const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
+      if (!uniqueQueryGrams.size) return [];
+
+      if (this.nestedCollection.hasIndexes()) {
+        return this.nestedCollection.searchIndexedField(
+          this.dataset,
+          field,
+          lowerQuery,
+          uniqueQueryGrams,
+        );
+      }
+
+      return this.nestedCollection.searchFieldLinear(
+        this.dataset,
+        field,
+        lowerQuery,
+      );
     }
 
     if (!this.ngramIndexes.size) {
@@ -270,11 +221,11 @@ export class TextSearchEngine<T extends CollectionItem> {
    * Searches a field using prepared query grams.
    */
   private searchFieldWithPreparedQuery(
-    field: keyof T & string,
+    field: string,
     lowerQuery: string,
     uniqueQueryGrams: ReadonlySet<string>,
   ): T[] {
-    const ngramMap = this.ngramIndexes.get(field as string);
+    const ngramMap = this.ngramIndexes.get(field);
     if (!ngramMap) return [];
 
     const postingLists: Set<number>[] = [];
@@ -293,6 +244,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     const smallestPostingList = postingLists[0];
     const totalPostingLists = postingLists.length;
     const matchedItems: T[] = [];
+    const normalizedValues = this.normalizedFieldValues.get(field);
 
     for (const candidateIndex of smallestPostingList) {
       let isCandidate = true;
@@ -307,11 +259,8 @@ export class TextSearchEngine<T extends CollectionItem> {
       const candidateItem = this.dataset[candidateIndex];
       if (!candidateItem) continue;
 
-      const fieldValue = candidateItem[field];
-      if (
-        typeof fieldValue === "string" &&
-        fieldValue.toLowerCase().includes(lowerQuery)
-      ) {
+      const normalizedValue = normalizedValues?.[candidateIndex];
+      if (normalizedValue?.includes(lowerQuery)) {
         matchedItems.push(candidateItem);
       }
     }
@@ -331,12 +280,17 @@ export class TextSearchEngine<T extends CollectionItem> {
       const item = this.dataset[itemIndex];
       let hasMatch = false;
 
-      for (const value of Object.values(item)) {
+      for (const field in item) {
+        const value = item[field];
         if (typeof value !== "string") continue;
         if (!value.toLowerCase().includes(lowerQuery)) continue;
 
         hasMatch = true;
         break;
+      }
+
+      if (!hasMatch) {
+        hasMatch = this.nestedCollection.matchesAnyField(item, lowerQuery);
       }
 
       if (hasMatch) {
@@ -350,8 +304,16 @@ export class TextSearchEngine<T extends CollectionItem> {
   /**
    * Searches a specific field linearly without index.
    */
-  private searchFieldLinear(field: keyof T & string, lowerQuery: string): T[] {
+  private searchFieldLinear(field: string, lowerQuery: string): T[] {
     if (!this.dataset.length) return [];
+
+    if (this.nestedCollection.hasField(field)) {
+      return this.nestedCollection.searchFieldLinear(
+        this.dataset,
+        field,
+        lowerQuery,
+      );
+    }
 
     const matchedItems: T[] = [];
 
@@ -365,52 +327,10 @@ export class TextSearchEngine<T extends CollectionItem> {
     return matchedItems;
   }
 
-  private withChain(result: T[]): T[] & TextSearchEngineChain<T> {
-    const chainResult = result as T[] & TextSearchEngineChain<T>;
-
-    Object.defineProperty(chainResult, "search", {
-      value: (fieldOrQuery: string, maybeQuery?: string) =>
-        maybeQuery === undefined
-          ? this.search(fieldOrQuery)
-          : this.search(fieldOrQuery as keyof T & string, maybeQuery),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearIndexes", {
-      value: () => this.clearIndexes(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "getOriginData", {
-      value: () => this.getOriginData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "data", {
-      value: (data: T[]) => this.data(data),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    Object.defineProperty(chainResult, "clearData", {
-      value: () => this.clearData(),
-      enumerable: false,
-      configurable: true,
-      writable: true,
-    });
-
-    return chainResult;
-  }
-
   clearIndexes(): this {
     this.ngramIndexes.clear();
+    this.normalizedFieldValues.clear();
+    this.nestedCollection.clearIndexes();
     return this;
   }
 
@@ -427,6 +347,8 @@ export class TextSearchEngine<T extends CollectionItem> {
   clearData(): this {
     this.dataset = [];
     this.ngramIndexes.clear();
+    this.normalizedFieldValues.clear();
+    this.nestedCollection.clearIndexes();
     return this;
   }
 }

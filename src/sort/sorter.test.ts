@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { SortEngineError } from "./errors";
 import { SortEngine } from "./sorter";
 
 type User = {
@@ -61,6 +62,9 @@ describe("SortEngine", () => {
     ).toEqual([2, 3, 1, 4]);
 
     const empty = new SortEngine<User>();
+    expect(() => empty.sort([{ field: "age", direction: "asc" }])).toThrowError(
+      SortEngineError,
+    );
     expect(() => empty.sort([{ field: "age", direction: "asc" }])).toThrow(
       "no dataset in memory",
     );
@@ -125,6 +129,22 @@ describe("SortEngine", () => {
       expect(result.map((u) => u.id)).toEqual([5, 2, 3, 1, 4]);
     });
 
+    it("sort(data, descriptors) recalculates against live values", () => {
+      const mutableUsers = users.map((user) => ({ ...user }));
+      const engine = new SortEngine<User>({
+        data: mutableUsers,
+        fields: ["age"],
+      });
+
+      mutableUsers[0].age = 10;
+
+      const result = engine.sort(mutableUsers, [
+        { field: "age", direction: "asc" },
+      ]);
+
+      expect(result.map((user) => user.id)).toEqual([1, 2, 3, 4]);
+    });
+
     it("clearIndexes frees cache (falls back to radix sort)", () => {
       const engine = new SortEngine<User>({ data: users, fields: ["age"] });
       engine.clearIndexes();
@@ -133,18 +153,19 @@ describe("SortEngine", () => {
       expect(result.map((u) => u.id)).toEqual([2, 3, 1, 4]);
     });
 
-    it("supports chain usage", () => {
+    it("returns a plain array result", () => {
       const engine = new SortEngine<User>({
         data: users,
         fields: ["age", "name"],
       });
 
-      const result = engine
-        .sort([{ field: "age", direction: "asc" }])
-        .sort([{ field: "name", direction: "asc" }]);
+      const result = engine.sort([{ field: "age", direction: "asc" }]);
 
-      expect(result.map((u) => u.id)).toEqual([2, 4, 3, 1]);
-      expect(() => result.clearIndexes().clearData()).not.toThrow();
+      expect(result.map((u) => u.id)).toEqual([2, 3, 1, 4]);
+      expect("clearIndexes" in result).toBe(false);
+      expect("data" in result).toBe(false);
+
+      engine.clearIndexes().clearData();
       expect(() => engine.sort([{ field: "age", direction: "asc" }])).toThrow(
         "no dataset in memory",
       );
