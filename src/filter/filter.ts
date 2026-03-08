@@ -8,6 +8,7 @@ import { Indexer } from "../indexer";
 import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
 import type { FilterEngineOptions } from "./types";
 import { FilterEngineError } from "./errors";
+import { FILTER_ENGINE_EXECUTE } from "./internal";
 import { FilterNestedCollection } from "./nested";
 
 export class FilterEngine<T extends CollectionItem> {
@@ -147,6 +148,23 @@ export class FilterEngine<T extends CollectionItem> {
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] & FilterEngineChain<T> {
+    if (criteria === undefined) {
+      return this.withChain(
+        this[FILTER_ENGINE_EXECUTE](dataOrCriteria as FilterCriterion<T>[]),
+      );
+    }
+
+    return this.withChain(
+      this[FILTER_ENGINE_EXECUTE](dataOrCriteria as T[], criteria),
+    );
+  }
+
+  [FILTER_ENGINE_EXECUTE](criteria: FilterCriterion<T>[]): T[];
+  [FILTER_ENGINE_EXECUTE](data: T[], criteria: FilterCriterion<T>[]): T[];
+  [FILTER_ENGINE_EXECUTE](
+    dataOrCriteria: T[] | FilterCriterion<T>[],
+    criteria?: FilterCriterion<T>[],
+  ): T[] {
     const usesStoredData = criteria === undefined;
 
     let sourceData: T[];
@@ -176,7 +194,7 @@ export class FilterEngine<T extends CollectionItem> {
         );
 
         if (!hasAdditions && !hasRemovals) {
-          return this.withChain(this.previousResult);
+          return this.previousResult;
         }
 
         if (hasAdditions && !hasRemovals) {
@@ -213,7 +231,7 @@ export class FilterEngine<T extends CollectionItem> {
         );
 
         if (!hasAdditions && !hasRemovals) {
-          return this.withChain(this.previousResult);
+          return this.previousResult;
         }
 
         if (hasAdditions && !hasRemovals) {
@@ -236,7 +254,7 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousCriteria = null;
         this.previousBaseData = null;
       }
-      return this.withChain(usesStoredData ? this.dataset : sourceData);
+      return usesStoredData ? this.dataset : sourceData;
     }
 
     if (usesStoredData && !executionCriteria) {
@@ -274,7 +292,7 @@ export class FilterEngine<T extends CollectionItem> {
             ? this.dataset
             : (dataOrCriteria as T[]);
         }
-        return this.withChain(emptyResult);
+        return emptyResult;
       }
     }
 
@@ -286,7 +304,7 @@ export class FilterEngine<T extends CollectionItem> {
           ? this.dataset
           : (dataOrCriteria as T[]);
       }
-      return this.withChain(sourceData);
+      return sourceData;
     }
 
     const { indexedCriteria, linearCriteria } = flatCriteria.reduce(
@@ -318,7 +336,7 @@ export class FilterEngine<T extends CollectionItem> {
           ? this.dataset
           : (dataOrCriteria as T[]);
       }
-      return this.withChain(result);
+      return result;
     }
 
     if (indexedCriteria.length > 0 && linearCriteria.length > 0) {
@@ -331,7 +349,7 @@ export class FilterEngine<T extends CollectionItem> {
           ? this.dataset
           : (dataOrCriteria as T[]);
       }
-      return this.withChain(result);
+      return result;
     }
 
     result = this.linearFilter(sourceData, flatCriteria);
@@ -342,7 +360,7 @@ export class FilterEngine<T extends CollectionItem> {
         ? this.dataset
         : (dataOrCriteria as T[]);
     }
-    return this.withChain(result);
+    return result;
   }
 
   private withChain(result: T[]): T[] & FilterEngineChain<T> {

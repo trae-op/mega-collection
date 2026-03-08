@@ -128,7 +128,7 @@ describe("MergeEngines", () => {
     );
   });
 
-  it("supports chaining across public methods", () => {
+  it("supports chaining across public methods without leaking filter chain methods", () => {
     const merge = new MergeEngines<User>({
       imports: [TextSearchEngine, SortEngine, FilterEngine],
       data: users,
@@ -143,6 +143,7 @@ describe("MergeEngines", () => {
       .filter([{ field: "city", values: ["Kyiv"] }]);
 
     expect(result.map((item) => item.id)).toEqual([1, 3]);
+    expect("resetFilterState" in result).toBe(false);
     expect(() =>
       result.clearIndexes("search").clearIndexes("sort").clearIndexes("filter"),
     ).not.toThrow();

@@ -4,7 +4,6 @@
  */
 
 import { CollectionItem, SortDescriptor, SortDirection } from "../types";
-import { SortEngineChain, SortEngineChainBuilder } from "./chain";
 import type { SortEngineOptions, SortIndex } from "./types";
 import { SortEngineError } from "./errors";
 
@@ -14,20 +13,6 @@ export class SortEngine<T extends CollectionItem> {
   private dataset: T[] = [];
 
   private readonly indexedFields = new Set<keyof T & string>();
-
-  private readonly chainBuilder = new SortEngineChainBuilder<T>({
-    sort: (dataOrDescriptors, descriptors, inPlace) => {
-      if (descriptors === undefined) {
-        return this.sort(dataOrDescriptors as SortDescriptor<T>[]);
-      }
-
-      return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
-    },
-    getOriginData: () => this.getOriginData(),
-    data: (data) => this.data(data),
-    clearIndexes: () => this.clearIndexes(),
-    clearData: () => this.clearData(),
-  });
 
   /**
    * Creates a new SortEngine with optional data and fields to index.
@@ -134,17 +119,13 @@ export class SortEngine<T extends CollectionItem> {
   /**
    * Sorts the data based on the given descriptors.
    */
-  sort(descriptors: SortDescriptor<T>[]): T[] & SortEngineChain<T>;
-  sort(
-    data: T[],
-    descriptors: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ): T[] & SortEngineChain<T>;
+  sort(descriptors: SortDescriptor<T>[]): T[];
+  sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
   sort(
     dataOrDescriptors: T[] | SortDescriptor<T>[],
     descriptors?: SortDescriptor<T>[],
     inPlace = false,
-  ): T[] & SortEngineChain<T> {
+  ): T[] {
     let data: T[];
     let resolvedDescriptors: SortDescriptor<T>[];
 
@@ -161,7 +142,7 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     if (resolvedDescriptors.length === 0 || data.length === 0) {
-      return this.withChain(data);
+      return data;
     }
 
     if (resolvedDescriptors.length === 1) {
@@ -174,9 +155,7 @@ export class SortEngine<T extends CollectionItem> {
         cached.itemCount === data.length &&
         this.isFieldSnapshotValid(data, field, cached.fieldSnapshot)
       ) {
-        return this.withChain(
-          this.reconstructFromIndex(data, cached.indexes, direction),
-        );
+        return this.reconstructFromIndex(data, cached.indexes, direction);
       }
     }
 
@@ -187,22 +166,16 @@ export class SortEngine<T extends CollectionItem> {
       data.length > 0 &&
       typeof data[0][resolvedDescriptors[0].field] === "number"
     ) {
-      return this.withChain(
-        this.radixSortNumeric(
-          sortableItems,
-          resolvedDescriptors[0].field,
-          resolvedDescriptors[0].direction,
-        ),
+      return this.radixSortNumeric(
+        sortableItems,
+        resolvedDescriptors[0].field,
+        resolvedDescriptors[0].direction,
       );
     }
 
     const comparator = this.buildComparator(resolvedDescriptors);
     sortableItems.sort(comparator);
-    return this.withChain(sortableItems);
-  }
-
-  private withChain(result: T[]): T[] & SortEngineChain<T> {
-    return this.chainBuilder.create(result);
+    return sortableItems;
   }
 
   /**

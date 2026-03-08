@@ -4,7 +4,6 @@
  */
 
 import { CollectionItem } from "../types";
-import { TextSearchEngineChain, TextSearchEngineChainBuilder } from "./chain";
 import type { TextSearchEngineOptions } from "./types";
 import { TextSearchEngineError } from "./errors";
 import { buildIntersectionQueryGrams, indexLowerValue } from "./ngram";
@@ -22,20 +21,6 @@ export class TextSearchEngine<T extends CollectionItem> {
   private readonly nestedCollection = new SearchNestedCollection<T>();
 
   private readonly minQueryLength: number;
-
-  private readonly chainBuilder = new TextSearchEngineChainBuilder<T>({
-    search: (fieldOrQuery, maybeQuery) => {
-      if (maybeQuery === undefined) {
-        return this.search(fieldOrQuery);
-      }
-
-      return this.search(fieldOrQuery as keyof T & string, maybeQuery);
-    },
-    getOriginData: () => this.getOriginData(),
-    data: (data) => this.data(data),
-    clearIndexes: () => this.clearIndexes(),
-    clearData: () => this.clearData(),
-  });
 
   /**
    * Creates a new TextSearchEngine with optional data and fields to index.
@@ -123,20 +108,14 @@ export class TextSearchEngine<T extends CollectionItem> {
     return this;
   }
 
-  search(query: string): T[] & TextSearchEngineChain<T>;
-  search(
-    field: (keyof T & string) | (string & {}),
-    query: string,
-  ): T[] & TextSearchEngineChain<T>;
-  search(
-    fieldOrQuery: string,
-    maybeQuery?: string,
-  ): T[] & TextSearchEngineChain<T> {
+  search(query: string): T[];
+  search(field: (keyof T & string) | (string & {}), query: string): T[];
+  search(fieldOrQuery: string, maybeQuery?: string): T[] {
     if (maybeQuery === undefined) {
-      return this.withChain(this.searchAllFields(fieldOrQuery));
+      return this.searchAllFields(fieldOrQuery);
     }
 
-    return this.withChain(this.searchField(fieldOrQuery, maybeQuery));
+    return this.searchField(fieldOrQuery, maybeQuery);
   }
 
   private normalizeQuery(query: string): string {
@@ -346,10 +325,6 @@ export class TextSearchEngine<T extends CollectionItem> {
     }
 
     return matchedItems;
-  }
-
-  private withChain(result: T[]): T[] & TextSearchEngineChain<T> {
-    return this.chainBuilder.create(result);
   }
 
   clearIndexes(): this {

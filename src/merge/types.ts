@@ -60,3 +60,11 @@ export type MergeEnginesChainCallbacks<T extends CollectionItem> = {
   clearIndexes: (module: MergeModuleName) => MergeEngines<T>;
   clearData: (module: MergeModuleName) => MergeEngines<T>;
 };
+
+export type BaseModuleAdapter<T extends CollectionItem, TEngine> = {
+  moduleName: MergeModuleName;
+  clearIndexes: () => TEngine;
+  clearData: () => TEngine;
+  data: (data: T[]) => TEngine;
+  getOriginData: () => T[];
+};

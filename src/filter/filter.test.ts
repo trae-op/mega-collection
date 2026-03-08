@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { FilterEngineError } from "./errors";
 import { FilterEngine } from "./filter";
+import { FILTER_ENGINE_EXECUTE } from "./internal";
 
 type User = {
   id: number;
@@ -124,6 +125,30 @@ describe("FilterEngine", () => {
 
     engine.clearData();
     expect(engine.getOriginData()).toEqual([]);
+  });
+
+  it("internal raw execution returns plain arrays for merge integration", () => {
+    const engine = new FilterEngine<User>({
+      data: users,
+      fields: ["city"],
+      filterByPreviousResult: true,
+    });
+
+    const firstResult = engine[FILTER_ENGINE_EXECUTE]([
+      { field: "city", values: ["Kyiv", "Lviv"] },
+    ]);
+    const secondResult = engine[FILTER_ENGINE_EXECUTE]([
+      { field: "city", values: ["Kyiv", "Lviv"] },
+      { field: "age", values: [30] },
+    ]);
+
+    expect(
+      firstResult.map((u) => u.id).sort((leftId, rightId) => leftId - rightId),
+    ).toEqual([1, 2, 3, 5]);
+    expect(
+      secondResult.map((u) => u.id).sort((leftId, rightId) => leftId - rightId),
+    ).toEqual([2, 3]);
+    expect("clearIndexes" in firstResult).toBe(false);
   });
 
   describe("filterByPreviousResult (sequential mode)", () => {

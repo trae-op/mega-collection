@@ -137,18 +137,19 @@ describe("SortEngine", () => {
       expect(result.map((u) => u.id)).toEqual([2, 3, 1, 4]);
     });
 
-    it("supports chain usage", () => {
+    it("returns a plain array result", () => {
       const engine = new SortEngine<User>({
         data: users,
         fields: ["age", "name"],
       });
 
-      const result = engine
-        .sort([{ field: "age", direction: "asc" }])
-        .sort([{ field: "name", direction: "asc" }]);
+      const result = engine.sort([{ field: "age", direction: "asc" }]);
 
-      expect(result.map((u) => u.id)).toEqual([2, 4, 3, 1]);
-      expect(() => result.clearIndexes().clearData()).not.toThrow();
+      expect(result.map((u) => u.id)).toEqual([2, 3, 1, 4]);
+      expect("clearIndexes" in result).toBe(false);
+      expect("data" in result).toBe(false);
+
+      engine.clearIndexes().clearData();
       expect(() => engine.sort([{ field: "age", direction: "asc" }])).toThrow(
         "no dataset in memory",
       );

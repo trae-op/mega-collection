@@ -163,14 +163,20 @@ describe("TextSearchEngine", () => {
     ]);
   });
 
-  it("supports chain usage", () => {
+  it("returns a plain array result", () => {
     const engine = new TextSearchEngine<CardItem>({
       data: cityCards,
       fields: ["city", "title"],
       minQueryLength: 2,
     });
 
-    expect(() => engine.search("ky").clearIndexes().clearData()).not.toThrow();
+    const result = engine.search("ky");
+
+    expect(result.map((item) => item.id)).toEqual([2]);
+    expect("search" in result).toBe(false);
+    expect("clearIndexes" in result).toBe(false);
+
+    engine.clearIndexes().clearData();
     expect(engine.search("Kyiv")).toEqual([]);
   });
 

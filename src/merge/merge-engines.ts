@@ -4,20 +4,29 @@
  */
 
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
+import { MergeEnginesChain, MergeEnginesChainBuilder } from "./chain";
 import {
-  MergeEnginesChain,
-  MergeEnginesChainBuilder,
-  MergeModuleName,
-} from "./chain";
+  createMergeModuleAdapter,
+  getMergeModuleName,
+} from "./module-adapters";
+import type {
+  FilterModuleAdapter,
+  SearchModuleAdapter,
+  SortModuleAdapter,
+} from "./module-adapters";
 import type {
   EngineConstructor,
-  EngineApi,
   MergeEnginesOptions,
+  MergeModuleName,
 } from "./types";
 import { MergeEnginesError } from "./errors";
 
 export class MergeEngines<T extends CollectionItem> {
-  private readonly engine: EngineApi | null;
+  private readonly searchModule: SearchModuleAdapter<T> | null;
+
+  private readonly sortModule: SortModuleAdapter<T> | null;
+
+  private readonly filterModule: FilterModuleAdapter<T> | null;
 
   private readonly clearIndexMethods: Partial<
     Record<MergeModuleName, () => unknown>
@@ -72,8 +81,9 @@ export class MergeEngines<T extends CollectionItem> {
     const { imports, data, ...moduleOptions } = options;
 
     const importedEngines = new Set<EngineConstructor>(imports);
-
-    const engine: EngineApi = {};
+    let searchModule: SearchModuleAdapter<T> | null = null;
+    let sortModule: SortModuleAdapter<T> | null = null;
+    let filterModule: FilterModuleAdapter<T> | null = null;
     const clearIndexMethods: Partial<Record<MergeModuleName, () => unknown>> =
       {};
     const clearDataMethods: Partial<Record<MergeModuleName, () => unknown>> =
@@ -84,171 +94,82 @@ export class MergeEngines<T extends CollectionItem> {
     let getOriginDataMethod: (() => T[]) | null = null;
 
     for (const EngineModule of importedEngines) {
-      const prototype = EngineModule.prototype;
-      const prototypeMethodNames = this.getMethodNames(prototype);
-
-      if (prototypeMethodNames.length === 0) {
+      const moduleName = getMergeModuleName(EngineModule);
+      if (!moduleName) {
         continue;
       }
 
       const currentModuleOptions = this.getModuleInitOptions(
+        moduleName,
         EngineModule.name,
-        prototypeMethodNames,
         moduleOptions,
       );
 
-      const moduleInstance = new EngineModule({
+      const moduleAdapter = createMergeModuleAdapter<T>(
+        EngineModule,
         data,
-        ...currentModuleOptions,
-      });
+        currentModuleOptions,
+      );
 
-      const moduleName = this.getModuleName(prototypeMethodNames);
-      if (
-        moduleName &&
-        this.hasMethod(moduleInstance, "clearIndexes") &&
-        !clearIndexMethods[moduleName]
-      ) {
-        clearIndexMethods[moduleName] =
-          moduleInstance.clearIndexes.bind(moduleInstance);
+      if (!moduleAdapter) {
+        continue;
       }
 
-      if (
-        moduleName &&
-        this.hasMethod(moduleInstance, "clearData") &&
-        !clearDataMethods[moduleName]
-      ) {
-        clearDataMethods[moduleName] =
-          moduleInstance.clearData.bind(moduleInstance);
+      if (moduleAdapter.moduleName === "search" && !searchModule) {
+        searchModule = moduleAdapter;
       }
 
-      if (
-        moduleName &&
-        this.hasMethod(moduleInstance, "data") &&
-        !setDataMethods[moduleName]
-      ) {
-        setDataMethods[moduleName] = moduleInstance.data.bind(moduleInstance);
+      if (moduleAdapter.moduleName === "sort" && !sortModule) {
+        sortModule = moduleAdapter;
       }
 
-      if (
-        !getOriginDataMethod &&
-        this.hasMethod(moduleInstance, "getOriginData")
-      ) {
-        getOriginDataMethod = moduleInstance.getOriginData.bind(
-          moduleInstance,
-        ) as () => T[];
+      if (moduleAdapter.moduleName === "filter" && !filterModule) {
+        filterModule = moduleAdapter;
       }
 
-      for (const methodName of prototypeMethodNames) {
-        if (engine[methodName]) {
-          continue;
-        }
-
-        if (!this.hasMethod(moduleInstance, methodName)) {
-          continue;
-        }
-
-        engine[methodName] = moduleInstance[methodName].bind(moduleInstance);
-      }
+      clearIndexMethods[moduleAdapter.moduleName] = () =>
+        moduleAdapter.clearIndexes();
+      clearDataMethods[moduleAdapter.moduleName] = () =>
+        moduleAdapter.clearData();
+      setDataMethods[moduleAdapter.moduleName] = (nextData) =>
+        moduleAdapter.data(nextData);
+      getOriginDataMethod ??= () => moduleAdapter.getOriginData();
     }
 
-    this.engine = Object.keys(engine).length > 0 ? engine : null;
+    this.searchModule = searchModule;
+    this.sortModule = sortModule;
+    this.filterModule = filterModule;
     this.clearIndexMethods = clearIndexMethods;
     this.clearDataMethods = clearDataMethods;
     this.setDataMethods = setDataMethods;
     this.getOriginDataMethod = getOriginDataMethod;
   }
 
-  private getModuleName(methodNames: string[]): MergeModuleName | null {
-    if (methodNames.includes("search")) {
-      return "search";
-    }
-
-    if (methodNames.includes("sort")) {
-      return "sort";
-    }
-
-    if (methodNames.includes("filter")) {
-      return "filter";
-    }
-
-    return null;
-  }
-
   /**
    * Gets the initialization options for a module.
    */
   private getModuleInitOptions(
-    moduleName: string,
-    methodNames: string[],
+    moduleName: MergeModuleName,
+    engineName: string,
     options: Record<string, unknown>,
   ): Record<string, unknown> {
     const initOptions: Record<string, unknown> = {};
 
-    const moduleNamedOptions = options[moduleName];
-    if (this.isRecord(moduleNamedOptions)) {
-      Object.assign(initOptions, moduleNamedOptions);
-    }
+    for (const optionKey of [moduleName, engineName]) {
+      const namedOptions = options[optionKey];
 
-    for (const methodName of methodNames) {
-      const methodNamedOptions = options[methodName];
-
-      if (!this.isRecord(methodNamedOptions)) {
+      if (!this.isRecord(namedOptions)) {
         continue;
       }
 
-      Object.assign(initOptions, methodNamedOptions);
+      Object.assign(initOptions, namedOptions);
     }
 
     return initOptions;
   }
 
-  /**
-   * Gets the method names from a prototype.
-   */
-  private getMethodNames(prototype: object): string[] {
-    const prototypeRecord = prototype as Record<string, unknown>;
-
-    return Object.getOwnPropertyNames(prototypeRecord).filter((methodName) => {
-      if (methodName === "constructor") {
-        return false;
-      }
-
-      return typeof prototypeRecord[methodName] === "function";
-    });
-  }
-
-  /**
-   * Checks if an object has a specific method.
-   */
-  private hasMethod(
-    value: unknown,
-    method: string,
-  ): value is Record<string, (...args: unknown[]) => unknown> {
-    return (
-      typeof value === "object" &&
-      value !== null &&
-      typeof (value as Record<string, unknown>)[method] === "function"
-    );
-  }
-
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null;
-  }
-
-  /**
-   * Calls a method on the engine.
-   */
-  private callEngineMethod<TResult>(
-    methodName: string,
-    args: unknown[],
-  ): TResult {
-    const method = this.engine?.[methodName];
-
-    if (!method) {
-      throw MergeEnginesError.unavailableMethod(methodName);
-    }
-
-    return method(...args) as TResult;
   }
 
   search(query: string): T[] & MergeEnginesChain<T>;
@@ -260,21 +181,19 @@ export class MergeEngines<T extends CollectionItem> {
     fieldOrQuery: string,
     maybeQuery?: string,
   ): T[] & MergeEnginesChain<T> {
-    if (!this.engine?.search) {
+    if (!this.searchModule) {
       throw MergeEnginesError.unavailableEngine("search");
     }
 
     if (maybeQuery === undefined) {
-      return this.withChain(
-        this.callEngineMethod<T[]>("search", [fieldOrQuery]),
-      );
+      return this.withChain(this.searchModule.executeSearch(fieldOrQuery));
     }
 
     return this.withChain(
-      this.callEngineMethod<T[]>("search", [
+      this.searchModule.executeSearch(
         fieldOrQuery as (keyof T & string) | (string & {}),
         maybeQuery,
-      ]),
+      ),
     );
   }
 
@@ -289,24 +208,22 @@ export class MergeEngines<T extends CollectionItem> {
     descriptors?: SortDescriptor<T>[],
     inPlace?: boolean,
   ): T[] & MergeEnginesChain<T> {
-    if (!this.engine?.sort) {
+    if (!this.sortModule) {
       throw MergeEnginesError.unavailableEngine("sort");
     }
 
     if (descriptors === undefined) {
       return this.withChain(
-        this.callEngineMethod<T[]>("sort", [
-          dataOrDescriptors as SortDescriptor<T>[],
-        ]),
+        this.sortModule.executeSort(dataOrDescriptors as SortDescriptor<T>[]),
       );
     }
 
     return this.withChain(
-      this.callEngineMethod<T[]>("sort", [
+      this.sortModule.executeSort(
         dataOrDescriptors as T[],
         descriptors,
         inPlace,
-      ]),
+      ),
     );
   }
 
@@ -316,20 +233,18 @@ export class MergeEngines<T extends CollectionItem> {
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] & MergeEnginesChain<T> {
-    if (!this.engine?.filter) {
+    if (!this.filterModule) {
       throw MergeEnginesError.unavailableEngine("filter");
     }
 
     if (criteria === undefined) {
       return this.withChain(
-        this.callEngineMethod<T[]>("filter", [
-          dataOrCriteria as FilterCriterion<T>[],
-        ]),
+        this.filterModule.executeFilter(dataOrCriteria as FilterCriterion<T>[]),
       );
     }
 
     return this.withChain(
-      this.callEngineMethod<T[]>("filter", [dataOrCriteria as T[], criteria]),
+      this.filterModule.executeFilter(dataOrCriteria as T[], criteria),
     );
   }
 
