@@ -6,11 +6,7 @@
 
 If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 
-# @devisfuture/mega-collection
-
-> Tools to search, filter, and sort large arrays in JavaScript / TypeScript.
-
-## Navigation
+## Table of Contents
 
 - [What does this package solve](#what-does-this-package-solve) – what problem this package helps with
 - [Features](#features) – what the package can do
