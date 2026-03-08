@@ -3,7 +3,9 @@ export type {
   MergeEnginesOptions,
   EngineApi,
   EngineConstructor,
-} from "./merge-engines";
+  MergeEnginesChain,
+  MergeModuleName,
+} from "./types";
 
 export type {
   CollectionItem,

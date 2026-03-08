@@ -5,20 +5,8 @@
 
 import { CollectionItem, SortDescriptor, SortDirection } from "../types";
 import { SortEngineChain, SortEngineChainBuilder } from "./chain";
+import type { SortEngineOptions, SortIndex } from "./types";
 import { SortEngineError } from "./errors";
-
-interface SortIndex<T> {
-  indexes: Uint32Array;
-  dataRef: T[];
-  itemCount: number;
-  fieldSnapshot: unknown[];
-}
-
-export interface SortEngineOptions<T extends CollectionItem = CollectionItem> {
-  data?: T[];
-
-  fields?: (keyof T & string)[];
-}
 
 export class SortEngine<T extends CollectionItem> {
   private cache = new Map<string, SortIndex<T>>();

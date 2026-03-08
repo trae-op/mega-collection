@@ -1,27 +1,7 @@
 import type { CollectionItem, FilterCriterion } from "../types";
-import type { FilterEngine } from "./filter";
+import type { FilterEngineChain, FilterEngineChainCallbacks } from "./types";
 
-export interface FilterEngineChain<T extends CollectionItem> {
-  filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
-  filter(data: T[], criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): FilterEngine<T>;
-  clearIndexes(): FilterEngine<T>;
-  clearData(): FilterEngine<T>;
-  resetFilterState(): FilterEngine<T>;
-}
-
-type FilterEngineChainCallbacks<T extends CollectionItem> = {
-  filter: (
-    dataOrCriteria: T[] | FilterCriterion<T>[],
-    criteria?: FilterCriterion<T>[],
-  ) => T[] & FilterEngineChain<T>;
-  getOriginData: () => T[];
-  data: (data: T[]) => FilterEngine<T>;
-  clearIndexes: () => FilterEngine<T>;
-  clearData: () => FilterEngine<T>;
-  resetFilterState: () => FilterEngine<T>;
-};
+export type { FilterEngineChain } from "./types";
 
 export class FilterEngineChainBuilder<T extends CollectionItem> {
   constructor(private readonly callbacks: FilterEngineChainCallbacks<T>) {}

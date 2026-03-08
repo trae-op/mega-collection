@@ -6,20 +6,9 @@
 import { CollectionItem, FilterCriterion } from "../types";
 import { Indexer } from "../indexer";
 import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
+import type { FilterEngineOptions } from "./types";
 import { FilterEngineError } from "./errors";
 import { FilterNestedCollection } from "./nested";
-
-export interface FilterEngineOptions<
-  T extends CollectionItem = CollectionItem,
-> {
-  data?: T[];
-
-  fields?: (keyof T & string)[];
-
-  nestedFields?: string[];
-
-  filterByPreviousResult?: boolean;
-}
 
 export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;

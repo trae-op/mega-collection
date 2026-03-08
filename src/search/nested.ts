@@ -1,10 +1,6 @@
 import { CollectionItem } from "../types";
 import { indexLowerValue } from "./ngram";
-
-type NestedFieldDescriptor = {
-  collectionKey: string;
-  nestedKey: string;
-};
+import type { NestedFieldDescriptor } from "./types";
 
 export class SearchNestedCollection<T extends CollectionItem> {
   private readonly registeredFields = new Set<string>();

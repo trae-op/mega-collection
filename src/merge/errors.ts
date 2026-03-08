@@ -1,4 +1,4 @@
-import type { MergeModuleName } from "./chain";
+import type { MergeModuleName } from "./types";
 
 const MODULE_TO_ENGINE = {
   search: "TextSearchEngine",

@@ -1,47 +1,11 @@
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
-import type { MergeEngines } from "./merge-engines";
+import type {
+  MergeEnginesChain,
+  MergeEnginesChainCallbacks,
+  MergeModuleName,
+} from "./types";
 
-export type MergeModuleName = "search" | "sort" | "filter";
-
-export interface MergeEnginesChain<T extends CollectionItem> {
-  search(query: string): T[] & MergeEnginesChain<T>;
-  search(
-    field: (keyof T & string) | (string & {}),
-    query: string,
-  ): T[] & MergeEnginesChain<T>;
-  sort(descriptors: SortDescriptor<T>[]): T[] & MergeEnginesChain<T>;
-  sort(
-    data: T[],
-    descriptors: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ): T[] & MergeEnginesChain<T>;
-  filter(criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
-  filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): MergeEngines<T>;
-  clearIndexes(module: MergeModuleName): T[] & MergeEnginesChain<T>;
-  clearData(module: MergeModuleName): T[] & MergeEnginesChain<T>;
-}
-
-type MergeEnginesChainCallbacks<T extends CollectionItem> = {
-  search: (
-    fieldOrQuery: string,
-    maybeQuery?: string,
-  ) => T[] & MergeEnginesChain<T>;
-  sort: (
-    dataOrDescriptors: T[] | SortDescriptor<T>[],
-    descriptors?: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ) => T[] & MergeEnginesChain<T>;
-  filter: (
-    dataOrCriteria: T[] | FilterCriterion<T>[],
-    criteria?: FilterCriterion<T>[],
-  ) => T[] & MergeEnginesChain<T>;
-  getOriginData: () => T[];
-  data: (data: T[]) => MergeEngines<T>;
-  clearIndexes: (module: MergeModuleName) => MergeEngines<T>;
-  clearData: (module: MergeModuleName) => MergeEngines<T>;
-};
+export type { MergeEnginesChain, MergeModuleName } from "./types";
 
 export class MergeEnginesChainBuilder<T extends CollectionItem> {
   constructor(private readonly callbacks: MergeEnginesChainCallbacks<T>) {}

@@ -9,25 +9,12 @@ import {
   MergeEnginesChainBuilder,
   MergeModuleName,
 } from "./chain";
+import type {
+  EngineConstructor,
+  EngineApi,
+  MergeEnginesOptions,
+} from "./types";
 import { MergeEnginesError } from "./errors";
-
-export interface EngineConstructor {
-  new (options: Record<string, unknown>): object;
-  prototype: object;
-  name: string;
-}
-
-export interface EngineApi {
-  [methodName: string]: ((...args: unknown[]) => unknown) | undefined;
-}
-
-export interface MergeEnginesOptions<T extends CollectionItem> {
-  imports: EngineConstructor[];
-
-  data: T[];
-
-  [key: string]: unknown;
-}
 
 export class MergeEngines<T extends CollectionItem> {
   private readonly engine: EngineApi | null;

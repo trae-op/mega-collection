@@ -1,9 +1,5 @@
 import { CollectionItem, FilterCriterion } from "../types";
-
-type NestedFieldDescriptor = {
-  collectionKey: string;
-  nestedKey: string;
-};
+import type { NestedFieldDescriptor } from "./types";
 
 export class FilterNestedCollection<T extends CollectionItem> {
   private readonly registeredFields = new Set<string>();

@@ -5,21 +5,10 @@
 
 import { CollectionItem } from "../types";
 import { TextSearchEngineChain, TextSearchEngineChainBuilder } from "./chain";
+import type { TextSearchEngineOptions } from "./types";
 import { TextSearchEngineError } from "./errors";
 import { buildIntersectionQueryGrams, indexLowerValue } from "./ngram";
 import { SearchNestedCollection } from "./nested";
-
-export interface TextSearchEngineOptions<
-  T extends CollectionItem = CollectionItem,
-> {
-  data?: T[];
-
-  fields?: (keyof T & string)[];
-
-  nestedFields?: string[];
-
-  minQueryLength?: number;
-}
 
 export class TextSearchEngine<T extends CollectionItem> {
   private ngramIndexes = new Map<string, Map<string, Set<number>>>();

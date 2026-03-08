@@ -1,30 +1,7 @@
 import type { CollectionItem, SortDescriptor } from "../types";
-import type { SortEngine } from "./sorter";
+import type { SortEngineChain, SortEngineChainCallbacks } from "./types";
 
-export interface SortEngineChain<T extends CollectionItem> {
-  sort(descriptors: SortDescriptor<T>[]): T[] & SortEngineChain<T>;
-  sort(
-    data: T[],
-    descriptors: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ): T[] & SortEngineChain<T>;
-  getOriginData(): T[];
-  data(data: T[]): SortEngine<T>;
-  clearIndexes(): SortEngine<T>;
-  clearData(): SortEngine<T>;
-}
-
-type SortEngineChainCallbacks<T extends CollectionItem> = {
-  sort: (
-    dataOrDescriptors: T[] | SortDescriptor<T>[],
-    descriptors?: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ) => T[] & SortEngineChain<T>;
-  getOriginData: () => T[];
-  data: (data: T[]) => SortEngine<T>;
-  clearIndexes: () => SortEngine<T>;
-  clearData: () => SortEngine<T>;
-};
+export type { SortEngineChain } from "./types";
 
 export class SortEngineChainBuilder<T extends CollectionItem> {
   constructor(private readonly callbacks: SortEngineChainCallbacks<T>) {}
