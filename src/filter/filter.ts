@@ -510,9 +510,20 @@ export class FilterEngine<T extends CollectionItem> {
         criteria[0].field,
         criteria[0].values,
       );
-      if (!allowedItems) return indexedResult;
+      if (!allowedItems) {
+        return indexedResult.slice();
+      }
 
-      return indexedResult.filter((item) => allowedItems.has(item));
+      const filteredItems: T[] = [];
+
+      for (let itemIndex = 0; itemIndex < indexedResult.length; itemIndex++) {
+        const item = indexedResult[itemIndex];
+        if (allowedItems.has(item)) {
+          filteredItems.push(item);
+        }
+      }
+
+      return filteredItems;
     }
 
     const estimatedCriteria = criteria

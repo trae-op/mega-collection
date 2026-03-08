@@ -177,6 +177,22 @@ describe("FilterEngine", () => {
       expect(result).toHaveLength(2);
     });
 
+    it("does not corrupt indexed buckets after sequential single-field filters", () => {
+      engine.filter([{ field: "city", values: ["Kyiv"] }]);
+      engine.filter([
+        { field: "city", values: ["Kyiv"] },
+        { field: "age", values: [25] },
+      ]);
+      engine.filter([{ field: "age", values: [25] }]);
+
+      const result = engine.filter([
+        { field: "age", values: [25] },
+        { field: "city", values: ["Kyiv"] },
+      ]);
+
+      expect(result.map((user) => user.id)).toEqual([1]);
+    });
+
     it("recalculates from full dataset when a criterion is removed", () => {
       engine.filter([
         { field: "city", values: ["Kyiv"] },
