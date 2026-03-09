@@ -17,4 +17,10 @@ export class FilterEngineError extends Error {
         "Either pass `data` in the constructor options, or call filter(data, criteria).",
     );
   }
+
+  static duplicateMutableExcludeField(field: string): FilterEngineError {
+    return new FilterEngineError(
+      `FilterEngine: cannot use mutable exclude on field \`${field}\` because it contains duplicate values.`,
+    );
+  }
 }

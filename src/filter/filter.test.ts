@@ -59,6 +59,58 @@ describe("FilterEngine", () => {
     expect(result.map((user) => user.id)).toEqual([2, 4, 5]);
   });
 
+  it("supports mutable exclude via swap-pop for stored dataset", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      fields: ["city"],
+      mutableExcludeField: "id",
+    });
+
+    const result = engine.filter([{ field: "id", exclude: [1, 4] }]);
+
+    expect(
+      result.map((user) => user.id).sort((leftId, rightId) => leftId - rightId),
+    ).toEqual([2, 3, 5]);
+    expect(engine.getOriginData()).toBe(dataset);
+    expect(
+      dataset
+        .map((user) => user.id)
+        .sort((leftId, rightId) => leftId - rightId),
+    ).toEqual([2, 3, 5]);
+  });
+
+  it("keeps flat indexes in sync after mutable exclude", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      fields: ["city"],
+      mutableExcludeField: "id",
+    });
+
+    engine.filter([{ field: "id", exclude: [2] }]);
+
+    expect(
+      engine
+        .filter([{ field: "city", values: ["Lviv"] }])
+        .map((user) => user.id),
+    ).toEqual([5]);
+  });
+
+  it("mutable exclude throws when configured field is not unique", () => {
+    const engine = new FilterEngine<User>({
+      data: [
+        { id: 1, name: "Alice", city: "Kyiv", age: 25, active: true },
+        { id: 1, name: "Bob", city: "Lviv", age: 30, active: false },
+      ],
+      mutableExcludeField: "id",
+    });
+
+    expect(() => engine.filter([{ field: "id", exclude: [1] }])).toThrow(
+      "cannot use mutable exclude on field `id` because it contains duplicate values",
+    );
+  });
+
   it("supports values and exclude together on the same field", () => {
     const engine = new FilterEngine<User>({ data: users, fields: ["age"] });
 
@@ -312,6 +364,29 @@ const usersWithOrders: UserWithOrders[] = [
 ];
 
 describe("FilterEngine — nestedFields", () => {
+  it("keeps nested indexes in sync after mutable exclude", () => {
+    const dataset: UserWithOrders[] = usersWithOrders.map((user) => ({
+      ...user,
+      orders: user.orders.map((order) => ({ ...order })),
+    }));
+    const engine = new FilterEngine<UserWithOrders>({
+      data: dataset,
+      nestedFields: ["orders.status"],
+      mutableExcludeField: "id",
+    });
+
+    engine.filter([{ field: "id", exclude: ["1"] }]);
+
+    expect(
+      engine
+        .filter([{ field: "orders.status", values: ["pending"] }])
+        .map((user) => user.id),
+    ).toEqual(["2"]);
+    expect(
+      engine.filter([{ field: "orders.status", values: ["delivered"] }]),
+    ).toEqual([]);
+  });
+
   it("filters by nested field using indexed path", () => {
     const engine = new FilterEngine<UserWithOrders>({
       data: usersWithOrders,

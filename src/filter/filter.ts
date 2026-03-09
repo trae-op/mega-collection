@@ -21,7 +21,13 @@ export class FilterEngine<T extends CollectionItem> {
   private indexer: Indexer<T>;
   private readonly filterByPreviousResult: boolean;
 
+  private readonly mutableExcludeField: (keyof T & string) | null;
+
   private dataset: T[] = [];
+
+  private readonly datasetPositions = new Map<any, number>();
+
+  private hasDuplicateMutableExcludeValues = false;
 
   private readonly indexedFields = new Set<keyof T & string>();
 
@@ -54,11 +60,13 @@ export class FilterEngine<T extends CollectionItem> {
   constructor(options: FilterEngineOptions<T> = {}) {
     this.indexer = new Indexer<T>();
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
+    this.mutableExcludeField = options.mutableExcludeField ?? null;
     this.nestedCollection.registerFields(options.nestedFields);
 
     if (!options.data) return;
 
     this.dataset = options.data;
+    this.rebuildMutableExcludeState();
 
     const hasFields = options.fields?.length;
     const hasNestedFields = this.nestedCollection.hasRegisteredFields();
@@ -106,9 +114,8 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     this.dataset = dataOrField;
-    this.previousResult = null;
-    this.previousCriteria = null;
-    this.previousBaseData = null;
+    this.resetFilterState();
+    this.rebuildMutableExcludeState();
     this.indexer.buildIndex(dataOrField, field!);
     return this;
   }
@@ -128,6 +135,8 @@ export class FilterEngine<T extends CollectionItem> {
 
   clearData(): this {
     this.dataset = [];
+    this.datasetPositions.clear();
+    this.hasDuplicateMutableExcludeValues = false;
     this.indexer.clear();
     this.nestedCollection.clearIndexes();
     this.resetFilterState();
@@ -136,6 +145,7 @@ export class FilterEngine<T extends CollectionItem> {
 
   data(data: T[]): this {
     this.dataset = data;
+    this.rebuildMutableExcludeState();
     this.resetFilterState();
     this.rebuildConfiguredIndexes();
     return this;
@@ -185,6 +195,11 @@ export class FilterEngine<T extends CollectionItem> {
       resolvedCriteria = resolveCriteria(
         dataOrCriteria as FilterCriterion<T>[],
       );
+
+      const mutableExcludeResult = this.applyMutableExclude(resolvedCriteria);
+      if (mutableExcludeResult !== undefined) {
+        return mutableExcludeResult;
+      }
 
       if (
         this.filterByPreviousResult &&
@@ -361,6 +376,93 @@ export class FilterEngine<T extends CollectionItem> {
 
   private withChain(result: T[]): T[] & FilterEngineChain<T> {
     return this.chainBuilder.create(result);
+  }
+
+  private rebuildMutableExcludeState(): void {
+    this.datasetPositions.clear();
+    this.hasDuplicateMutableExcludeValues = false;
+
+    if (this.mutableExcludeField === null) {
+      return;
+    }
+
+    for (let itemIndex = 0; itemIndex < this.dataset.length; itemIndex++) {
+      const item = this.dataset[itemIndex];
+      const fieldValue = item[this.mutableExcludeField];
+
+      if (fieldValue === undefined || fieldValue === null) {
+        continue;
+      }
+
+      if (this.datasetPositions.has(fieldValue)) {
+        this.hasDuplicateMutableExcludeValues = true;
+      }
+
+      this.datasetPositions.set(fieldValue, itemIndex);
+    }
+  }
+
+  private applyMutableExclude(
+    criteria: ResolvedFilterCriterion<T>[],
+  ): T[] | undefined {
+    if (this.mutableExcludeField === null || criteria.length !== 1) {
+      return undefined;
+    }
+
+    const criterion = criteria[0];
+
+    if (
+      criterion.field !== this.mutableExcludeField ||
+      criterion.hasValues ||
+      !criterion.hasExclude
+    ) {
+      return undefined;
+    }
+
+    if (this.hasDuplicateMutableExcludeValues) {
+      throw FilterEngineError.duplicateMutableExcludeField(
+        this.mutableExcludeField,
+      );
+    }
+
+    for (
+      let valueIndex = 0;
+      valueIndex < criterion.exclude.length;
+      valueIndex++
+    ) {
+      this.removeStoredItem(criterion.exclude[valueIndex]);
+    }
+
+    this.resetFilterState();
+    return this.dataset;
+  }
+
+  private removeStoredItem(fieldValue: any): void {
+    const itemIndex = this.datasetPositions.get(fieldValue);
+    if (itemIndex === undefined) {
+      return;
+    }
+
+    const lastIndex = this.dataset.length - 1;
+    const removedItem = this.dataset[itemIndex];
+    const lastItem = this.dataset[lastIndex];
+
+    this.indexer.removeItem(removedItem);
+    this.nestedCollection.removeItem(removedItem);
+
+    if (itemIndex !== lastIndex) {
+      this.dataset[itemIndex] = lastItem;
+
+      if (this.mutableExcludeField !== null) {
+        const movedValue = lastItem[this.mutableExcludeField];
+        if (movedValue !== undefined && movedValue !== null) {
+          this.datasetPositions.set(movedValue, itemIndex);
+        }
+      }
+    }
+
+    this.dataset.pop();
+    this.datasetPositions.delete(fieldValue);
   }
 
   /**

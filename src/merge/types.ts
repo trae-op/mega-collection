@@ -1,4 +1,7 @@
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
+import type { FilterEngineOptions } from "../filter/types";
+import type { TextSearchEngineOptions } from "../search/types";
+import type { SortEngineOptions } from "../sort/types";
 import type { MergeEngines } from "./merge-engines";
 
 export type MergeModuleName = "search" | "sort" | "filter";
@@ -37,6 +40,12 @@ export interface MergeEnginesOptions<T extends CollectionItem> {
   imports: EngineConstructor[];
 
   data: T[];
+
+  search?: TextSearchEngineOptions<T>;
+
+  filter?: FilterEngineOptions<T>;
+
+  sort?: SortEngineOptions<T>;
 
   [key: string]: unknown;
 }

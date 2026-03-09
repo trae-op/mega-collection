@@ -121,6 +121,12 @@ const engine = new MergeEngines<User>({
   sort: { fields: ["age", "name", "city"] },
 });
 
+const mutableMerge = new MergeEngines<User>({
+  imports: [FilterEngine],
+  data: users,
+  filter: { fields: ["id", "city"], mutableExcludeField: "id" },
+});
+
 // dataset is passed once at init — no need to repeat it in every call
 engine
   .search("john")
@@ -163,6 +169,9 @@ engine.clearData("search").clearData("sort").clearData("filter");
 
 // get shared original dataset
 engine.getOriginData();
+
+// fast delete-like exclusion through the root facade
+mutableMerge.filter([{ field: "id", exclude: [1, 4] }]);
 ```
 
 ---
@@ -270,6 +279,20 @@ Use `exclude` when you need to remove items from the result by exact field value
 This is useful for large collections when you already know which ids or field values
 must be omitted from the final array.
 
+`exclude` filters the returned result and does not mutate the stored dataset inside the engine.
+
+If the engine already stores the full dataset, `exclude` alone is enough. For example,
+`engine.filter([{ field: "id", exclude: [1, 4] }])` returns all stored users except ids `1` and `4`.
+
+This path does not use swap-pop on the stored dataset. `filter(...)` returns a new array,
+so the engine still needs one pass over the current source data to build the remaining result.
+With an indexed `id` field, the engine avoids repeated full scans per excluded id, but the final
+exclude-only operation is still proportional to the current result size.
+
+If you need repeated delete-like exclusions without O(n) per operation, enable mutable exclude mode.
+In that mode the engine treats `exclude` on one configured field as in-place removal from the stored
+dataset via swap-pop. Order is not preserved.
+
 If the field is listed in `fields`, the engine uses indexed lookups for the exclusion
 set instead of scanning the full dataset for every removed value.
 
@@ -290,8 +313,14 @@ engine.filter([
   { field: "id", exclude: [1, 3] },
 ]);
 
-// `values` and `exclude` can be used together in one rule
-engine.filter([{ field: "id", values: [1, 2, 3, 4], exclude: [1, 4] }]);
+const mutableEngine = new FilterEngine<User>({
+  data: users,
+  fields: ["id", "city"],
+  mutableExcludeField: "id",
+});
+
+// Fast delete-like exclusion via swap-pop on the stored dataset.
+mutableEngine.filter([{ field: "id", exclude: [1, 4] }]);
 ```
 
 #### Nested collections filter
@@ -359,13 +388,13 @@ One engine that brings search, filter, and sort together on the same dataset.
 
 **Constructor options:**
 
-| Option    | Type                                                        | Description                                  |
-| --------- | ----------------------------------------------------------- | -------------------------------------------- |
-| `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to activate                   |
-| `data`    | `T[]`                                                       | Shared dataset — passed once at construction |
-| `search`  | `{ fields, nestedFields?, minQueryLength? }`                | Config for TextSearchEngine                  |
-| `filter`  | `{ fields, nestedFields?, filterByPreviousResult? }`        | Config for FilterEngine                      |
-| `sort`    | `{ fields }`                                                | Config for SortEngine                        |
+| Option    | Type                                                                       | Description                                  |
+| --------- | -------------------------------------------------------------------------- | -------------------------------------------- |
+| `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]`                | Engine classes to activate                   |
+| `data`    | `T[]`                                                                      | Shared dataset — passed once at construction |
+| `search`  | `{ fields, nestedFields?, minQueryLength? }`                               | Config for TextSearchEngine                  |
+| `filter`  | `{ fields, nestedFields?, filterByPreviousResult?, mutableExcludeField? }` | Config for FilterEngine                      |
+| `sort`    | `{ fields }`                                                               | Config for SortEngine                        |
 
 **Methods:**
 
@@ -381,6 +410,8 @@ One engine that brings search, filter, and sort together on the same dataset.
 | `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
 | `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`)                                                        |
+
+If `filter.mutableExcludeField` is configured, `filter([{ field, exclude }])` on that field performs fast delete-like exclusion on the stored filter dataset via swap-pop. This mutates the stored filter dataset and does not preserve order.
 
 ---
 
@@ -407,10 +438,11 @@ Each criterion can use `values`, `exclude`, or both in the same rule.
 
 Constructor option highlights:
 
-| Option                   | Type       | Description                                                                                                                        |
-| ------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `filterByPreviousResult` | `boolean`  | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset. |
-| `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                               |
+| Option                   | Type       | Description                                                                                                                             |
+| ------------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `filterByPreviousResult` | `boolean`  | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset.      |
+| `mutableExcludeField`    | `string`   | Optional field for fast delete-like `exclude` on stored data via swap-pop. This mutates the stored dataset and does not preserve order. |
+| `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                                    |
 
 | Method                   | Description                                                                |
 | ------------------------ | -------------------------------------------------------------------------- |

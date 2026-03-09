@@ -16,6 +16,8 @@ export interface FilterEngineOptions<
 > {
   data?: T[];
 
+  mutableExcludeField?: keyof T & string;
+
   fields?: (keyof T & string)[];
 
   nestedFields?: string[];

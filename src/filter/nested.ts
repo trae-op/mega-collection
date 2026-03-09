@@ -9,6 +9,8 @@ export class FilterNestedCollection<T extends CollectionItem> {
 
   private indexes = new Map<string, Map<any, T[]>>();
 
+  private itemPositions = new Map<string, Map<any, WeakMap<T, number>>>();
+
   registerFields(fieldPaths?: readonly string[]): void {
     if (!fieldPaths?.length) return;
 
@@ -27,13 +29,21 @@ export class FilterNestedCollection<T extends CollectionItem> {
 
   clearIndexes(): void {
     this.indexes.clear();
+    this.itemPositions.clear();
   }
 
   buildIndexes(data: T[]): void {
     this.indexes.clear();
+    this.itemPositions.clear();
 
     for (const fieldPath of this.registeredFields) {
       this.buildIndex(data, fieldPath);
+    }
+  }
+
+  removeItem(item: T): void {
+    for (const fieldPath of this.indexes.keys()) {
+      this.removeItemFromIndex(fieldPath, item);
     }
   }
 
@@ -127,6 +137,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
 
     const { collectionKey, nestedKey } = descriptor;
     const indexMap = new Map<any, T[]>();
+    const fieldItemPositions = new Map<any, WeakMap<T, number>>();
 
     for (
       let itemIndex = 0, dataLength = data.length;
@@ -149,15 +160,74 @@ export class FilterNestedCollection<T extends CollectionItem> {
         if (bucket) {
           if (bucket[bucket.length - 1] !== item) {
             bucket.push(item);
+            fieldItemPositions.get(value)!.set(item, bucket.length - 1);
           }
           continue;
         }
 
         indexMap.set(value, [item]);
+
+        const bucketItemPositions = new WeakMap<T, number>();
+        bucketItemPositions.set(item, 0);
+        fieldItemPositions.set(value, bucketItemPositions);
       }
     }
 
     this.indexes.set(fieldPath, indexMap);
+    this.itemPositions.set(fieldPath, fieldItemPositions);
+  }
+
+  private removeItemFromIndex(fieldPath: string, item: T): void {
+    const descriptor = this.fieldDescriptors.get(fieldPath);
+    const indexMap = this.indexes.get(fieldPath);
+    const fieldItemPositions = this.itemPositions.get(fieldPath);
+
+    if (!descriptor || !indexMap || !fieldItemPositions) {
+      return;
+    }
+
+    const { collectionKey, nestedKey } = descriptor;
+    const collection = item[collectionKey];
+    if (!Array.isArray(collection) || collection.length === 0) {
+      return;
+    }
+
+    const nestedValues = new Set<any>();
+
+    for (let nestedIndex = 0; nestedIndex < collection.length; nestedIndex++) {
+      const nestedValue = collection[nestedIndex][nestedKey];
+      if (nestedValue === undefined || nestedValue === null) {
+        continue;
+      }
+
+      nestedValues.add(nestedValue);
+    }
+
+    for (const nestedValue of nestedValues) {
+      const bucket = indexMap.get(nestedValue);
+      const bucketItemPositionMap = fieldItemPositions.get(nestedValue);
+      const itemIndex = bucketItemPositionMap?.get(item);
+
+      if (!bucket || !bucketItemPositionMap || itemIndex === undefined) {
+        continue;
+      }
+
+      const lastIndex = bucket.length - 1;
+      const lastItem = bucket[lastIndex];
+
+      if (itemIndex !== lastIndex) {
+        bucket[itemIndex] = lastItem;
+        bucketItemPositionMap.set(lastItem, itemIndex);
+      }
+
+      bucket.pop();
+      bucketItemPositionMap.delete(item);
+
+      if (bucket.length === 0) {
+        indexMap.delete(nestedValue);
+        fieldItemPositions.delete(nestedValue);
+      }
+    }
   }
 
   private filterByIndexes(

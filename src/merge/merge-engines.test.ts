@@ -64,6 +64,35 @@ describe("MergeEngines", () => {
     ).toEqual([2, 4, 5]);
   });
 
+  it("filter() supports mutable exclude through the merge facade", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const merge = new MergeEngines<User>({
+      imports: [FilterEngine],
+      data: dataset,
+      filter: {
+        fields: ["id", "city"],
+        mutableExcludeField: "id",
+      },
+    });
+
+    const result = merge.filter([{ field: "id", exclude: [1, 4] }]);
+
+    expect(
+      result.map((user) => user.id).sort((leftId, rightId) => leftId - rightId),
+    ).toEqual([2, 3, 5]);
+    expect(
+      merge
+        .getOriginData()
+        .map((user) => user.id)
+        .sort((leftId, rightId) => leftId - rightId),
+    ).toEqual([2, 3, 5]);
+    expect(
+      merge
+        .filter([{ field: "city", values: ["Lviv"] }])
+        .map((user) => user.id),
+    ).toEqual([2, 5]);
+  });
+
   it("throws when calling a method whose engine was not imported", () => {
     const searchOnly = new MergeEngines<User>({
       imports: [TextSearchEngine],
@@ -294,6 +323,29 @@ const usersWithOrders: UserWithOrders[] = [
 ];
 
 describe("MergeEngines — nestedFields", () => {
+  it("mutable exclude keeps nested filter indexes in sync through merge facade", () => {
+    const dataset: UserWithOrders[] = usersWithOrders.map((user) => ({
+      ...user,
+      orders: user.orders.map((order) => ({ ...order })),
+    }));
+    const merge = new MergeEngines<UserWithOrders>({
+      imports: [FilterEngine],
+      data: dataset,
+      filter: {
+        nestedFields: ["orders.status"],
+        mutableExcludeField: "id",
+      },
+    });
+
+    merge.filter([{ field: "id", exclude: ["1"] }]);
+
+    expect(
+      merge
+        .filter([{ field: "orders.status", values: ["pending"] }])
+        .map((user) => user.id),
+    ).toEqual(["2"]);
+  });
+
   it("search with nestedFields finds by nested values", () => {
     const merge = new MergeEngines<UserWithOrders>({
       imports: [TextSearchEngine, FilterEngine],
