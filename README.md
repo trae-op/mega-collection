@@ -100,10 +100,11 @@ Each instance keeps its own data and its own indexes, so they work separately
 and do not overwrite each other.
 
 Each engine accepts an optional `fields` array (set via the `search`,
-`filter` or `sort` option) which tells it which properties should be indexed up
-front. This means the engine prepares those fields once so later calls can be
-faster. If you skip `fields`, everything still works, but the engine may need
-to scan the full array.
+`filter` or `sort` option) which tells it which properties should use indexed
+execution. Those indexes are built lazily on the first matching operation, so
+initial engine creation stays fast even for very large collections. If you skip
+`fields`, everything still works, but the engine may need to scan the full
+array.
 
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
@@ -175,8 +176,9 @@ The examples below show the difference between simple fields and nested fields.
 ```ts
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 
-// `fields` tells the engine which fields it should prepare for faster search.
-// If you skip `fields`, search still works, but it will scan the full dataset.
+// `fields` tells the engine which fields should use indexed search.
+// The index is built lazily on first use. If you skip `fields`, search still
+// works, but it will scan the full dataset.
 const engine = new TextSearchEngine<User>({
   data: users,
   fields: ["name", "city"],
@@ -227,8 +229,9 @@ The examples below show the difference between simple fields and nested fields.
 ```ts
 import { FilterEngine } from "@devisfuture/mega-collection/filter";
 
-// `fields` tells the engine which fields should be prepared for faster filter
-// lookups. Without `fields`, filtering still works, but it will scan the data.
+// `fields` tells the engine which fields should use indexed filter lookups.
+// The index is built lazily on first use. Without `fields`, filtering still
+// works, but it will scan the data.
 const engine = new FilterEngine<User>({
   data: users,
   fields: ["city", "age"],
@@ -287,8 +290,9 @@ Use `SortEngine` when you only need sorting.
 ```ts
 import { SortEngine } from "@devisfuture/mega-collection/sort";
 
-// `fields` tells the engine which fields should be prepared for faster
-// single-field sorting. If you skip `fields`, sorting still works.
+// `fields` tells the engine which fields should use cached single-field
+// sorting. The cache is built lazily on first use. If you skip `fields`,
+// sorting still works.
 const engine = new SortEngine<User>({
   data: users,
   fields: ["age", "name", "city"],

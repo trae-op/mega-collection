@@ -24,6 +24,10 @@ export class FilterNestedCollection<T extends CollectionItem> {
     return this.registeredFields.has(fieldPath);
   }
 
+  hasIndex(fieldPath: string): boolean {
+    return this.indexes.has(fieldPath);
+  }
+
   clearIndexes(): void {
     this.indexes.clear();
   }
@@ -34,6 +38,13 @@ export class FilterNestedCollection<T extends CollectionItem> {
     for (const fieldPath of this.registeredFields) {
       this.buildIndex(data, fieldPath);
     }
+  }
+
+  ensureIndex(data: T[], fieldPath: string): void {
+    if (!this.registeredFields.has(fieldPath)) return;
+    if (this.indexes.has(fieldPath)) return;
+
+    this.buildIndex(data, fieldPath);
   }
 
   filter(sourceData: T[], criteria: FilterCriterion<T>[], dataset: T[]): T[] {

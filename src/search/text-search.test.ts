@@ -229,6 +229,19 @@ describe("TextSearchEngine", () => {
     });
     expect(engine.search("city", "Dnipro")).toHaveLength(1);
   });
+
+  it("builds configured flat indexes lazily on first indexed search", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: cityCards,
+      fields: ["city"],
+    });
+
+    expect((engine as any).ngramIndexes.size).toBe(0);
+
+    engine.search("city", "Kyiv");
+
+    expect((engine as any).ngramIndexes.has("city")).toBe(true);
+  });
 });
 
 type Order = {
@@ -371,6 +384,21 @@ describe("TextSearchEngine — nestedFields", () => {
     expect(engine.search("orders.status", "shipped").map((u) => u.id)).toEqual([
       "10",
     ]);
+  });
+
+  it("builds configured nested indexes lazily on first nested search", () => {
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    expect((engine as any).nestedCollection.hasIndexes()).toBe(false);
+
+    engine.search("orders.status", "pending");
+
+    expect((engine as any).nestedCollection.hasIndex("orders.status")).toBe(
+      true,
+    );
   });
 
   it("clearIndexes clears nested indexes; linear fallback works", () => {

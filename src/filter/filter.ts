@@ -54,57 +54,38 @@ export class FilterEngine<T extends CollectionItem> {
 
     this.dataset = options.data;
 
-    const hasFields = options.fields?.length;
-    const hasNestedFields = this.nestedCollection.hasRegisteredFields();
-
-    if (hasFields) {
+    if (options.fields?.length) {
       for (const field of options.fields!) {
         this.indexedFields.add(field);
       }
     }
-
-    if (hasFields || hasNestedFields) {
-      this.rebuildConfiguredIndexes();
-    }
   }
 
-  private rebuildConfiguredIndexes(): void {
-    this.indexer.clear();
-    this.nestedCollection.clearIndexes();
+  private ensureConfiguredFieldIndex(field: keyof T & string): void {
+    if (!this.indexedFields.has(field)) return;
+    if (this.indexer.hasIndex(field)) return;
+    if (this.dataset.length === 0) return;
 
-    for (const field of this.indexedFields) {
-      this.buildIndex(this.dataset, field);
-    }
-
-    if (this.nestedCollection.hasRegisteredFields()) {
-      this.nestedCollection.buildIndexes(this.dataset);
-    }
+    this.indexer.buildIndex(this.dataset, field);
   }
 
-  /**
-   * Builds an index for the given field.
-   */
-  private buildIndex(data: T[], field: keyof T & string): this;
-  private buildIndex(field: keyof T & string): this;
-  private buildIndex(
-    dataOrField: T[] | (keyof T & string),
-    field?: keyof T & string,
-  ): this {
-    if (!Array.isArray(dataOrField)) {
-      if (!this.dataset.length) {
-        throw FilterEngineError.missingDatasetForBuildIndex();
+  private ensureIndexesForCriteria(criteria: FilterCriterion<T>[]): void {
+    if (this.dataset.length === 0) return;
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < criteria.length;
+      criterionIndex++
+    ) {
+      const field = criteria[criterionIndex].field;
+
+      if (this.nestedCollection.hasField(field)) {
+        this.nestedCollection.ensureIndex(this.dataset, field);
+        continue;
       }
 
-      this.indexer.buildIndex(this.dataset, dataOrField);
-      return this;
+      this.ensureConfiguredFieldIndex(field as keyof T & string);
     }
-
-    this.dataset = dataOrField;
-    this.previousResult = null;
-    this.previousCriteria = null;
-    this.previousBaseData = null;
-    this.indexer.buildIndex(dataOrField, field!);
-    return this;
   }
 
   clearIndexes(): this {
@@ -131,7 +112,7 @@ export class FilterEngine<T extends CollectionItem> {
   data(data: T[]): this {
     this.dataset = data;
     this.resetFilterState();
-    this.rebuildConfiguredIndexes();
+    this.clearIndexes();
     return this;
   }
 
@@ -256,6 +237,8 @@ export class FilterEngine<T extends CollectionItem> {
       }
       return usesStoredData ? this.dataset : sourceData;
     }
+
+    this.ensureIndexesForCriteria(executionCriteria);
 
     if (usesStoredData && !executionCriteria) {
       executionCriteria = resolvedCriteria;

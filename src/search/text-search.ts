@@ -33,32 +33,39 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     this.dataset = options.data;
 
-    const hasFields = options.fields?.length;
-    const hasNestedFields = this.nestedCollection.hasRegisteredFields();
-
-    if (hasFields) {
+    if (options.fields?.length) {
       for (const field of options.fields!) {
         this.indexedFields.add(field);
       }
     }
+  }
 
-    if (hasFields || hasNestedFields) {
-      this.rebuildConfiguredIndexes();
+  private ensureConfiguredFieldIndex(field: keyof T & string): void {
+    if (!this.indexedFields.has(field)) return;
+    if (this.ngramIndexes.has(field)) return;
+    if (this.dataset.length === 0) return;
+
+    this.buildIndex(this.dataset, field);
+  }
+
+  private ensureConfiguredIndexes(): void {
+    for (const field of this.indexedFields) {
+      this.ensureConfiguredFieldIndex(field);
     }
   }
 
-  private rebuildConfiguredIndexes(): void {
-    this.ngramIndexes.clear();
-    this.normalizedFieldValues.clear();
-    this.nestedCollection.clearIndexes();
+  private ensureConfiguredNestedIndex(fieldPath: string): void {
+    if (!this.nestedCollection.hasField(fieldPath)) return;
+    if (this.nestedCollection.hasIndex(fieldPath)) return;
+    if (this.dataset.length === 0) return;
 
-    for (const field of this.indexedFields) {
-      this.buildIndex(this.dataset, field);
-    }
+    this.nestedCollection.ensureIndex(this.dataset, fieldPath);
+  }
 
-    if (this.nestedCollection.hasRegisteredFields()) {
-      this.nestedCollection.buildIndexes(this.dataset);
-    }
+  private ensureConfiguredNestedIndexes(): void {
+    if (this.dataset.length === 0) return;
+
+    this.nestedCollection.ensureAllIndexes(this.dataset);
   }
 
   /**
@@ -136,6 +143,9 @@ export class TextSearchEngine<T extends CollectionItem> {
       return this.dataset;
     }
 
+    this.ensureConfiguredIndexes();
+    this.ensureConfiguredNestedIndexes();
+
     if (!this.ngramIndexes.size && !this.nestedCollection.hasIndexes()) {
       return this.searchAllFieldsLinear(lowerQuery);
     }
@@ -184,10 +194,11 @@ export class TextSearchEngine<T extends CollectionItem> {
     if (lowerQuery.length < this.minQueryLength) return this.dataset;
 
     if (this.nestedCollection.hasField(field)) {
+      this.ensureConfiguredNestedIndex(field);
       const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
       if (!uniqueQueryGrams.size) return [];
 
-      if (this.nestedCollection.hasIndexes()) {
+      if (this.nestedCollection.hasIndex(field)) {
         return this.nestedCollection.searchIndexedField(
           this.dataset,
           field,
@@ -201,6 +212,14 @@ export class TextSearchEngine<T extends CollectionItem> {
         field,
         lowerQuery,
       );
+    }
+
+    if (this.indexedFields.size > 0) {
+      if (!this.indexedFields.has(field as keyof T & string)) {
+        return [];
+      }
+
+      this.ensureConfiguredFieldIndex(field as keyof T & string);
     }
 
     if (!this.ngramIndexes.size) {
@@ -340,7 +359,7 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   data(data: T[]): this {
     this.dataset = data;
-    this.rebuildConfiguredIndexes();
+    this.clearIndexes();
     return this;
   }
 
