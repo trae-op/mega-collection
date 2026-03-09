@@ -9,6 +9,12 @@ import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
 import type { FilterEngineOptions } from "./types";
 import { FilterEngineError } from "./errors";
 import { FILTER_ENGINE_EXECUTE } from "./internal";
+import {
+  isCriterionUnsatisfiable,
+  matchesCriterionValue,
+  resolveCriteria,
+  type ResolvedFilterCriterion,
+} from "./criterion";
 import { FilterNestedCollection } from "./nested";
 
 export class FilterEngine<T extends CollectionItem> {
@@ -23,7 +29,7 @@ export class FilterEngine<T extends CollectionItem> {
 
   private previousResult: T[] | null = null;
 
-  private previousCriteria: FilterCriterion<T>[] | null = null;
+  private previousCriteria: ResolvedFilterCriterion<T>[] | null = null;
 
   private previousBaseData: T[] | null = null;
 
@@ -168,15 +174,17 @@ export class FilterEngine<T extends CollectionItem> {
     const usesStoredData = criteria === undefined;
 
     let sourceData: T[];
-    let resolvedCriteria: FilterCriterion<T>[];
-    let executionCriteria: FilterCriterion<T>[];
+    let resolvedCriteria: ResolvedFilterCriterion<T>[];
+    let executionCriteria: ResolvedFilterCriterion<T>[];
 
     if (usesStoredData) {
       if (!this.dataset.length) {
         throw FilterEngineError.missingDatasetForFilter();
       }
 
-      resolvedCriteria = dataOrCriteria as FilterCriterion<T>[];
+      resolvedCriteria = resolveCriteria(
+        dataOrCriteria as FilterCriterion<T>[],
+      );
 
       if (
         this.filterByPreviousResult &&
@@ -184,25 +192,18 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousCriteria !== null &&
         this.previousBaseData === this.dataset
       ) {
-        const hasAdditions = this.hasCriteriaAdditions(
-          this.previousCriteria,
-          resolvedCriteria,
-        );
-        const hasRemovals = this.hasCriteriaRemovals(
+        const transition = this.getCriteriaTransition(
           this.previousCriteria,
           resolvedCriteria,
         );
 
-        if (!hasAdditions && !hasRemovals) {
+        if (transition === "unchanged") {
           return this.previousResult;
         }
 
-        if (hasAdditions && !hasRemovals) {
+        if (transition === "narrowed") {
           sourceData = this.previousResult;
-          executionCriteria = this.getAddedCriteria(
-            this.previousCriteria,
-            resolvedCriteria,
-          );
+          executionCriteria = resolvedCriteria;
         } else {
           sourceData = this.dataset;
           executionCriteria = resolvedCriteria;
@@ -212,7 +213,7 @@ export class FilterEngine<T extends CollectionItem> {
         executionCriteria = resolvedCriteria;
       }
     } else {
-      resolvedCriteria = criteria;
+      resolvedCriteria = resolveCriteria(criteria);
       sourceData = dataOrCriteria as T[];
 
       if (
@@ -221,25 +222,18 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousCriteria !== null &&
         this.previousBaseData === sourceData
       ) {
-        const hasAdditions = this.hasCriteriaAdditions(
-          this.previousCriteria,
-          resolvedCriteria,
-        );
-        const hasRemovals = this.hasCriteriaRemovals(
+        const transition = this.getCriteriaTransition(
           this.previousCriteria,
           resolvedCriteria,
         );
 
-        if (!hasAdditions && !hasRemovals) {
+        if (transition === "unchanged") {
           return this.previousResult;
         }
 
-        if (hasAdditions && !hasRemovals) {
+        if (transition === "narrowed") {
           sourceData = this.previousResult;
-          executionCriteria = this.getAddedCriteria(
-            this.previousCriteria,
-            resolvedCriteria,
-          );
+          executionCriteria = resolvedCriteria;
         } else {
           executionCriteria = resolvedCriteria;
         }
@@ -250,19 +244,29 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (resolvedCriteria.length === 0) {
       if (this.filterByPreviousResult) {
-        this.previousResult = null;
-        this.previousCriteria = null;
-        this.previousBaseData = null;
+        this.resetFilterState();
       }
       return usesStoredData ? this.dataset : sourceData;
     }
 
-    if (usesStoredData && !executionCriteria) {
-      executionCriteria = resolvedCriteria;
+    for (
+      let criterionIndex = 0;
+      criterionIndex < executionCriteria.length;
+      criterionIndex++
+    ) {
+      if (!isCriterionUnsatisfiable(executionCriteria[criterionIndex])) {
+        continue;
+      }
+
+      return this.createEmptyResult(
+        usesStoredData,
+        dataOrCriteria as T[],
+        resolvedCriteria,
+      );
     }
 
-    const nestedCriteria: FilterCriterion<T>[] = [];
-    const flatCriteria: FilterCriterion<T>[] = [];
+    const nestedCriteria: ResolvedFilterCriterion<T>[] = [];
+    const flatCriteria: ResolvedFilterCriterion<T>[] = [];
 
     for (
       let criterionIndex = 0;
@@ -284,34 +288,29 @@ export class FilterEngine<T extends CollectionItem> {
         this.dataset,
       );
       if (sourceData.length === 0) {
-        const emptyResult: T[] = [];
-        if (this.filterByPreviousResult) {
-          this.previousResult = emptyResult;
-          this.previousCriteria = this.cloneCriteria(resolvedCriteria);
-          this.previousBaseData = usesStoredData
-            ? this.dataset
-            : (dataOrCriteria as T[]);
-        }
-        return emptyResult;
+        return this.createEmptyResult(
+          usesStoredData,
+          dataOrCriteria as T[],
+          resolvedCriteria,
+        );
       }
     }
 
     if (flatCriteria.length === 0) {
-      if (this.filterByPreviousResult) {
-        this.previousResult = sourceData;
-        this.previousCriteria = this.cloneCriteria(resolvedCriteria);
-        this.previousBaseData = usesStoredData
-          ? this.dataset
-          : (dataOrCriteria as T[]);
-      }
+      this.storePreviousResult(
+        sourceData,
+        usesStoredData,
+        dataOrCriteria as T[],
+        resolvedCriteria,
+      );
       return sourceData;
     }
 
     const { indexedCriteria, linearCriteria } = flatCriteria.reduce(
       (
         accumulator: {
-          indexedCriteria: FilterCriterion<T>[];
-          linearCriteria: FilterCriterion<T>[];
+          indexedCriteria: ResolvedFilterCriterion<T>[];
+          linearCriteria: ResolvedFilterCriterion<T>[];
         },
         criterion,
       ) => {
@@ -329,37 +328,34 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (indexedCriteria.length > 0 && linearCriteria.length === 0) {
       result = this.filterViaIndex(indexedCriteria, sourceData);
-      if (this.filterByPreviousResult) {
-        this.previousResult = result;
-        this.previousCriteria = this.cloneCriteria(resolvedCriteria);
-        this.previousBaseData = usesStoredData
-          ? this.dataset
-          : (dataOrCriteria as T[]);
-      }
+      this.storePreviousResult(
+        result,
+        usesStoredData,
+        dataOrCriteria as T[],
+        resolvedCriteria,
+      );
       return result;
     }
 
     if (indexedCriteria.length > 0 && linearCriteria.length > 0) {
       const candidates = this.filterViaIndex(indexedCriteria, sourceData);
       result = this.linearFilter(candidates, linearCriteria);
-      if (this.filterByPreviousResult) {
-        this.previousResult = result;
-        this.previousCriteria = this.cloneCriteria(resolvedCriteria);
-        this.previousBaseData = usesStoredData
-          ? this.dataset
-          : (dataOrCriteria as T[]);
-      }
+      this.storePreviousResult(
+        result,
+        usesStoredData,
+        dataOrCriteria as T[],
+        resolvedCriteria,
+      );
       return result;
     }
 
     result = this.linearFilter(sourceData, flatCriteria);
-    if (this.filterByPreviousResult) {
-      this.previousResult = result;
-      this.previousCriteria = this.cloneCriteria(resolvedCriteria);
-      this.previousBaseData = usesStoredData
-        ? this.dataset
-        : (dataOrCriteria as T[]);
-    }
+    this.storePreviousResult(
+      result,
+      usesStoredData,
+      dataOrCriteria as T[],
+      resolvedCriteria,
+    );
     return result;
   }
 
@@ -367,111 +363,10 @@ export class FilterEngine<T extends CollectionItem> {
     return this.chainBuilder.create(result);
   }
 
-  private cloneCriteria(criteria: FilterCriterion<T>[]): FilterCriterion<T>[] {
-    return criteria.map(({ field, values }) => ({
-      field,
-      values: [...values],
-    }));
-  }
-
-  /**
-   * Checks if there are new criteria added.
-   */
-  private hasCriteriaAdditions(
-    previousCriteria: FilterCriterion<T>[],
-    nextCriteria: FilterCriterion<T>[],
-  ): boolean {
-    const previousByField = new Map<string, Set<any>>(
-      previousCriteria.map(({ field, values }) => [field, new Set(values)]),
-    );
-    const nextByField = new Map<string, Set<any>>(
-      nextCriteria.map(({ field, values }) => [field, new Set(values)]),
-    );
-
-    for (const [field, nextValues] of nextByField) {
-      const previousValues = previousByField.get(field);
-      if (!previousValues) {
-        return true;
-      }
-
-      for (const value of nextValues) {
-        if (!previousValues.has(value)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Checks if there are criteria removed.
-   */
-  private hasCriteriaRemovals(
-    previousCriteria: FilterCriterion<T>[],
-    nextCriteria: FilterCriterion<T>[],
-  ): boolean {
-    const previousByField = new Map<string, Set<any>>(
-      previousCriteria.map(({ field, values }) => [field, new Set(values)]),
-    );
-    const nextByField = new Map<string, Set<any>>(
-      nextCriteria.map(({ field, values }) => [field, new Set(values)]),
-    );
-
-    for (const [field, previousValues] of previousByField) {
-      const nextValues = nextByField.get(field);
-      if (!nextValues) {
-        return true;
-      }
-
-      for (const value of previousValues) {
-        if (!nextValues.has(value)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Gets the newly added criteria.
-   */
-  private getAddedCriteria(
-    previousCriteria: FilterCriterion<T>[],
-    nextCriteria: FilterCriterion<T>[],
-  ): FilterCriterion<T>[] {
-    const previousByField = new Map<string, Set<any>>(
-      previousCriteria.map(({ field, values }) => [field, new Set(values)]),
-    );
-
-    const addedCriteria: FilterCriterion<T>[] = [];
-
-    for (const { field, values } of nextCriteria) {
-      const previousValues = previousByField.get(field);
-      if (!previousValues) {
-        addedCriteria.push({ field, values: [...values] });
-        continue;
-      }
-
-      const addedValues = values.filter((value) => !previousValues.has(value));
-      if (addedValues.length > 0) {
-        addedCriteria.push({ field, values: addedValues });
-      }
-    }
-
-    return addedCriteria;
-  }
-
   /**
    * Filters data linearly without index.
    */
-  private linearFilter(data: T[], criteria: FilterCriterion<T>[]): T[] {
-    const acceptableValuesByField = new Map<string, Set<any>>(
-      criteria.map(({ field, values }) => [field, new Set(values)]),
-    );
-    const criterionFields = criteria.map(({ field }) => field);
-
+  private linearFilter(data: T[], criteria: ResolvedFilterCriterion<T>[]): T[] {
     const result: T[] = [];
 
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
@@ -479,12 +374,12 @@ export class FilterEngine<T extends CollectionItem> {
       let matchesAllCriteria = true;
 
       for (
-        let fieldIndex = 0;
-        fieldIndex < criterionFields.length;
-        fieldIndex++
+        let criterionIndex = 0;
+        criterionIndex < criteria.length;
+        criterionIndex++
       ) {
-        const field = criterionFields[fieldIndex];
-        if (!acceptableValuesByField.get(field)!.has(item[field])) {
+        const criterion = criteria[criterionIndex];
+        if (!matchesCriterionValue(criterion, item[criterion.field])) {
           matchesAllCriteria = false;
           break;
         }
@@ -501,32 +396,52 @@ export class FilterEngine<T extends CollectionItem> {
   /**
    * Filters data using the index.
    */
-  private filterViaIndex(criteria: FilterCriterion<T>[], sourceData: T[]): T[] {
+  private filterViaIndex(
+    criteria: ResolvedFilterCriterion<T>[],
+    sourceData: T[],
+  ): T[] {
     const isFilteringFromSubset = sourceData !== this.dataset;
     const allowedItems = isFilteringFromSubset ? new Set(sourceData) : null;
+    const inclusionCriteria = criteria.filter(
+      (criterion) => criterion.hasValues,
+    );
+    const exclusionCriteria = criteria.filter(
+      (criterion) => criterion.hasExclude,
+    );
 
-    if (criteria.length === 1) {
+    if (inclusionCriteria.length === 0) {
+      return this.applyIndexedExclusions(sourceData, exclusionCriteria);
+    }
+
+    if (inclusionCriteria.length === 1) {
       const indexedResult = this.indexer.getByValues(
-        criteria[0].field,
-        criteria[0].values,
+        inclusionCriteria[0].field,
+        inclusionCriteria[0].values,
       );
-      if (!allowedItems) {
-        return indexedResult.slice();
-      }
-
-      const filteredItems: T[] = [];
+      const matchingItems: T[] = [];
 
       for (let itemIndex = 0; itemIndex < indexedResult.length; itemIndex++) {
         const item = indexedResult[itemIndex];
-        if (allowedItems.has(item)) {
-          filteredItems.push(item);
+        if (allowedItems && !allowedItems.has(item)) {
+          continue;
         }
+
+        if (
+          !matchesCriterionValue(
+            inclusionCriteria[0],
+            item[inclusionCriteria[0].field],
+          )
+        ) {
+          continue;
+        }
+
+        matchingItems.push(item);
       }
 
-      return filteredItems;
+      return this.applyIndexedExclusions(matchingItems, exclusionCriteria);
     }
 
-    const estimatedCriteria = criteria
+    const estimatedCriteria = inclusionCriteria
       .map((criterion) => ({
         criterion,
         size: this.estimateIndexSize(criterion),
@@ -544,13 +459,6 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (candidateItems.length === 0) return [];
 
-    const remainingValuesByField = new Map<string, Set<any>>(
-      estimatedCriteria
-        .slice(1)
-        .map(({ criterion: { field, values } }) => [field, new Set(values)]),
-    );
-    const remainingFields = Array.from(remainingValuesByField.keys());
-
     const result: T[] = [];
 
     for (
@@ -559,40 +467,36 @@ export class FilterEngine<T extends CollectionItem> {
       candidateIndex++
     ) {
       const item = candidateItems[candidateIndex];
-      let matchesAllRemainingCriteria = true;
+      let matchesAllCriteria = true;
+
+      if (allowedItems && !allowedItems.has(item)) {
+        continue;
+      }
 
       for (
-        let fieldIndex = 0;
-        fieldIndex < remainingFields.length;
-        fieldIndex++
+        let criterionIndex = 0;
+        criterionIndex < estimatedCriteria.length;
+        criterionIndex++
       ) {
-        const field = remainingFields[fieldIndex];
-        if (!remainingValuesByField.get(field)!.has(item[field])) {
-          matchesAllRemainingCriteria = false;
+        const criterion = estimatedCriteria[criterionIndex].criterion;
+        if (!matchesCriterionValue(criterion, item[criterion.field])) {
+          matchesAllCriteria = false;
           break;
         }
       }
 
-      if (
-        matchesAllRemainingCriteria &&
-        allowedItems &&
-        !allowedItems.has(item)
-      ) {
-        matchesAllRemainingCriteria = false;
-      }
-
-      if (matchesAllRemainingCriteria) {
+      if (matchesAllCriteria) {
         result.push(item);
       }
     }
 
-    return result;
+    return this.applyIndexedExclusions(result, exclusionCriteria);
   }
 
   /**
    * Estimates the size of the index for a criterion.
    */
-  private estimateIndexSize(criterion: FilterCriterion<T>): number {
+  private estimateIndexSize(criterion: ResolvedFilterCriterion<T>): number {
     const indexMap = this.indexer.getIndexMap(criterion.field);
     if (!indexMap) return Infinity;
 
@@ -600,5 +504,232 @@ export class FilterEngine<T extends CollectionItem> {
       const bucket = indexMap.get(value);
       return bucket ? totalSize + bucket.length : totalSize;
     }, 0);
+  }
+
+  private applyIndexedExclusions(
+    data: T[],
+    criteria: ResolvedFilterCriterion<T>[],
+  ): T[] {
+    if (criteria.length === 0 || data.length === 0) {
+      return data.slice();
+    }
+
+    const excludedItems = new Set<T>();
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < criteria.length;
+      criterionIndex++
+    ) {
+      const criterion = criteria[criterionIndex];
+      const indexMap = this.indexer.getIndexMap(criterion.field);
+      if (!indexMap) {
+        continue;
+      }
+
+      for (
+        let valueIndex = 0;
+        valueIndex < criterion.exclude.length;
+        valueIndex++
+      ) {
+        const bucket = indexMap.get(criterion.exclude[valueIndex]);
+        if (!bucket) {
+          continue;
+        }
+
+        for (let itemIndex = 0; itemIndex < bucket.length; itemIndex++) {
+          excludedItems.add(bucket[itemIndex]);
+        }
+      }
+    }
+
+    if (excludedItems.size === 0) {
+      return data.slice();
+    }
+
+    const result: T[] = [];
+
+    for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
+      const item = data[itemIndex];
+      if (!excludedItems.has(item)) {
+        result.push(item);
+      }
+    }
+
+    return result;
+  }
+
+  private createEmptyResult(
+    usesStoredData: boolean,
+    baseData: T[],
+    resolvedCriteria: ResolvedFilterCriterion<T>[],
+  ): T[] {
+    const emptyResult: T[] = [];
+    this.storePreviousResult(
+      emptyResult,
+      usesStoredData,
+      baseData,
+      resolvedCriteria,
+    );
+    return emptyResult;
+  }
+
+  private storePreviousResult(
+    result: T[],
+    usesStoredData: boolean,
+    baseData: T[],
+    resolvedCriteria: ResolvedFilterCriterion<T>[],
+  ): void {
+    if (!this.filterByPreviousResult) {
+      return;
+    }
+
+    this.previousResult = result;
+    this.previousCriteria = resolvedCriteria;
+    this.previousBaseData = usesStoredData ? this.dataset : baseData;
+  }
+
+  private getCriteriaTransition(
+    previousCriteria: ResolvedFilterCriterion<T>[],
+    nextCriteria: ResolvedFilterCriterion<T>[],
+  ): "unchanged" | "narrowed" | "expanded" {
+    const previousByField = this.createCriteriaStateMap(previousCriteria);
+    const nextByField = this.createCriteriaStateMap(nextCriteria);
+    let hasNarrowing = false;
+
+    for (const [field, previousCriterion] of previousByField) {
+      const nextCriterion = nextByField.get(field);
+      if (!nextCriterion) {
+        return "expanded";
+      }
+
+      const comparison = this.compareCriteria(previousCriterion, nextCriterion);
+      if (comparison === "expanded") {
+        return "expanded";
+      }
+
+      if (comparison === "narrowed") {
+        hasNarrowing = true;
+      }
+    }
+
+    for (const field of nextByField.keys()) {
+      if (!previousByField.has(field)) {
+        hasNarrowing = true;
+      }
+    }
+
+    return hasNarrowing ? "narrowed" : "unchanged";
+  }
+
+  private createCriteriaStateMap(
+    criteria: ResolvedFilterCriterion<T>[],
+  ): Map<string, ResolvedFilterCriterion<T>> {
+    return new Map(criteria.map((criterion) => [criterion.field, criterion]));
+  }
+
+  private compareCriteria(
+    previousCriterion: ResolvedFilterCriterion<T>,
+    nextCriterion: ResolvedFilterCriterion<T>,
+  ): "unchanged" | "narrowed" | "expanded" {
+    let hasNarrowing = false;
+
+    if (previousCriterion.hasValues || nextCriterion.hasValues) {
+      if (previousCriterion.hasValues && !nextCriterion.hasValues) {
+        return "expanded";
+      }
+
+      if (!previousCriterion.hasValues && nextCriterion.hasValues) {
+        if (
+          previousCriterion.hasExclude &&
+          this.hasIntersection(
+            nextCriterion.includedValues!,
+            previousCriterion.excludedValues!,
+          )
+        ) {
+          return "expanded";
+        }
+
+        hasNarrowing = true;
+      } else if (
+        previousCriterion.hasValues &&
+        nextCriterion.hasValues &&
+        !this.isSubset(
+          nextCriterion.includedValues!,
+          previousCriterion.includedValues!,
+        )
+      ) {
+        return "expanded";
+      } else if (
+        previousCriterion.hasValues &&
+        nextCriterion.hasValues &&
+        !this.areSetsEqual(
+          nextCriterion.includedValues!,
+          previousCriterion.includedValues!,
+        )
+      ) {
+        hasNarrowing = true;
+      }
+    }
+
+    if (!previousCriterion.hasValues && !nextCriterion.hasValues) {
+      if (previousCriterion.hasExclude && !nextCriterion.hasExclude) {
+        return "expanded";
+      }
+
+      if (!previousCriterion.hasExclude && nextCriterion.hasExclude) {
+        hasNarrowing = true;
+      } else if (
+        previousCriterion.hasExclude &&
+        nextCriterion.hasExclude &&
+        !this.isSubset(
+          previousCriterion.excludedValues!,
+          nextCriterion.excludedValues!,
+        )
+      ) {
+        return "expanded";
+      } else if (
+        previousCriterion.hasExclude &&
+        nextCriterion.hasExclude &&
+        !this.areSetsEqual(
+          previousCriterion.excludedValues!,
+          nextCriterion.excludedValues!,
+        )
+      ) {
+        hasNarrowing = true;
+      }
+    }
+
+    return hasNarrowing ? "narrowed" : "unchanged";
+  }
+
+  private isSubset(values: Set<any>, allowedValues: Set<any>): boolean {
+    for (const value of values) {
+      if (!allowedValues.has(value)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private areSetsEqual(leftValues: Set<any>, rightValues: Set<any>): boolean {
+    return (
+      leftValues.size === rightValues.size &&
+      this.isSubset(leftValues, rightValues)
+    );
+  }
+
+  private hasIntersection(
+    leftValues: Set<any>,
+    rightValues: Set<any>,
+  ): boolean {
+    for (const value of leftValues) {
+      if (rightValues.has(value)) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }

@@ -19,6 +19,7 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
     - [Nested collections search](#nested-collections-search) – search inside nested arrays like `orders.status`
   - [Filter only](#filter-only) – use only filtering
     - [Flat collections filter](#flat-collections-filter) – filter by simple top-level fields
+    - [Exclude items with `exclude`](#exclude-items-with-exclude) – remove matching items from the result
     - [Nested collections filter](#nested-collections-filter) – filter by nested array fields
   - [Sort only](#sort-only) – use only sorting
 - [API Reference](#api-reference) – list of options and methods
@@ -263,6 +264,36 @@ const byCity = engine.filter([{ field: "city", values: ["Miami"] }]);
 const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
 ```
 
+#### Exclude items with `exclude`
+
+Use `exclude` when you need to remove items from the result by exact field values.
+This is useful for large collections when you already know which ids or field values
+must be omitted from the final array.
+
+If the field is listed in `fields`, the engine uses indexed lookups for the exclusion
+set instead of scanning the full dataset for every removed value.
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const engine = new FilterEngine<User>({
+  data: users,
+  fields: ["id", "city"],
+});
+
+// Remove users with ids 1 and 3 from the result
+engine.filter([{ field: "id", exclude: [1, 3] }]);
+
+// Combine regular filtering with exclusion
+engine.filter([
+  { field: "city", values: ["Miami", "New York"] },
+  { field: "id", exclude: [1, 3] },
+]);
+
+// `values` and `exclude` can be used together in one rule
+engine.filter([{ field: "id", values: [1, 2, 3, 4], exclude: [1, 4] }]);
+```
+
 #### Nested collections filter
 
 ```ts
@@ -372,6 +403,7 @@ arrays.
 
 Filter engine for one or more rules. It supports `nestedFields` if you need to
 filter by values inside nested collections such as `["orders.status"]`.
+Each criterion can use `values`, `exclude`, or both in the same rule.
 
 Constructor option highlights:
 

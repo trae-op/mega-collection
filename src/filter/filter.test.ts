@@ -51,6 +51,38 @@ describe("FilterEngine", () => {
     expect(result.map((u) => u.id)).toEqual([1, 3, 5]);
   });
 
+  it("supports exclude-only criteria for indexed fields", () => {
+    const engine = new FilterEngine<User>({ data: users, fields: ["id"] });
+
+    const result = engine.filter([{ field: "id", exclude: [1, 3] }]);
+
+    expect(result.map((user) => user.id)).toEqual([2, 4, 5]);
+  });
+
+  it("supports values and exclude together on the same field", () => {
+    const engine = new FilterEngine<User>({ data: users, fields: ["age"] });
+
+    const result = engine.filter([
+      { field: "age", values: [25, 30, 35], exclude: [30] },
+    ]);
+
+    expect(result.map((user) => user.id)).toEqual([1, 4, 5]);
+  });
+
+  it("combines include and exclude criteria across fields", () => {
+    const engine = new FilterEngine<User>({
+      data: users,
+      fields: ["city", "id"],
+    });
+
+    const result = engine.filter([
+      { field: "city", values: ["Kyiv", "Lviv"] },
+      { field: "id", exclude: [2] },
+    ]);
+
+    expect(result.map((user) => user.id)).toEqual([1, 3, 5]);
+  });
+
   it("pure linear filtering when no indexes exist", () => {
     const engine = new FilterEngine<User>();
 
@@ -202,6 +234,20 @@ describe("FilterEngine", () => {
       expect(result).toHaveLength(2);
     });
 
+    it("recalculates from full dataset when allowed values expand", () => {
+      engine.filter([{ field: "city", values: ["Kyiv"] }]);
+
+      const result = engine.filter([
+        { field: "city", values: ["Kyiv", "Lviv"] },
+      ]);
+
+      expect(
+        result
+          .map((user) => user.id)
+          .sort((leftId, rightId) => leftId - rightId),
+      ).toEqual([1, 2, 3, 5]);
+    });
+
     it("resetFilterState clears sequential cache", () => {
       engine.filter([{ field: "city", values: ["Kyiv"] }]);
       engine.resetFilterState();
@@ -288,6 +334,36 @@ describe("FilterEngine — nestedFields", () => {
       { field: "orders.status", values: ["pending", "delivered"] },
     ]);
     expect(result.map((u) => u.id)).toEqual(["1", "2"]);
+  });
+
+  it("supports exclude-only criteria for nested indexed fields", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.filter([
+      { field: "orders.status", exclude: ["delivered"] },
+    ]);
+
+    expect(result.map((user) => user.id)).toEqual(["2", "3"]);
+  });
+
+  it("supports values and exclude together for nested fields", () => {
+    const engine = new FilterEngine<UserWithOrders>({
+      data: usersWithOrders,
+      nestedFields: ["orders.status"],
+    });
+
+    const result = engine.filter([
+      {
+        field: "orders.status",
+        values: ["pending"],
+        exclude: ["delivered"],
+      },
+    ]);
+
+    expect(result.map((user) => user.id)).toEqual(["2"]);
   });
 
   it("filters by nested field matching single value", () => {

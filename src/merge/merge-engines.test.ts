@@ -58,6 +58,12 @@ describe("MergeEngines", () => {
     ).toHaveLength(3);
   });
 
+  it("filter() supports exclude criteria through the merge facade", () => {
+    expect(
+      engine.filter([{ field: "id", exclude: [1, 3] }]).map((user) => user.id),
+    ).toEqual([2, 4, 5]);
+  });
+
   it("throws when calling a method whose engine was not imported", () => {
     const searchOnly = new MergeEngines<User>({
       imports: [TextSearchEngine],

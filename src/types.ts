@@ -6,7 +6,8 @@ export type IndexableKey<T> = {
 
 export interface FilterCriterion<T extends CollectionItem> {
   field: (keyof T & string) | (string & {});
-  values: any[];
+  values?: any[];
+  exclude?: any[];
 }
 
 export type SortDirection = "asc" | "desc";

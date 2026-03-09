@@ -1,4 +1,5 @@
-import { CollectionItem, FilterCriterion } from "../types";
+import { CollectionItem, type FilterCriterion } from "../types";
+import { resolveCriteria, type ResolvedFilterCriterion } from "./criterion";
 import type { NestedFieldDescriptor } from "./types";
 
 export class FilterNestedCollection<T extends CollectionItem> {
@@ -36,20 +37,26 @@ export class FilterNestedCollection<T extends CollectionItem> {
     }
   }
 
-  filter(sourceData: T[], criteria: FilterCriterion<T>[], dataset: T[]): T[] {
-    if (sourceData.length === 0 || criteria.length === 0) {
+  filter(
+    sourceData: T[],
+    criteria: FilterCriterion<T>[] | ResolvedFilterCriterion<T>[],
+    dataset: T[],
+  ): T[] {
+    const resolvedCriteria = this.resolveCriteria(criteria);
+
+    if (sourceData.length === 0 || resolvedCriteria.length === 0) {
       return sourceData;
     }
 
-    const indexedCriteria: FilterCriterion<T>[] = [];
-    const linearCriteria: FilterCriterion<T>[] = [];
+    const indexedCriteria: ResolvedFilterCriterion<T>[] = [];
+    const linearCriteria: ResolvedFilterCriterion<T>[] = [];
 
     for (
       let criterionIndex = 0;
-      criterionIndex < criteria.length;
+      criterionIndex < resolvedCriteria.length;
       criterionIndex++
     ) {
-      const criterion = criteria[criterionIndex];
+      const criterion = resolvedCriteria[criterionIndex];
       if (this.indexes.has(criterion.field)) {
         indexedCriteria.push(criterion);
         continue;
@@ -59,10 +66,9 @@ export class FilterNestedCollection<T extends CollectionItem> {
     }
 
     let result = sourceData;
-    const allowedItems = sourceData === dataset ? null : new Set(sourceData);
 
     if (indexedCriteria.length > 0) {
-      result = this.filterByIndexes(indexedCriteria, allowedItems);
+      result = this.filterByIndexes(indexedCriteria, sourceData, dataset);
       if (result.length === 0) return result;
     }
 
@@ -76,6 +82,25 @@ export class FilterNestedCollection<T extends CollectionItem> {
     }
 
     return result;
+  }
+
+  private resolveCriteria(
+    criteria: FilterCriterion<T>[] | ResolvedFilterCriterion<T>[],
+  ): ResolvedFilterCriterion<T>[] {
+    if (criteria.length === 0) {
+      return [];
+    }
+
+    const firstCriterion = criteria[0] as ResolvedFilterCriterion<T>;
+    if (
+      "hasValues" in firstCriterion &&
+      "hasExclude" in firstCriterion &&
+      "includedValues" in firstCriterion
+    ) {
+      return criteria as ResolvedFilterCriterion<T>[];
+    }
+
+    return resolveCriteria(criteria as FilterCriterion<T>[]);
   }
 
   private registerField(fieldPath: string): void {
@@ -136,36 +161,47 @@ export class FilterNestedCollection<T extends CollectionItem> {
   }
 
   private filterByIndexes(
-    criteria: FilterCriterion<T>[],
-    allowedItems: Set<T> | null,
+    criteria: ResolvedFilterCriterion<T>[],
+    sourceData: T[],
+    dataset: T[],
   ): T[] {
-    if (criteria.length === 1) {
-      const nestedIndex = this.indexes.get(criteria[0].field);
+    const inclusionCriteria = criteria.filter(
+      (criterion) => criterion.hasValues,
+    );
+    const exclusionCriteria = criteria.filter(
+      (criterion) => criterion.hasExclude,
+    );
+    const allowedItems = sourceData === dataset ? null : new Set(sourceData);
+
+    if (inclusionCriteria.length === 0) {
+      return this.applyIndexedExclusions(sourceData, exclusionCriteria);
+    }
+
+    if (inclusionCriteria.length === 1) {
+      const nestedIndex = this.indexes.get(inclusionCriteria[0].field);
       if (!nestedIndex) return [];
 
       const matchingItems = this.getItemsByValues(
         nestedIndex,
-        criteria[0].values,
+        inclusionCriteria[0].values,
       );
       if (matchingItems.length === 0) return [];
-
-      if (allowedItems === null) {
-        return matchingItems;
-      }
 
       const filteredItems: T[] = [];
 
       for (let itemIndex = 0; itemIndex < matchingItems.length; itemIndex++) {
         const item = matchingItems[itemIndex];
-        if (allowedItems.has(item)) {
-          filteredItems.push(item);
+        if (allowedItems && !allowedItems.has(item)) {
+          continue;
         }
+
+        filteredItems.push(item);
       }
 
-      return filteredItems;
+      return this.applyIndexedExclusions(filteredItems, exclusionCriteria);
     }
 
-    const estimatedCriteria = criteria
+    const estimatedCriteria = inclusionCriteria
       .map((criterion) => ({
         criterion,
         size: this.estimateIndexSize(criterion),
@@ -214,8 +250,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
 
       currentAllowedItems = new Set(matchingItems);
     }
-
-    return matchingItems;
+    return this.applyIndexedExclusions(matchingItems, exclusionCriteria);
   }
 
   private getItemsByValues(indexMap: Map<any, T[]>, values: any[]): T[] {
@@ -242,7 +277,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
     return result;
   }
 
-  private estimateIndexSize(criterion: FilterCriterion<T>): number {
+  private estimateIndexSize(criterion: ResolvedFilterCriterion<T>): number {
     const indexMap = this.indexes.get(criterion.field);
     if (!indexMap) return Infinity;
 
@@ -252,12 +287,14 @@ export class FilterNestedCollection<T extends CollectionItem> {
     }, 0);
   }
 
-  private filterLinearly(data: T[], criterion: FilterCriterion<T>): T[] {
+  private filterLinearly(
+    data: T[],
+    criterion: ResolvedFilterCriterion<T>,
+  ): T[] {
     const descriptor = this.fieldDescriptors.get(criterion.field);
     if (!descriptor) return data;
 
     const { collectionKey, nestedKey } = descriptor;
-    const acceptableValues = new Set(criterion.values);
     const result: T[] = [];
 
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
@@ -265,20 +302,77 @@ export class FilterNestedCollection<T extends CollectionItem> {
       const collection = item[collectionKey];
       if (!Array.isArray(collection)) continue;
 
-      let hasMatch = false;
+      let hasIncludedMatch = !criterion.hasValues;
+      let hasExcludedMatch = false;
 
       for (
         let nestedIndex = 0;
         nestedIndex < collection.length;
         nestedIndex++
       ) {
-        if (!acceptableValues.has(collection[nestedIndex][nestedKey])) continue;
+        const nestedValue = collection[nestedIndex][nestedKey];
 
-        hasMatch = true;
-        break;
+        if (
+          criterion.hasExclude &&
+          criterion.excludedValues!.has(nestedValue)
+        ) {
+          hasExcludedMatch = true;
+          break;
+        }
+
+        if (!criterion.hasValues) {
+          continue;
+        }
+
+        if (criterion.includedValues!.has(nestedValue)) {
+          hasIncludedMatch = true;
+        }
       }
 
-      if (hasMatch) {
+      if (!hasExcludedMatch && hasIncludedMatch) {
+        result.push(item);
+      }
+    }
+
+    return result;
+  }
+
+  private applyIndexedExclusions(
+    data: T[],
+    criteria: ResolvedFilterCriterion<T>[],
+  ): T[] {
+    if (criteria.length === 0 || data.length === 0) {
+      return data;
+    }
+
+    const excludedItems = new Set<T>();
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < criteria.length;
+      criterionIndex++
+    ) {
+      const criterion = criteria[criterionIndex];
+      const indexMap = this.indexes.get(criterion.field);
+      if (!indexMap) {
+        continue;
+      }
+
+      const matchingItems = this.getItemsByValues(indexMap, criterion.exclude);
+      for (let itemIndex = 0; itemIndex < matchingItems.length; itemIndex++) {
+        excludedItems.add(matchingItems[itemIndex]);
+      }
+    }
+
+    if (excludedItems.size === 0) {
+      return data;
+    }
+
+    const result: T[] = [];
+
+    for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
+      const item = data[itemIndex];
+      if (!excludedItems.has(item)) {
         result.push(item);
       }
     }
