@@ -20,6 +20,8 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
   - [Filter only](#filter-only) – use only filtering
     - [Flat collections filter](#flat-collections-filter) – filter by simple top-level fields
     - [Exclude items with `exclude`](#exclude-items-with-exclude) – remove matching items from the result
+      - [Result-only exclude](#result-only-exclude) – return a filtered result without mutating stored data
+      - [Mutable exclude with `mutableExcludeField`](#mutable-exclude-with-mutableexcludefield) – fast delete-like removal via swap-pop
     - [Nested collections filter](#nested-collections-filter) – filter by nested array fields
   - [Sort only](#sort-only) – use only sorting
 - [API Reference](#api-reference) – list of options and methods
@@ -35,15 +37,18 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 
 ## What does this package solve
 
-Sometimes in projects, you need to iterate through huge collections (100K+ elements in an array) that have come from the server. Usually, the most common features are searching, filtering, and sorting.
-This package helps you search, filter, and sort large collections faster than plain JavaScript methods. Usually you do this before showing data in the UI.
+Sometimes the server returns a very large array, for example 100K+ items.
+Most often you then need to search, filter, or sort this data.
 
-Zero dependencies. Tree-shakeable. Import only what you need.
+This package helps do these operations faster than plain JavaScript methods.
+Usually this happens before data is shown in the UI.
 
-Each engine lives in its own entry point (`/search`, `/filter`, `/sort`).
-Importing just `@devisfuture/mega-collection/search` or the other sub-modules means
-only that code goes into your bundle. Unused engines stay out. For example, if
-you only import `TextSearchEngine`, the filter and sort code will not be included.
+The package has no dependencies.
+You can import only the parts you need.
+
+Each engine has its own entry point: `/search`, `/filter`, `/sort`.
+If you import only `@devisfuture/mega-collection/search`, only search code goes into the bundle.
+Unused modules are not included.
 
 ## Features
 
@@ -58,10 +63,10 @@ you only import `TextSearchEngine`, the filter and sort code will not be include
 
 ## React demo
 
-A small [repository](https://github.com/trae-op/quick-start_react_mega-collection) demonstrates using `@devisfuture/mega-collection` in a React project.
-The example shows search, filter, sort and merge all modules setups with a minimal UI.
+A small [repository](https://github.com/trae-op/quick-start_react_mega-collection) shows how to use `@devisfuture/mega-collection` in React.
+It has examples for search, filter, sort, and `MergeEngines` with a simple UI.
 
-A live build of the React app is available at [demo](https://trae-op.github.io/quick-start_react_mega-collection/), showcasing how the package works in a real application.
+There is also a live [demo](https://trae-op.github.io/quick-start_react_mega-collection/).
 
 ## Install
 
@@ -93,19 +98,17 @@ interface UserWithOrders extends User {
 
 ### All-in-one: `MergeEngines`
 
-Use `MergeEngines` when you want one engine that works with the same dataset.
-Add the engines you need in `imports`. Only those engines will be created.
+Use `MergeEngines` when you want one class that works with one dataset.
+Add needed engines to `imports`. Only those engines will be created.
 
 You can create many engine instances in one project for different collections.
-Each instance keeps its own data and its own indexes, so they work separately
-and do not overwrite each other.
+Each instance stores its own data and indexes, so they do not affect each other.
 
-Each engine accepts an optional `fields` array (set via the `search`,
-`filter` or `sort` option) which tells it which properties should use indexed
-execution. Those indexes are built lazily on the first matching operation, so
-initial engine creation stays fast even for very large collections. If you skip
-`fields`, everything still works, but the engine may need to scan the full
-array.
+Each engine can receive an optional `fields` array through `search`, `filter`, or `sort` options.
+These fields are used for indexes.
+
+Indexes are built lazily on first use, so engine creation stays fast.
+If you skip `fields`, everything still works, but the engine may scan the full array.
 
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
@@ -127,13 +130,13 @@ const mutableMerge = new MergeEngines<User>({
   filter: { fields: ["id", "city"], mutableExcludeField: "id" },
 });
 
-// dataset is passed once at init — no need to repeat it in every call
+// Dataset is passed once in the constructor.
 engine
   .search("john")
   .sort([{ field: "age", direction: "asc" }])
   .filter([{ field: "city", values: ["Miami", "New York"] }]);
 
-// with nested collection fields (e.g. orders inside each user)
+// Example with nested fields, for example `orders` inside each user.
 const nestedEngine = new MergeEngines<UserWithOrders>({
   imports: [TextSearchEngine, SortEngine, FilterEngine],
   data: usersWithOrders,
@@ -153,7 +156,7 @@ const nestedEngine = new MergeEngines<UserWithOrders>({
 nestedEngine.search("pending"); // finds users whose orders contain "pending"
 nestedEngine.filter([{ field: "orders.status", values: ["delivered"] }]);
 
-// update dataset later without creating a new instance
+// Replace dataset later without creating a new instance.
 engine.data([
   {
     id: 1,
@@ -163,14 +166,14 @@ engine.data([
   },
 ]);
 
-// clear indexes/data for one module
+// Clear indexes or data for one module.
 engine.clearIndexes("search").clearIndexes("sort").clearIndexes("filter");
 engine.clearData("search").clearData("sort").clearData("filter");
 
-// get shared original dataset
+// Get shared original dataset.
 engine.getOriginData();
 
-// fast delete-like exclusion through the root facade
+// Remove items through the root facade.
 mutableMerge.filter([{ field: "id", exclude: [1, 4] }]);
 ```
 
@@ -179,7 +182,7 @@ mutableMerge.filter([{ field: "id", exclude: [1, 4] }]);
 ### Search only
 
 Use `TextSearchEngine` when you only need text search.
-The examples below show the difference between simple fields and nested fields.
+The examples below show search by simple fields and nested fields.
 
 #### Flat collections search
 
@@ -187,16 +190,16 @@ The examples below show the difference between simple fields and nested fields.
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 
 // `fields` tells the engine which fields should use indexed search.
-// The index is built lazily on first use. If you skip `fields`, search still
-// works, but it will scan the full dataset.
+// The index is built only when it is needed for the first time.
+// If you skip `fields`, search still works, but it scans the full dataset.
 const engine = new TextSearchEngine<User>({
   data: users,
   fields: ["name", "city"],
   minQueryLength: 2, // begins searching when query length >= 2
 });
 
-// If the query is shorter than `minQueryLength`, the engine returns the
-// original dataset. Empty or blank queries also return the original dataset.
+// If the query is shorter than `minQueryLength`, the engine returns
+// the original dataset. Empty or blank queries do the same.
 
 engine.search("john"); // searches all indexed fields, deduplicated
 engine.search("name", "john"); // searches a specific field
@@ -232,16 +235,16 @@ nestedSearch.search("orders.status", "delivered"); // search a specific nested f
 ### Filter only
 
 Use `FilterEngine` when you only need filtering.
-The examples below show the difference between simple fields and nested fields.
+The examples below show filtering by simple fields and nested fields.
 
 #### Flat collections filter
 
 ```ts
 import { FilterEngine } from "@devisfuture/mega-collection/filter";
 
-// `fields` tells the engine which fields should use indexed filter lookups.
-// The index is built lazily on first use. Without `fields`, filtering still
-// works, but it will scan the data.
+// `fields` tells the engine which fields should use indexes for filtering.
+// The index is built only when it is needed for the first time.
+// Without `fields`, filtering still works, but it scans the data.
 const engine = new FilterEngine<User>({
   data: users,
   fields: ["city", "age"],
@@ -253,48 +256,48 @@ engine.filter([
   { field: "age", values: [25, 30, 35] },
 ]);
 
-// replace dataset without re-initializing
+// Replace dataset without creating a new engine.
 engine.data(users);
 
-// access original dataset stored in the engine
+// Get original stored dataset.
 engine.getOriginData();
 
-engine
-  .filter([{ field: "city", values: ["Miami", "New York"] }])
-  .filter([{ field: "age", values: [25, 30, 35] }])
-  .clearIndexes()
-  .resetFilterState()
-  .clearData();
-
 // Sequential mode example:
-// 1) First call filters by city
+// 1) First call filters by city.
 const byCity = engine.filter([{ field: "city", values: ["Miami"] }]);
-// 2) Second call filters only inside the previous result
+// 2) Second call works only on the previous result.
 const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
 ```
 
 #### Exclude items with `exclude`
 
-Use `exclude` when you need to remove items from the result by exact field values.
-This is useful for large collections when you already know which ids or field values
-must be omitted from the final array.
+Use `exclude` when you want to remove items from the result by exact field values.
+This is useful when you already know which `id` values or other field values should not be in the result.
 
-`exclude` filters the returned result and does not mutate the stored dataset inside the engine.
+`exclude` changes only the returned result. It does not change the stored dataset inside the engine.
+
+There are two ways to work with `exclude`:
+
+- Result-only exclude: returns a filtered array and leaves the stored dataset unchanged.
+- Mutable exclude with `mutableExcludeField`: removes items from the stored dataset with swap-pop.
+
+#### Result-only exclude
 
 If the engine already stores the full dataset, `exclude` alone is enough. For example,
-`engine.filter([{ field: "id", exclude: [1, 4] }])` returns all stored users except ids `1` and `4`.
+`engine.filter([{ field: "id", exclude: [1, 4] }])` returns all stored users except users with `id` `1` and `4`.
 
-This path does not use swap-pop on the stored dataset. `filter(...)` returns a new array,
-so the engine still needs one pass over the current source data to build the remaining result.
-With an indexed `id` field, the engine avoids repeated full scans per excluded id, but the final
-exclude-only operation is still proportional to the current result size.
+This mode does not use swap-pop on the stored dataset. `filter(...)` returns a new array,
+so the engine still needs one pass over the current data to build the result.
+If `id` is indexed, the engine does not scan the full dataset again for each excluded `id`,
+but it still has to build the final array.
 
-If you need repeated delete-like exclusions without O(n) per operation, enable mutable exclude mode.
-In that mode the engine treats `exclude` on one configured field as in-place removal from the stored
-dataset via swap-pop. Order is not preserved.
+If you need repeated removals from a large collection and do not want O(n) work for each removed item,
+use mutable exclude mode.
+In this mode the engine removes items from the stored dataset with swap-pop.
+Order is not preserved.
 
-If the field is listed in `fields`, the engine uses indexed lookups for the exclusion
-set instead of scanning the full dataset for every removed value.
+If the field is listed in `fields`, the engine uses indexes for exclude values
+instead of scanning the full dataset again for every removed value.
 
 ```ts
 import { FilterEngine } from "@devisfuture/mega-collection/filter";
@@ -304,14 +307,33 @@ const engine = new FilterEngine<User>({
   fields: ["id", "city"],
 });
 
-// Remove users with ids 1 and 3 from the result
-engine.filter([{ field: "id", exclude: [1, 3] }]);
+// Returns all users except users with ids 1 and 3.
+const visibleUsers = engine.filter([{ field: "id", exclude: [1, 3] }]);
 
-// Combine regular filtering with exclusion
+// You can combine normal filtering and exclude.
 engine.filter([
   { field: "city", values: ["Miami", "New York"] },
   { field: "id", exclude: [1, 3] },
 ]);
+```
+
+#### Mutable exclude with `mutableExcludeField`
+
+If you need repeated fast removals from a large stored dataset, use `mutableExcludeField`.
+In this mode the engine removes items from the stored dataset with swap-pop.
+
+Use this mode when all of these points are true:
+
+- the engine already stores the full dataset
+- the exclude field is unique, for example `id`
+- order does not need to be preserved
+- you want repeated removals without O(n) per removed id
+
+This mode changes the stored dataset.
+After exclusion, `getOriginData()` returns the reduced collection.
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
 
 const mutableEngine = new FilterEngine<User>({
   data: users,
@@ -319,8 +341,29 @@ const mutableEngine = new FilterEngine<User>({
   mutableExcludeField: "id",
 });
 
-// Fast delete-like exclusion via swap-pop on the stored dataset.
+// Removes items from the stored dataset with swap-pop.
 mutableEngine.filter([{ field: "id", exclude: [1, 4] }]);
+
+// The stored dataset is now smaller.
+mutableEngine.getOriginData();
+```
+
+The same mode also works through `MergeEngines`:
+
+```ts
+import { MergeEngines } from "@devisfuture/mega-collection";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const mutableMerge = new MergeEngines<User>({
+  imports: [FilterEngine],
+  data: users,
+  filter: {
+    fields: ["id", "city"],
+    mutableExcludeField: "id",
+  },
+});
+
+mutableMerge.filter([{ field: "id", exclude: [1, 4] }]);
 ```
 
 #### Nested collections filter
@@ -384,13 +427,13 @@ engine.sort([
 
 ### `MergeEngines<T>` (root module)
 
-One engine that brings search, filter, and sort together on the same dataset.
+One class that combines search, filter, and sort for the same dataset.
 
 **Constructor options:**
 
 | Option    | Type                                                                       | Description                                  |
 | --------- | -------------------------------------------------------------------------- | -------------------------------------------- |
-| `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]`                | Engine classes to activate                   |
+| `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]`                | Engine classes to create                     |
 | `data`    | `T[]`                                                                      | Shared dataset — passed once at construction |
 | `search`  | `{ fields, nestedFields?, minQueryLength? }`                               | Config for TextSearchEngine                  |
 | `filter`  | `{ fields, nestedFields?, filterByPreviousResult?, mutableExcludeField? }` | Config for FilterEngine                      |
@@ -411,15 +454,16 @@ One engine that brings search, filter, and sort together on the same dataset.
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
 | `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`)                                                        |
 
-If `filter.mutableExcludeField` is configured, `filter([{ field, exclude }])` on that field performs fast delete-like exclusion on the stored filter dataset via swap-pop. This mutates the stored filter dataset and does not preserve order.
+If `filter.mutableExcludeField` is configured, `filter([{ field, exclude }])` on that field removes items from the stored filter dataset with swap-pop.
+This changes the stored filter dataset and does not preserve order.
 
 ---
 
 ### `TextSearchEngine<T>` (search module)
 
-Text search engine. It supports `nestedFields` if you need to search inside
-nested collections such as `["orders.status"]`. Search methods return plain
-arrays.
+Text search engine.
+It supports `nestedFields` if you need to search inside nested collections such as `["orders.status"]`.
+Search methods return plain arrays.
 
 | Method                 | Description                                                |
 | ---------------------- | ---------------------------------------------------------- |
@@ -432,17 +476,17 @@ arrays.
 
 ### `FilterEngine<T>` (filter module)
 
-Filter engine for one or more rules. It supports `nestedFields` if you need to
-filter by values inside nested collections such as `["orders.status"]`.
+Filter engine for one or more rules.
+It supports `nestedFields` if you need to filter by values inside nested collections such as `["orders.status"]`.
 Each criterion can use `values`, `exclude`, or both in the same rule.
 
-Constructor option highlights:
+Main constructor options:
 
-| Option                   | Type       | Description                                                                                                                             |
-| ------------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `filterByPreviousResult` | `boolean`  | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset.      |
-| `mutableExcludeField`    | `string`   | Optional field for fast delete-like `exclude` on stored data via swap-pop. This mutates the stored dataset and does not preserve order. |
-| `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                                    |
+| Option                   | Type       | Description                                                                                                                        |
+| ------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `filterByPreviousResult` | `boolean`  | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset. |
+| `mutableExcludeField`    | `string`   | Optional field for removing items from stored data with swap-pop. This changes the stored dataset and does not preserve order.     |
+| `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                               |
 
 | Method                   | Description                                                                |
 | ------------------------ | -------------------------------------------------------------------------- |
@@ -456,8 +500,8 @@ Constructor option highlights:
 
 ### `SortEngine<T>` (sort module)
 
-Sort engine with prepared indexes for faster sorting in common cases. Sort
-methods return plain arrays.
+Sort engine with prepared indexes for faster sorting in common cases.
+Sort methods return plain arrays.
 
 | Method                              | Description                                           |
 | ----------------------------------- | ----------------------------------------------------- |
@@ -470,7 +514,7 @@ methods return plain arrays.
 
 ---
 
-**Note on `data` method:** Calling `data` updates the stored dataset. It also rebuilds configured indexes and resets internal state when needed, so you usually do not need to call `clearIndexes` before it.
+**Note on `data` method:** Calling `data` updates the stored dataset. It also rebuilds configured indexes and resets internal state when needed, so usually you do not need to call `clearIndexes` before it.
 
 ## Types
 
@@ -487,7 +531,7 @@ import type {
 } from "@devisfuture/mega-collection";
 ```
 
-Or from individual sub-modules:
+You can also import them from individual sub-modules:
 
 ```ts
 import type {
