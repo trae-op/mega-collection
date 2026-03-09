@@ -25,15 +25,17 @@ export class SortEngine<T extends CollectionItem> {
       for (const field of options.fields) {
         this.indexedFields.add(field);
       }
+
+      this.rebuildConfiguredIndexes();
     }
   }
 
-  private ensureConfiguredIndex(field: keyof T & string): void {
-    if (!this.indexedFields.has(field)) return;
-    if (this.cache.has(field)) return;
-    if (this.dataset.length === 0) return;
+  private rebuildConfiguredIndexes(): void {
+    this.cache.clear();
 
-    this.buildIndex(this.dataset, field);
+    for (const field of this.indexedFields) {
+      this.buildIndex(this.dataset, field);
+    }
   }
 
   /**
@@ -109,7 +111,7 @@ export class SortEngine<T extends CollectionItem> {
 
   data(data: T[]): this {
     this.dataset = data;
-    this.clearIndexes();
+    this.rebuildConfiguredIndexes();
     return this;
   }
 
@@ -129,6 +131,7 @@ export class SortEngine<T extends CollectionItem> {
   ): T[] {
     let data: T[];
     let resolvedDescriptors: SortDescriptor<T>[];
+    const usesStoredDataset = descriptors === undefined;
 
     if (descriptors === undefined) {
       if (!this.dataset.length) {
@@ -148,13 +151,13 @@ export class SortEngine<T extends CollectionItem> {
 
     if (resolvedDescriptors.length === 1) {
       const { field, direction } = resolvedDescriptors[0];
-      if (data === this.dataset) {
-        this.ensureConfiguredIndex(field);
-      }
-
       const cached = this.cache.get(field as string);
 
-      if (cached?.dataRef === data && cached.itemCount === data.length) {
+      if (
+        usesStoredDataset &&
+        cached?.dataRef === data &&
+        cached.itemCount === data.length
+      ) {
         return this.reconstructFromIndex(data, cached.indexes, direction);
       }
     }

@@ -27,10 +27,6 @@ export class SearchNestedCollection<T extends CollectionItem> {
     return this.registeredFields.has(fieldPath);
   }
 
-  hasIndex(fieldPath: string): boolean {
-    return this.ngramIndexes.has(fieldPath);
-  }
-
   hasIndexes(): boolean {
     return this.ngramIndexes.size > 0;
   }
@@ -45,19 +41,6 @@ export class SearchNestedCollection<T extends CollectionItem> {
 
     for (const fieldPath of this.registeredFields) {
       this.buildIndex(data, fieldPath);
-    }
-  }
-
-  ensureIndex(data: T[], fieldPath: string): void {
-    if (!this.registeredFields.has(fieldPath)) return;
-    if (this.ngramIndexes.has(fieldPath)) return;
-
-    this.buildIndex(data, fieldPath);
-  }
-
-  ensureAllIndexes(data: T[]): void {
-    for (const fieldPath of this.registeredFields) {
-      this.ensureIndex(data, fieldPath);
     }
   }
 

@@ -179,15 +179,5 @@ describe("SortEngine", () => {
           .map((u) => u.id),
       ).toEqual([4, 1, 3, 2]);
     });
-
-    it("builds configured sort cache lazily on first matching sort", () => {
-      const engine = new SortEngine<User>({ data: users, fields: ["age"] });
-
-      expect((engine as any).cache.size).toBe(0);
-
-      engine.sort([{ field: "age", direction: "asc" }]);
-
-      expect((engine as any).cache.has("age")).toBe(true);
-    });
   });
 });

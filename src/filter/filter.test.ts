@@ -86,16 +86,6 @@ describe("FilterEngine", () => {
     ).toEqual([2, 5]);
   });
 
-  it("builds configured flat indexes lazily on first indexed filter", () => {
-    const engine = new FilterEngine<User>({ data: users, fields: ["city"] });
-
-    expect((engine as any).indexer.hasIndex("city")).toBe(false);
-
-    engine.filter([{ field: "city", values: ["Kyiv"] }]);
-
-    expect((engine as any).indexer.hasIndex("city")).toBe(true);
-  });
-
   it("data() replaces stored dataset without re-initializing engine", () => {
     const engine = new FilterEngine<User>({
       data: users,
@@ -286,23 +276,6 @@ describe("FilterEngine — nestedFields", () => {
       { field: "orders.status", values: ["pending"] },
     ]);
     expect(result.map((u) => u.id)).toEqual(["1", "2"]);
-  });
-
-  it("builds configured nested indexes lazily on first nested filter", () => {
-    const engine = new FilterEngine<UserWithOrders>({
-      data: usersWithOrders,
-      nestedFields: ["orders.status"],
-    });
-
-    expect((engine as any).nestedCollection.hasIndex("orders.status")).toBe(
-      false,
-    );
-
-    engine.filter([{ field: "orders.status", values: ["pending"] }]);
-
-    expect((engine as any).nestedCollection.hasIndex("orders.status")).toBe(
-      true,
-    );
   });
 
   it("filters by nested field with multiple values", () => {
