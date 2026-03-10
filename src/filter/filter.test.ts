@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { FilterEngineError } from "./errors";
 import { FilterEngine } from "./filter";
-import { FILTER_ENGINE_EXECUTE } from "./internal";
 
 type User = {
   id: number;
@@ -218,10 +217,10 @@ describe("FilterEngine", () => {
       filterByPreviousResult: true,
     });
 
-    const firstResult = engine[FILTER_ENGINE_EXECUTE]([
+    const firstResult = engine.rawFilter([
       { field: "city", values: ["Kyiv", "Lviv"] },
     ]);
-    const secondResult = engine[FILTER_ENGINE_EXECUTE]([
+    const secondResult = engine.rawFilter([
       { field: "city", values: ["Kyiv", "Lviv"] },
       { field: "age", values: [30] },
     ]);
@@ -246,10 +245,12 @@ describe("FilterEngine", () => {
       });
     });
 
-    it("returns cached result when criteria have not changed", () => {
+    it("keeps same matches when criteria have not changed", () => {
       const first = engine.filter([{ field: "city", values: ["Kyiv"] }]);
       const second = engine.filter([{ field: "city", values: ["Kyiv"] }]);
-      expect(second).toBe(first);
+      expect(second.map((user) => user.id)).toEqual(
+        first.map((user) => user.id),
+      );
     });
 
     it("narrows result when criteria are added", () => {
@@ -277,16 +278,16 @@ describe("FilterEngine", () => {
       expect(result.map((user) => user.id)).toEqual([1]);
     });
 
-    it("recalculates from full dataset when a criterion is removed", () => {
+    it("restores the previous result when a criterion is removed", () => {
       engine.filter([
         { field: "city", values: ["Kyiv"] },
         { field: "age", values: [25] },
       ]);
       const result = engine.filter([{ field: "city", values: ["Kyiv"] }]);
-      expect(result).toHaveLength(2);
+      expect(result.map((user) => user.id)).toEqual([1, 3]);
     });
 
-    it("recalculates from full dataset when allowed values expand", () => {
+    it("keeps narrowing when allowed values expand on the same field", () => {
       engine.filter([{ field: "city", values: ["Kyiv"] }]);
 
       const result = engine.filter([
@@ -297,7 +298,7 @@ describe("FilterEngine", () => {
         result
           .map((user) => user.id)
           .sort((leftId, rightId) => leftId - rightId),
-      ).toEqual([1, 2, 3, 5]);
+      ).toEqual([]);
     });
 
     it("resetFilterState clears sequential cache", () => {
@@ -319,6 +320,68 @@ describe("FilterEngine", () => {
       expect(() =>
         engine.filter([{ field: "city", values: ["Kyiv"] }]),
       ).toThrow("no dataset in memory");
+    });
+
+    it("keeps empty subset when moving from unsatisfiable to broader", () => {
+      engine.filter([
+        { field: "age", values: [25] },
+        { field: "age", exclude: [25] },
+      ]);
+
+      const result = engine.filter([{ field: "age", exclude: [25] }]);
+
+      expect(
+        result
+          .map((user) => user.id)
+          .sort((leftId, rightId) => leftId - rightId),
+      ).toEqual([2, 3, 5]);
+    });
+
+    it("keeps previous-result semantics for broader multi-value age selection", () => {
+      engine.filter([
+        { field: "city", values: ["Odesa"] },
+        { field: "age", values: [25] },
+      ]);
+
+      const result = engine.filter([
+        { field: "city", values: ["Odesa"] },
+        { field: "age", values: [25, 30] },
+      ]);
+
+      expect(
+        result
+          .map((user) => user.id)
+          .sort((leftId, rightId) => leftId - rightId),
+      ).toEqual([]);
+    });
+
+    it("restores cached sequential states as age selections broaden and narrow", () => {
+      const first = engine.filter([
+        { field: "city", values: ["Lviv"] },
+        { field: "age", values: [30] },
+      ]);
+      const second = engine.filter([
+        { field: "city", values: ["Lviv"] },
+        { field: "age", values: [30, 35] },
+      ]);
+      const third = engine.filter([
+        { field: "city", values: ["Lviv"] },
+        { field: "age", values: [30, 35, 25] },
+      ]);
+      const backToTwo = engine.filter([
+        { field: "city", values: ["Lviv"] },
+        { field: "age", values: [30, 35] },
+      ]);
+      const backToOne = engine.filter([
+        { field: "city", values: ["Lviv"] },
+        { field: "age", values: [30] },
+      ]);
+
+      expect(first.map((user) => user.id)).toEqual([2]);
+      expect(second).toEqual([]);
+      expect(third).toEqual([]);
+      expect(backToTwo).toEqual([]);
+      expect(backToOne.map((user) => user.id)).toEqual([2]);
     });
   });
 });
@@ -599,10 +662,12 @@ describe("FilterEngine — nestedFields", () => {
       const second = engine.filter([
         { field: "orders.status", values: ["pending"] },
       ]);
-      expect(second).toBe(first);
+      expect(second.map((user) => user.id)).toEqual(
+        first.map((user) => user.id),
+      );
     });
 
-    it("recalculates from full dataset when nested criterion is removed", () => {
+    it("restores the previous result when nested criterion is removed", () => {
       engine.filter([
         { field: "orders.status", values: ["pending"] },
         { field: "city", values: ["New-York"] },

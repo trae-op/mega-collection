@@ -8,7 +8,6 @@ import { Indexer } from "../indexer";
 import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
 import type { FilterEngineOptions } from "./types";
 import { FilterEngineError } from "./errors";
-import { FILTER_ENGINE_EXECUTE } from "./internal";
 import {
   isCriterionUnsatisfiable,
   matchesCriterionValue,
@@ -38,6 +37,8 @@ export class FilterEngine<T extends CollectionItem> {
   private previousCriteria: ResolvedFilterCriterion<T>[] | null = null;
 
   private previousBaseData: T[] | null = null;
+
+  private readonly previousResultsByCriteria = new Map<string, T[]>();
 
   private readonly chainBuilder = new FilterEngineChainBuilder<T>({
     filter: (dataOrCriteria, criteria) => {
@@ -130,6 +131,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.previousResult = null;
     this.previousCriteria = null;
     this.previousBaseData = null;
+    this.previousResultsByCriteria.clear();
     return this;
   }
 
@@ -166,18 +168,16 @@ export class FilterEngine<T extends CollectionItem> {
   ): T[] & FilterEngineChain<T> {
     if (criteria === undefined) {
       return this.withChain(
-        this[FILTER_ENGINE_EXECUTE](dataOrCriteria as FilterCriterion<T>[]),
+        this.rawFilter(dataOrCriteria as FilterCriterion<T>[]),
       );
     }
 
-    return this.withChain(
-      this[FILTER_ENGINE_EXECUTE](dataOrCriteria as T[], criteria),
-    );
+    return this.withChain(this.rawFilter(dataOrCriteria as T[], criteria));
   }
 
-  [FILTER_ENGINE_EXECUTE](criteria: FilterCriterion<T>[]): T[];
-  [FILTER_ENGINE_EXECUTE](data: T[], criteria: FilterCriterion<T>[]): T[];
-  [FILTER_ENGINE_EXECUTE](
+  rawFilter(criteria: FilterCriterion<T>[]): T[];
+  rawFilter(data: T[], criteria: FilterCriterion<T>[]): T[];
+  rawFilter(
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] {
@@ -207,22 +207,44 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousCriteria !== null &&
         this.previousBaseData === this.dataset
       ) {
-        const transition = this.getCriteriaTransition(
+        const nextCriteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
+        const previousCriteriaKey = this.createCriteriaCacheKey(
           this.previousCriteria,
-          resolvedCriteria,
         );
+        const cachedResult =
+          this.previousResultsByCriteria.get(nextCriteriaKey);
 
-        if (transition === "unchanged") {
+        if (nextCriteriaKey === previousCriteriaKey) {
           return this.previousResult;
         }
 
-        if (transition === "narrowed") {
-          sourceData = this.previousResult;
-          executionCriteria = resolvedCriteria;
-        } else {
-          sourceData = this.dataset;
-          executionCriteria = resolvedCriteria;
+        if (cachedResult !== undefined) {
+          this.storePreviousResult(
+            cachedResult,
+            true,
+            this.dataset,
+            resolvedCriteria,
+          );
+          return cachedResult;
         }
+
+        const shouldRecalculateFromDataset =
+          this.hasCriteriaBacktrack(this.previousCriteria, resolvedCriteria) ||
+          (this.previousResult.length === 0 &&
+            !this.canApplySequentiallyToEmptyResult(
+              this.previousCriteria,
+              resolvedCriteria,
+            ));
+
+        sourceData = shouldRecalculateFromDataset
+          ? this.dataset
+          : this.previousResult;
+        executionCriteria = shouldRecalculateFromDataset
+          ? resolvedCriteria
+          : this.createSequentialExecutionCriteria(
+              this.previousCriteria,
+              resolvedCriteria,
+            );
       } else {
         sourceData = this.dataset;
         executionCriteria = resolvedCriteria;
@@ -237,21 +259,44 @@ export class FilterEngine<T extends CollectionItem> {
         this.previousCriteria !== null &&
         this.previousBaseData === sourceData
       ) {
-        const transition = this.getCriteriaTransition(
+        const nextCriteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
+        const previousCriteriaKey = this.createCriteriaCacheKey(
           this.previousCriteria,
-          resolvedCriteria,
         );
+        const cachedResult =
+          this.previousResultsByCriteria.get(nextCriteriaKey);
 
-        if (transition === "unchanged") {
+        if (nextCriteriaKey === previousCriteriaKey) {
           return this.previousResult;
         }
 
-        if (transition === "narrowed") {
-          sourceData = this.previousResult;
-          executionCriteria = resolvedCriteria;
-        } else {
-          executionCriteria = resolvedCriteria;
+        if (cachedResult !== undefined) {
+          this.storePreviousResult(
+            cachedResult,
+            false,
+            dataOrCriteria as T[],
+            resolvedCriteria,
+          );
+          return cachedResult;
         }
+
+        const shouldRecalculateFromDataset =
+          this.hasCriteriaBacktrack(this.previousCriteria, resolvedCriteria) ||
+          (this.previousResult.length === 0 &&
+            !this.canApplySequentiallyToEmptyResult(
+              this.previousCriteria,
+              resolvedCriteria,
+            ));
+
+        sourceData = shouldRecalculateFromDataset
+          ? (dataOrCriteria as T[])
+          : this.previousResult;
+        executionCriteria = shouldRecalculateFromDataset
+          ? resolvedCriteria
+          : this.createSequentialExecutionCriteria(
+              this.previousCriteria,
+              resolvedCriteria,
+            );
       } else {
         executionCriteria = resolvedCriteria;
       }
@@ -261,7 +306,7 @@ export class FilterEngine<T extends CollectionItem> {
       if (this.filterByPreviousResult) {
         this.resetFilterState();
       }
-      return usesStoredData ? this.dataset : sourceData;
+      return usesStoredData ? this.dataset : (dataOrCriteria as T[]);
     }
 
     for (
@@ -689,120 +734,278 @@ export class FilterEngine<T extends CollectionItem> {
     this.previousResult = result;
     this.previousCriteria = resolvedCriteria;
     this.previousBaseData = usesStoredData ? this.dataset : baseData;
+    this.previousResultsByCriteria.set(
+      this.createCriteriaCacheKey(resolvedCriteria),
+      result,
+    );
   }
 
-  private getCriteriaTransition(
+  private createCriteriaCacheKey(
+    criteria: ResolvedFilterCriterion<T>[],
+  ): string {
+    const criteriaByField = this.createCriteriaStateMap(criteria);
+
+    return JSON.stringify(
+      [...criteriaByField.entries()]
+        .sort(([leftField], [rightField]) =>
+          leftField.localeCompare(rightField),
+        )
+        .map(([field, criterion]) => ({
+          field,
+          hasValues: criterion.hasValues,
+          hasExclude: criterion.hasExclude,
+          values: criterion.values.map((value) => JSON.stringify(value)).sort(),
+          exclude: criterion.exclude
+            .map((value) => JSON.stringify(value))
+            .sort(),
+        })),
+    );
+  }
+
+  private createSequentialExecutionCriteria(
     previousCriteria: ResolvedFilterCriterion<T>[],
     nextCriteria: ResolvedFilterCriterion<T>[],
-  ): "unchanged" | "narrowed" | "expanded" {
+  ): ResolvedFilterCriterion<T>[] {
+    const previousByField = new Map<string, ResolvedFilterCriterion<T>>();
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < previousCriteria.length;
+      criterionIndex++
+    ) {
+      const criterion = previousCriteria[criterionIndex];
+      previousByField.set(criterion.field, criterion);
+    }
+
+    return nextCriteria.map((criterion) => {
+      const previousCriterion = previousByField.get(criterion.field);
+
+      if (
+        !previousCriterion ||
+        !previousCriterion.hasValues ||
+        !criterion.hasValues ||
+        previousCriterion.hasExclude ||
+        criterion.hasExclude
+      ) {
+        return criterion;
+      }
+
+      if (
+        criterion.includedValues!.size <= previousCriterion.includedValues!.size
+      ) {
+        return criterion;
+      }
+
+      for (const value of previousCriterion.includedValues!) {
+        if (!criterion.includedValues!.has(value)) {
+          return criterion;
+        }
+      }
+
+      const appendedValues: any[] = [];
+
+      for (const value of criterion.includedValues!) {
+        if (!previousCriterion.includedValues!.has(value)) {
+          appendedValues.push(value);
+        }
+      }
+
+      if (appendedValues.length === 0) {
+        return criterion;
+      }
+
+      return {
+        ...criterion,
+        values: appendedValues,
+        includedValues: new Set(appendedValues),
+      };
+    });
+  }
+
+  private hasCriteriaBacktrack(
+    previousCriteria: ResolvedFilterCriterion<T>[],
+    nextCriteria: ResolvedFilterCriterion<T>[],
+  ): boolean {
     const previousByField = this.createCriteriaStateMap(previousCriteria);
     const nextByField = this.createCriteriaStateMap(nextCriteria);
-    let hasNarrowing = false;
 
     for (const [field, previousCriterion] of previousByField) {
       const nextCriterion = nextByField.get(field);
+
       if (!nextCriterion) {
-        return "expanded";
+        return true;
       }
 
-      const comparison = this.compareCriteria(previousCriterion, nextCriterion);
-      if (comparison === "expanded") {
-        return "expanded";
-      }
-
-      if (comparison === "narrowed") {
-        hasNarrowing = true;
+      if (this.isCriterionBacktracked(previousCriterion, nextCriterion)) {
+        return true;
       }
     }
 
-    for (const field of nextByField.keys()) {
-      if (!previousByField.has(field)) {
-        hasNarrowing = true;
+    return false;
+  }
+
+  private canApplySequentiallyToEmptyResult(
+    previousCriteria: ResolvedFilterCriterion<T>[],
+    nextCriteria: ResolvedFilterCriterion<T>[],
+  ): boolean {
+    const previousByField = this.createCriteriaStateMap(previousCriteria);
+    const nextByField = this.createCriteriaStateMap(nextCriteria);
+
+    for (const [field, nextCriterion] of nextByField) {
+      const previousCriterion = previousByField.get(field);
+
+      if (!previousCriterion) {
+        continue;
+      }
+
+      if (previousCriterion.hasValues !== nextCriterion.hasValues) {
+        if (previousCriterion.hasValues || !nextCriterion.hasValues) {
+          return false;
+        }
+      }
+
+      if (previousCriterion.hasValues && nextCriterion.hasValues) {
+        const previousValues = previousCriterion.includedValues!;
+        const nextValues = nextCriterion.includedValues!;
+
+        if (
+          !this.areSetsEqual(previousValues, nextValues) &&
+          !this.isSubset(previousValues, nextValues)
+        ) {
+          return false;
+        }
+      }
+
+      if (previousCriterion.hasExclude !== nextCriterion.hasExclude) {
+        if (previousCriterion.hasExclude || !nextCriterion.hasExclude) {
+          return false;
+        }
+      }
+
+      if (previousCriterion.hasExclude && nextCriterion.hasExclude) {
+        const previousExcluded = previousCriterion.excludedValues!;
+        const nextExcluded = nextCriterion.excludedValues!;
+
+        if (
+          !this.areSetsEqual(previousExcluded, nextExcluded) &&
+          !this.isSubset(previousExcluded, nextExcluded)
+        ) {
+          return false;
+        }
       }
     }
 
-    return hasNarrowing ? "narrowed" : "unchanged";
+    return true;
   }
 
   private createCriteriaStateMap(
     criteria: ResolvedFilterCriterion<T>[],
   ): Map<string, ResolvedFilterCriterion<T>> {
-    return new Map(criteria.map((criterion) => [criterion.field, criterion]));
+    const criteriaByField = new Map<string, ResolvedFilterCriterion<T>>();
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < criteria.length;
+      criterionIndex++
+    ) {
+      const criterion = criteria[criterionIndex];
+      const existingCriterion = criteriaByField.get(criterion.field);
+
+      if (!existingCriterion) {
+        criteriaByField.set(criterion.field, {
+          ...criterion,
+          values: criterion.values.slice(),
+          exclude: criterion.exclude.slice(),
+          includedValues: criterion.includedValues
+            ? new Set(criterion.includedValues)
+            : null,
+          excludedValues: criterion.excludedValues
+            ? new Set(criterion.excludedValues)
+            : null,
+        });
+        continue;
+      }
+
+      if (criterion.hasValues) {
+        if (!existingCriterion.hasValues) {
+          existingCriterion.hasValues = true;
+          existingCriterion.includedValues = new Set(criterion.includedValues!);
+        } else {
+          for (const value of existingCriterion.includedValues!) {
+            if (!criterion.includedValues!.has(value)) {
+              existingCriterion.includedValues!.delete(value);
+            }
+          }
+        }
+      }
+
+      if (criterion.hasExclude) {
+        if (!existingCriterion.hasExclude) {
+          existingCriterion.hasExclude = true;
+          existingCriterion.excludedValues = new Set(criterion.excludedValues!);
+        } else {
+          for (const value of criterion.excludedValues!) {
+            existingCriterion.excludedValues!.add(value);
+          }
+        }
+      }
+
+      if (existingCriterion.hasValues && existingCriterion.hasExclude) {
+        for (const value of existingCriterion.excludedValues!) {
+          existingCriterion.includedValues!.delete(value);
+        }
+      }
+
+      existingCriterion.values = existingCriterion.includedValues
+        ? [...existingCriterion.includedValues]
+        : [];
+      existingCriterion.exclude = existingCriterion.excludedValues
+        ? [...existingCriterion.excludedValues]
+        : [];
+    }
+
+    return criteriaByField;
   }
 
-  private compareCriteria(
+  private isCriterionBacktracked(
     previousCriterion: ResolvedFilterCriterion<T>,
     nextCriterion: ResolvedFilterCriterion<T>,
-  ): "unchanged" | "narrowed" | "expanded" {
-    let hasNarrowing = false;
+  ): boolean {
+    if (previousCriterion.hasValues && !nextCriterion.hasValues) {
+      return true;
+    }
 
-    if (previousCriterion.hasValues || nextCriterion.hasValues) {
-      if (previousCriterion.hasValues && !nextCriterion.hasValues) {
-        return "expanded";
-      }
+    if (previousCriterion.hasValues && nextCriterion.hasValues) {
+      const previousValues = previousCriterion.includedValues!;
+      const nextValues = nextCriterion.includedValues!;
 
-      if (!previousCriterion.hasValues && nextCriterion.hasValues) {
-        if (
-          previousCriterion.hasExclude &&
-          this.hasIntersection(
-            nextCriterion.includedValues!,
-            previousCriterion.excludedValues!,
-          )
-        ) {
-          return "expanded";
-        }
-
-        hasNarrowing = true;
-      } else if (
-        previousCriterion.hasValues &&
-        nextCriterion.hasValues &&
-        !this.isSubset(
-          nextCriterion.includedValues!,
-          previousCriterion.includedValues!,
-        )
-      ) {
-        return "expanded";
-      } else if (
-        previousCriterion.hasValues &&
-        nextCriterion.hasValues &&
-        !this.areSetsEqual(
-          nextCriterion.includedValues!,
-          previousCriterion.includedValues!,
-        )
-      ) {
-        hasNarrowing = true;
+      if (!this.areSetsEqual(previousValues, nextValues)) {
+        return this.isSubset(nextValues, previousValues);
       }
     }
 
-    if (!previousCriterion.hasValues && !nextCriterion.hasValues) {
-      if (previousCriterion.hasExclude && !nextCriterion.hasExclude) {
-        return "expanded";
-      }
+    if (!previousCriterion.hasValues && nextCriterion.hasValues) {
+      return false;
+    }
 
-      if (!previousCriterion.hasExclude && nextCriterion.hasExclude) {
-        hasNarrowing = true;
-      } else if (
-        previousCriterion.hasExclude &&
-        nextCriterion.hasExclude &&
-        !this.isSubset(
-          previousCriterion.excludedValues!,
-          nextCriterion.excludedValues!,
-        )
-      ) {
-        return "expanded";
-      } else if (
-        previousCriterion.hasExclude &&
-        nextCriterion.hasExclude &&
-        !this.areSetsEqual(
-          previousCriterion.excludedValues!,
-          nextCriterion.excludedValues!,
-        )
-      ) {
-        hasNarrowing = true;
+    if (previousCriterion.hasExclude && !nextCriterion.hasExclude) {
+      return true;
+    }
+
+    if (!previousCriterion.hasExclude && nextCriterion.hasExclude) {
+      return false;
+    }
+
+    if (previousCriterion.hasExclude && nextCriterion.hasExclude) {
+      const previousExcluded = previousCriterion.excludedValues!;
+      const nextExcluded = nextCriterion.excludedValues!;
+
+      if (!this.areSetsEqual(previousExcluded, nextExcluded)) {
+        return this.isSubset(nextExcluded, previousExcluded);
       }
     }
 
-    return hasNarrowing ? "narrowed" : "unchanged";
+    return false;
   }
 
   private isSubset(values: Set<any>, allowedValues: Set<any>): boolean {
@@ -815,23 +1018,24 @@ export class FilterEngine<T extends CollectionItem> {
     return true;
   }
 
-  private areSetsEqual(leftValues: Set<any>, rightValues: Set<any>): boolean {
-    return (
-      leftValues.size === rightValues.size &&
-      this.isSubset(leftValues, rightValues)
-    );
-  }
-
-  private hasIntersection(
-    leftValues: Set<any>,
-    rightValues: Set<any>,
+  private areSetsEqual(
+    leftValues: Set<any> | null,
+    rightValues: Set<any> | null,
   ): boolean {
+    if (leftValues === rightValues) {
+      return true;
+    }
+
+    if (!leftValues || !rightValues || leftValues.size !== rightValues.size) {
+      return false;
+    }
+
     for (const value of leftValues) {
-      if (rightValues.has(value)) {
-        return true;
+      if (!rightValues.has(value)) {
+        return false;
       }
     }
 
-    return false;
+    return true;
   }
 }

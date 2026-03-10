@@ -5,16 +5,10 @@ export class SortEngineError extends Error {
   }
 
   static missingDatasetForBuildIndex(): SortEngineError {
-    return new SortEngineError(
-      "SortEngine: no dataset in memory. " +
-        "Either pass `data` in the constructor options, or call buildIndex(data, field).",
-    );
+    return new SortEngineError("SortEngine: no dataset in memory.");
   }
 
   static missingDatasetForSort(): SortEngineError {
-    return new SortEngineError(
-      "SortEngine: no dataset in memory. " +
-        "Either pass `data` in the constructor options, or call sort(data, descriptors).",
-    );
+    return new SortEngineError("SortEngine: no dataset in memory.");
   }
 }

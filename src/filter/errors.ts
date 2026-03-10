@@ -5,17 +5,11 @@ export class FilterEngineError extends Error {
   }
 
   static missingDatasetForBuildIndex(): FilterEngineError {
-    return new FilterEngineError(
-      "FilterEngine: no dataset in memory. " +
-        "Either pass `data` in the constructor options, or call buildIndex(data, field).",
-    );
+    return new FilterEngineError("FilterEngine: no dataset in memory.");
   }
 
   static missingDatasetForFilter(): FilterEngineError {
-    return new FilterEngineError(
-      "FilterEngine: no dataset in memory. " +
-        "Either pass `data` in the constructor options, or call filter(data, criteria).",
-    );
+    return new FilterEngineError("FilterEngine: no dataset in memory.");
   }
 
   static duplicateMutableExcludeField(field: string): FilterEngineError {

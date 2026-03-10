@@ -1,5 +1,4 @@
 import { FilterEngine } from "../filter/filter";
-import { FILTER_ENGINE_EXECUTE } from "../filter/internal";
 import { TextSearchEngine } from "../search/text-search";
 import { SortEngine } from "../sort/sorter";
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
@@ -110,10 +109,8 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
       moduleName: "filter",
       executeFilter: (dataOrCriteria, criteria) =>
         criteria === undefined
-          ? engine[FILTER_ENGINE_EXECUTE](
-              dataOrCriteria as FilterCriterion<T>[],
-            )
-          : engine[FILTER_ENGINE_EXECUTE](dataOrCriteria as T[], criteria),
+          ? engine.rawFilter(dataOrCriteria as FilterCriterion<T>[])
+          : engine.rawFilter(dataOrCriteria as T[], criteria),
       clearIndexes: () => engine.clearIndexes(),
       clearData: () => engine.clearData(),
       data: (nextData) => engine.data(nextData),

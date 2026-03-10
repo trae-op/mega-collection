@@ -5,9 +5,6 @@ export class TextSearchEngineError extends Error {
   }
 
   static missingDatasetForBuildIndex(): TextSearchEngineError {
-    return new TextSearchEngineError(
-      "TextSearchEngine: no dataset in memory. " +
-        "Either pass `data` in the constructor options, or call buildIndex(data, field).",
-    );
+    return new TextSearchEngineError("TextSearchEngine: no dataset in memory.");
   }
 }

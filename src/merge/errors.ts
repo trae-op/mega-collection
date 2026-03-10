@@ -14,8 +14,7 @@ export class MergeEnginesError extends Error {
 
   static unavailableMethod(methodName: string): MergeEnginesError {
     return new MergeEnginesError(
-      `MergeEngines: Method "${methodName}" is not available. ` +
-        `Add module with method "${methodName}" to the \`imports\` array.`,
+      `MergeEngines: Method "${methodName}" is not available.`,
     );
   }
 
@@ -23,15 +22,13 @@ export class MergeEnginesError extends Error {
     const engineName = MODULE_TO_ENGINE[module];
 
     return new MergeEnginesError(
-      `MergeEngines: ${engineName} is not available. ` +
-        `Add ${engineName} to the \`imports\` array.`,
+      `MergeEngines: ${engineName} is not available.`,
     );
   }
 
   static unavailableGetOriginData(): MergeEnginesError {
     return new MergeEnginesError(
-      "MergeEngines: getOriginData is not available. " +
-        "Add TextSearchEngine, SortEngine, or FilterEngine to the `imports` array.",
+      "MergeEngines: getOriginData is not available.",
     );
   }
 }

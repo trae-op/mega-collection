@@ -267,6 +267,8 @@ engine.getOriginData();
 const byCity = engine.filter([{ field: "city", values: ["Miami"] }]);
 // 2) Second call works only on the previous result.
 const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
+// 3) Returning to an earlier criteria state restores its previous result.
+const byCityAgain = engine.filter([{ field: "city", values: ["Miami"] }]);
 ```
 
 #### Exclude items with `exclude`
