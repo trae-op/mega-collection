@@ -279,7 +279,9 @@ This is useful when you already know which `id` values or other field values sho
 There are two ways to work with `exclude`:
 
 - Result-only exclude: returns a filtered array and leaves the stored dataset unchanged.
-- Mutable exclude with `mutableExcludeField`: removes items from the stored dataset with swap-pop.
+- Mutable exclude with `mutableExcludeField`: removes items from the stored dataset with **swap-pop**.
+
+**Swap-pop** is an efficient array removal technique where the element to be removed is swapped with the last element in the array, and then the array length is decreased by one. This provides O(1) time complexity for removal but does not preserve the original order of elements.
 
 #### Result-only exclude
 
