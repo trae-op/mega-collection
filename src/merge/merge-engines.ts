@@ -42,6 +42,18 @@ export class MergeEngines<T extends CollectionItem> {
 
   private readonly getOriginDataMethod: (() => T[]) | null;
 
+  private previousSearchState: {
+    key: string;
+    originData: T[];
+    result: T[];
+  } | null = null;
+
+  private previousSortState: {
+    key: string;
+    sourceData: T[];
+    result: T[];
+  } | null = null;
+
   private readonly chainBuilder = new MergeEnginesChainBuilder<T>({
     search: (fieldOrQuery, maybeQuery) => {
       if (maybeQuery === undefined) {
@@ -172,6 +184,30 @@ export class MergeEngines<T extends CollectionItem> {
     return typeof value === "object" && value !== null;
   }
 
+  private clearOperationState(module?: MergeModuleName): void {
+    if (!module || module === "search") {
+      this.previousSearchState = null;
+    }
+
+    if (!module || module === "sort") {
+      this.previousSortState = null;
+    }
+  }
+
+  private createSearchCacheKey(
+    fieldOrQuery: string,
+    maybeQuery?: string,
+  ): string {
+    return JSON.stringify([fieldOrQuery, maybeQuery ?? null]);
+  }
+
+  private createSortCacheKey(
+    descriptors: SortDescriptor<T>[],
+    inPlace?: boolean,
+  ): string {
+    return JSON.stringify({ descriptors, inPlace: inPlace ?? false });
+  }
+
   search(query: string): T[] & MergeEnginesChain<T>;
   search(
     field: (keyof T & string) | (string & {}),
@@ -185,16 +221,34 @@ export class MergeEngines<T extends CollectionItem> {
       throw MergeEnginesError.unavailableEngine("search");
     }
 
-    if (maybeQuery === undefined) {
-      return this.withChain(this.searchModule.executeSearch(fieldOrQuery));
+    const originData = this.searchModule.getOriginData();
+    const cacheKey = this.createSearchCacheKey(fieldOrQuery, maybeQuery);
+
+    if (
+      this.previousSearchState?.originData === originData &&
+      this.previousSearchState.key === cacheKey
+    ) {
+      return this.withChain(this.previousSearchState.result);
     }
 
-    return this.withChain(
-      this.searchModule.executeSearch(
+    let result: T[];
+
+    if (maybeQuery === undefined) {
+      result = this.searchModule.executeSearch(fieldOrQuery);
+    } else {
+      result = this.searchModule.executeSearch(
         fieldOrQuery as (keyof T & string) | (string & {}),
         maybeQuery,
-      ),
-    );
+      );
+    }
+
+    this.previousSearchState = {
+      key: cacheKey,
+      originData,
+      result,
+    };
+
+    return this.withChain(result);
   }
 
   sort(descriptors: SortDescriptor<T>[]): T[] & MergeEnginesChain<T>;
@@ -218,12 +272,35 @@ export class MergeEngines<T extends CollectionItem> {
       );
     }
 
-    return this.withChain(
-      this.sortModule.executeSort(
-        dataOrDescriptors as T[],
+    const sourceData = dataOrDescriptors as T[];
+
+    if (!inPlace) {
+      const cacheKey = this.createSortCacheKey(descriptors, inPlace);
+
+      if (
+        this.previousSortState?.sourceData === sourceData &&
+        this.previousSortState.key === cacheKey
+      ) {
+        return this.withChain(this.previousSortState.result);
+      }
+
+      const result = this.sortModule.executeSort(
+        sourceData,
         descriptors,
         inPlace,
-      ),
+      );
+
+      this.previousSortState = {
+        key: cacheKey,
+        sourceData,
+        result,
+      };
+
+      return this.withChain(result);
+    }
+
+    return this.withChain(
+      this.sortModule.executeSort(sourceData, descriptors, inPlace),
     );
   }
 
@@ -265,6 +342,7 @@ export class MergeEngines<T extends CollectionItem> {
 
     if (clearMethod) {
       clearMethod();
+      this.clearOperationState(module);
       return this;
     }
 
@@ -273,6 +351,8 @@ export class MergeEngines<T extends CollectionItem> {
 
   data(data: T[]): this {
     const moduleNames: MergeModuleName[] = ["search", "sort", "filter"];
+
+    this.clearOperationState();
 
     for (const moduleName of moduleNames) {
       const setDataMethod = this.setDataMethods[moduleName];
@@ -288,6 +368,7 @@ export class MergeEngines<T extends CollectionItem> {
 
     if (clearMethod) {
       clearMethod();
+      this.clearOperationState(module);
       return this;
     }
 

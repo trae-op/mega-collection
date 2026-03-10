@@ -184,6 +184,44 @@ describe("MergeEngines", () => {
     ).not.toThrow();
   });
 
+  it("keeps filterByPreviousResult semantics across repeated merge pipeline runs", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: [
+        { id: 10, name: "Lucas 33229", city: "Miami", age: 22 },
+        { id: 11, name: "Mia 33219", city: "Miami", age: 22 },
+        { id: 12, name: "Noah 33209", city: "Miami", age: 22 },
+        { id: 13, name: "Lina 33299", city: "Miami", age: 26 },
+        { id: 14, name: "Owen 33277", city: "Boston", age: 26 },
+      ],
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name", "city"] },
+      filter: {
+        fields: ["city", "age"],
+        filterByPreviousResult: true,
+      },
+    });
+
+    const first = merge
+      .search("332")
+      .filter([
+        { field: "city", values: ["Miami"] },
+        { field: "age", values: [22] },
+      ])
+      .sort([{ field: "age", direction: "asc" }]);
+
+    const second = merge
+      .search("332")
+      .filter([
+        { field: "city", values: ["Miami"] },
+        { field: "age", values: [22, 26] },
+      ])
+      .sort([{ field: "age", direction: "asc" }]);
+
+    expect(first.map((user) => user.id)).toEqual([10, 11, 12]);
+    expect(second).toEqual([]);
+  });
+
   it("clearData() clears data for selected module", () => {
     const merge = new MergeEngines<User>({
       imports: [TextSearchEngine, SortEngine, FilterEngine],
