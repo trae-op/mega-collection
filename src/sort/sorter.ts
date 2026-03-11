@@ -130,14 +130,31 @@ export class SortEngine<T extends CollectionItem> {
       return this;
     }
 
+    const startIndex = appendToDataset
+      ? this.dataset.length
+      : this.dataset.length - items.length;
+
     if (appendToDataset) {
       this.dataset.push(...items);
     }
 
     for (const field of this.indexedFields) {
-      if (this.cache.has(field as string)) {
-        this.dirtyIndexedFields.add(field);
+      const cachedIndex = this.cache.get(field as string);
+
+      if (!cachedIndex) {
+        continue;
       }
+
+      if (
+        this.dirtyIndexedFields.has(field) ||
+        cachedIndex.dataRef !== this.dataset ||
+        cachedIndex.itemCount !== startIndex
+      ) {
+        this.dirtyIndexedFields.add(field);
+        continue;
+      }
+
+      this.updateCachedIndexForAddedItems(field, startIndex, items.length);
     }
 
     return this;
@@ -236,6 +253,120 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     return result;
+  }
+
+  private updateCachedIndexForAddedItems(
+    field: keyof T & string,
+    startIndex: number,
+    addedItemCount: number,
+  ): void {
+    const cachedIndex = this.cache.get(field as string);
+    if (!cachedIndex) {
+      return;
+    }
+
+    const appendedIndexes = this.buildSortedIndexesForRange(
+      field,
+      startIndex,
+      addedItemCount,
+    );
+
+    this.cache.set(field as string, {
+      indexes: this.mergeSortedIndexes(
+        field,
+        cachedIndex.indexes,
+        appendedIndexes,
+      ),
+      dataRef: this.dataset,
+      itemCount: startIndex + addedItemCount,
+    });
+    this.dirtyIndexedFields.delete(field);
+  }
+
+  private buildSortedIndexesForRange(
+    field: keyof T & string,
+    startIndex: number,
+    itemCount: number,
+  ): Uint32Array {
+    const indexes = new Uint32Array(itemCount);
+
+    for (let index = 0; index < itemCount; index++) {
+      indexes[index] = startIndex + index;
+    }
+
+    indexes.sort((leftIndex, rightIndex) =>
+      this.compareIndexesByField(field, leftIndex, rightIndex),
+    );
+
+    return indexes;
+  }
+
+  private mergeSortedIndexes(
+    field: keyof T & string,
+    existingIndexes: Uint32Array,
+    appendedIndexes: Uint32Array,
+  ): Uint32Array {
+    const mergedIndexes = new Uint32Array(
+      existingIndexes.length + appendedIndexes.length,
+    );
+
+    let existingIndex = 0;
+    let appendedIndex = 0;
+    let writeIndex = 0;
+
+    while (
+      existingIndex < existingIndexes.length &&
+      appendedIndex < appendedIndexes.length
+    ) {
+      if (
+        this.compareIndexesByField(
+          field,
+          existingIndexes[existingIndex],
+          appendedIndexes[appendedIndex],
+        ) <= 0
+      ) {
+        mergedIndexes[writeIndex++] = existingIndexes[existingIndex++];
+        continue;
+      }
+
+      mergedIndexes[writeIndex++] = appendedIndexes[appendedIndex++];
+    }
+
+    while (existingIndex < existingIndexes.length) {
+      mergedIndexes[writeIndex++] = existingIndexes[existingIndex++];
+    }
+
+    while (appendedIndex < appendedIndexes.length) {
+      mergedIndexes[writeIndex++] = appendedIndexes[appendedIndex++];
+    }
+
+    return mergedIndexes;
+  }
+
+  private compareIndexesByField(
+    field: keyof T & string,
+    leftIndex: number,
+    rightIndex: number,
+  ): number {
+    const leftValue = this.dataset[leftIndex]?.[field];
+    const rightValue = this.dataset[rightIndex]?.[field];
+
+    if (typeof leftValue === "number" && typeof rightValue === "number") {
+      const difference = leftValue - rightValue;
+      if (difference !== 0) {
+        return difference;
+      }
+    } else {
+      if (leftValue < rightValue) {
+        return -1;
+      }
+
+      if (leftValue > rightValue) {
+        return 1;
+      }
+    }
+
+    return leftIndex - rightIndex;
   }
 
   /**

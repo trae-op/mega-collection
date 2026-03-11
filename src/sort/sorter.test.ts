@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { SortEngineError } from "./errors";
 import { SortEngine } from "./sorter";
@@ -102,16 +102,32 @@ describe("SortEngine", () => {
     expect(engine.getOriginData()).toEqual([]);
   });
 
-  it("add() appends items and refreshes cached single-field sorting lazily", () => {
+  it("add() updates cached single-field sorting incrementally without rebuild", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
+    const buildIndexSpy = vi.spyOn(engine as never, "buildIndex" as never);
 
-    engine.sort([{ field: "age", direction: "asc" }]);
     engine.add([{ id: 5, name: "Zara", city: "Dnipro", age: 20 }]);
 
     expect(
       engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
     ).toEqual([5, 2, 3, 1, 4]);
+    expect(buildIndexSpy).not.toHaveBeenCalled();
+  });
+
+  it("internal add path updates cached sorting for shared datasets", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
+    const buildIndexSpy = vi.spyOn(engine as never, "buildIndex" as never);
+    const appendedItems = [{ id: 5, name: "Zara", city: "Dnipro", age: 20 }];
+
+    dataset.push(...appendedItems);
+    (engine as any).applyAddedItems(appendedItems, false);
+
+    expect(
+      engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([5, 2, 3, 1, 4]);
+    expect(buildIndexSpy).not.toHaveBeenCalled();
   });
 
   it("add() treats an empty batch as a no-op", () => {
