@@ -1,5 +1,7 @@
 node_modules/
 dist/
+package/
+.sizecheck/
 *.tgz
 .agents/
 .vscode/

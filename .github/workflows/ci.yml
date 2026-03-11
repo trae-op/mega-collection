@@ -34,8 +34,12 @@ jobs:
       - name: Run tests with coverage
         run: npm run test:coverage
 
-      - name: Build
-        run: npm run build
+      - name: Build publish package
+        run: npm run build:package
+
+      - name: Check packed publish size
+        if: matrix.node-version == '20.x'
+        run: npm pack --json --dry-run ./package
 
       - name: Upload coverage reports
         if: matrix.node-version == '20.x'

@@ -36,10 +36,13 @@ jobs:
       - name: Run tests with coverage
         run: npm run test:coverage
 
-      - name: Build
-        run: npm run build
+      - name: Build publish package
+        run: npm run build:package
+
+      - name: Check packed publish size
+        run: npm pack --json --dry-run ./package
 
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: npm publish ./package --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
