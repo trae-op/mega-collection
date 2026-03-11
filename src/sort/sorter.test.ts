@@ -105,7 +105,10 @@ describe("SortEngine", () => {
   it("add() updates cached single-field sorting incrementally without rebuild", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
-    const buildIndexSpy = vi.spyOn(engine as never, "buildIndex" as never);
+    const buildIndexSpy = vi.spyOn(
+      engine as never,
+      "buildIndexForDataset" as never,
+    );
 
     engine.add([{ id: 5, name: "Zara", city: "Dnipro", age: 20 }]);
 
@@ -118,7 +121,10 @@ describe("SortEngine", () => {
   it("internal add path updates cached sorting for shared datasets", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
-    const buildIndexSpy = vi.spyOn(engine as never, "buildIndex" as never);
+    const buildIndexSpy = vi.spyOn(
+      engine as never,
+      "buildIndexForDataset" as never,
+    );
     const appendedItems = [{ id: 5, name: "Zara", city: "Dnipro", age: 20 }];
 
     dataset.push(...appendedItems);
@@ -192,7 +198,6 @@ describe("SortEngine", () => {
       const result = engine.sort(mutableUsers, [
         { field: "age", direction: "asc" },
       ]);
-
       expect(result.map((user) => user.id)).toEqual([1, 2, 3, 4]);
     });
 

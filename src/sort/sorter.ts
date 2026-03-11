@@ -1,8 +1,3 @@
-/**
- * SortEngine class for sorting large datasets using pre-built indexes
- * for O(n) performance or fallback to in-place sorting.
- */
-
 import { CollectionItem, SortDescriptor, SortDirection } from "../types";
 import type { SortEngineOptions, SortIndex } from "./types";
 import { SortEngineError } from "./errors";
@@ -16,13 +11,11 @@ export class SortEngine<T extends CollectionItem> {
 
   private readonly dirtyIndexedFields = new Set<keyof T & string>();
 
-  /**
-   * Creates a new SortEngine with optional data and fields to index.
-   */
   constructor(options: SortEngineOptions<T> = {}) {
     if (!options.data) return;
 
     this.dataset = options.data;
+
     if (options.fields?.length) {
       for (const field of options.fields) {
         this.indexedFields.add(field);
@@ -36,50 +29,33 @@ export class SortEngine<T extends CollectionItem> {
     this.cache.clear();
 
     for (const field of this.indexedFields) {
-      this.buildIndex(this.dataset, field);
+      this.buildIndexForDataset(field);
     }
   }
 
-  /**
-   * Builds an index for sorting the given field.
-   */
-  private buildIndex(data: T[], field: keyof T & string): this;
-  private buildIndex(field: keyof T & string): this;
-  private buildIndex(
-    dataOrField: T[] | (keyof T & string),
-    field?: keyof T & string,
-  ): this {
-    let data: T[];
-    let resolvedField: keyof T & string;
-
-    if (!Array.isArray(dataOrField)) {
-      if (!this.dataset.length) {
-        throw SortEngineError.missingDatasetForBuildIndex();
-      }
-
-      data = this.dataset;
-      resolvedField = dataOrField;
-    } else {
-      data = dataOrField;
-      resolvedField = field!;
+  private buildIndexForDataset(field: keyof T & string): void {
+    if (!this.dataset.length) {
+      throw SortEngineError.missingDatasetForBuildIndex();
     }
 
-    this.dataset = data;
+    this.buildIndexFromData(this.dataset, field);
+  }
+
+  private buildIndexFromData(data: T[], field: keyof T & string): void {
     const itemCount = data.length;
     const indexes = new Uint32Array(itemCount);
     const fieldValues = new Array<unknown>(itemCount);
 
-    for (let index = 0; index < itemCount; index++) {
-      indexes[index] = index;
-      fieldValues[index] = data[index][resolvedField];
+    for (let i = 0; i < itemCount; i++) {
+      indexes[i] = i;
+      fieldValues[i] = data[i][field];
     }
 
-    const firstValue = fieldValues[0];
-
-    if (typeof firstValue === "number") {
+    if (typeof fieldValues[0] === "number") {
       const numericValues = new Float64Array(itemCount);
-      for (let i = 0; i < itemCount; i++)
+      for (let i = 0; i < itemCount; i++) {
         numericValues[i] = fieldValues[i] as number;
+      }
       indexes.sort((a, b) => numericValues[a] - numericValues[b]);
     } else {
       indexes.sort((a, b) => {
@@ -89,18 +65,10 @@ export class SortEngine<T extends CollectionItem> {
       });
     }
 
-    this.cache.set(resolvedField as string, {
-      indexes,
-      dataRef: data,
-      itemCount,
-    });
-    this.dirtyIndexedFields.delete(resolvedField);
-    return this;
+    this.cache.set(field as string, { indexes, dataRef: data, itemCount });
+    this.dirtyIndexedFields.delete(field);
   }
 
-  /**
-   * Clears all cached indexes.
-   */
   clearIndexes(): this {
     this.cache.clear();
     this.dirtyIndexedFields.clear();
@@ -126,9 +94,7 @@ export class SortEngine<T extends CollectionItem> {
   }
 
   private applyAddedItems(items: T[], appendToDataset: boolean): this {
-    if (items.length === 0) {
-      return this;
-    }
+    if (items.length === 0) return this;
 
     const startIndex = appendToDataset
       ? this.dataset.length
@@ -141,9 +107,7 @@ export class SortEngine<T extends CollectionItem> {
     for (const field of this.indexedFields) {
       const cachedIndex = this.cache.get(field as string);
 
-      if (!cachedIndex) {
-        continue;
-      }
+      if (!cachedIndex) continue;
 
       if (
         this.dirtyIndexedFields.has(field) ||
@@ -164,9 +128,6 @@ export class SortEngine<T extends CollectionItem> {
     return this.dataset;
   }
 
-  /**
-   * Sorts the data based on the given descriptors.
-   */
   sort(descriptors: SortDescriptor<T>[]): T[];
   sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
   sort(
@@ -174,15 +135,13 @@ export class SortEngine<T extends CollectionItem> {
     descriptors?: SortDescriptor<T>[],
     inPlace = false,
   ): T[] {
-    let data: T[];
-    let resolvedDescriptors: SortDescriptor<T>[];
     const usesStoredDataset = descriptors === undefined;
 
-    if (descriptors === undefined) {
-      if (!this.dataset.length) {
-        throw SortEngineError.missingDatasetForSort();
-      }
+    let data: T[];
+    let resolvedDescriptors: SortDescriptor<T>[];
 
+    if (usesStoredDataset) {
+      if (!this.dataset.length) throw SortEngineError.missingDatasetForSort();
       data = this.dataset;
       resolvedDescriptors = dataOrDescriptors as SortDescriptor<T>[];
     } else {
@@ -190,18 +149,17 @@ export class SortEngine<T extends CollectionItem> {
       resolvedDescriptors = descriptors;
     }
 
-    if (resolvedDescriptors.length === 0 || data.length === 0) {
-      return data;
-    }
+    if (resolvedDescriptors.length === 0 || data.length === 0) return data;
 
     if (resolvedDescriptors.length === 1) {
       const { field, direction } = resolvedDescriptors[0];
+
       if (
         usesStoredDataset &&
         this.dirtyIndexedFields.has(field) &&
         this.cache.has(field as string)
       ) {
-        this.buildIndex(field);
+        this.buildIndexForDataset(field);
       }
 
       const cached = this.cache.get(field as string);
@@ -213,30 +171,121 @@ export class SortEngine<T extends CollectionItem> {
       ) {
         return this.reconstructFromIndex(data, cached.indexes, direction);
       }
+
+      return this.sortNumericFastPath(data, field, direction, inPlace);
     }
 
-    const sortableItems = inPlace ? data : data.slice();
-
-    if (
-      resolvedDescriptors.length === 1 &&
-      data.length > 0 &&
-      typeof data[0][resolvedDescriptors[0].field] === "number"
-    ) {
-      return this.radixSortNumeric(
-        sortableItems,
-        resolvedDescriptors[0].field,
-        resolvedDescriptors[0].direction,
-      );
-    }
-
-    const comparator = this.buildComparator(resolvedDescriptors);
-    sortableItems.sort(comparator);
-    return sortableItems;
+    return this.sortMultiField(
+      data,
+      resolvedDescriptors,
+      inPlace,
+      usesStoredDataset,
+    );
   }
 
-  /**
-   * Reconstructs the sorted array from the cached index.
-   */
+  private sortNumericFastPath(
+    data: T[],
+    field: keyof T & string,
+    direction: SortDirection,
+    inPlace: boolean,
+  ): T[] {
+    if (data.length === 0 || typeof data[0][field] !== "number") {
+      const sortable = inPlace ? data : data.slice();
+      sortable.sort((a, b) => {
+        const av = a[field];
+        const bv = b[field];
+        const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+        return direction === "asc" ? cmp : -cmp;
+      });
+      return sortable;
+    }
+
+    const itemCount = data.length;
+    const values = new Float64Array(itemCount);
+
+    for (let i = 0; i < itemCount; i++) {
+      values[i] = data[i][field] as number;
+    }
+
+    const indexes = new Uint32Array(itemCount);
+    for (let i = 0; i < itemCount; i++) indexes[i] = i;
+    indexes.sort((a, b) => values[a] - values[b]);
+
+    return this.reconstructFromIndex(data, indexes, direction);
+  }
+
+  // Uses cached index of first field, then sorts only tie-groups by remaining fields
+  private sortMultiField(
+    data: T[],
+    descriptors: SortDescriptor<T>[],
+    inPlace: boolean,
+    usesStoredDataset: boolean,
+  ): T[] {
+    const [primary, ...rest] = descriptors;
+
+    if (usesStoredDataset) {
+      if (
+        this.dirtyIndexedFields.has(primary.field) &&
+        this.cache.has(primary.field as string)
+      ) {
+        this.buildIndexForDataset(primary.field);
+      }
+
+      const cached = this.cache.get(primary.field as string);
+
+      if (cached?.dataRef === data && cached.itemCount === data.length) {
+        const primarySorted = this.reconstructFromIndex(
+          data,
+          cached.indexes,
+          primary.direction,
+        );
+        return this.sortTieGroups(primarySorted, primary.field, rest);
+      }
+    }
+
+    const sortable = inPlace ? data : data.slice();
+    const comparator = this.buildComparator(descriptors);
+    sortable.sort(comparator);
+    return sortable;
+  }
+
+  // Finds groups of equal values in the primary field and sorts each group by remaining descriptors
+  private sortTieGroups(
+    data: T[],
+    primaryField: keyof T & string,
+    remainingDescriptors: SortDescriptor<T>[],
+  ): T[] {
+    if (remainingDescriptors.length === 0) return data;
+
+    const comparator = this.buildComparator(remainingDescriptors);
+    const itemCount = data.length;
+    let groupStart = 0;
+
+    while (groupStart < itemCount) {
+      let groupEnd = groupStart + 1;
+      const groupValue = data[groupStart][primaryField];
+
+      while (
+        groupEnd < itemCount &&
+        data[groupEnd][primaryField] === groupValue
+      ) {
+        groupEnd++;
+      }
+
+      if (groupEnd - groupStart > 1) {
+        const group = data.slice(groupStart, groupEnd);
+        group.sort(comparator);
+        for (let i = groupStart; i < groupEnd; i++) {
+          data[i] = group[i - groupStart];
+        }
+      }
+
+      groupStart = groupEnd;
+    }
+
+    return data;
+  }
+
   private reconstructFromIndex(
     data: T[],
     indexes: Uint32Array,
@@ -261,9 +310,7 @@ export class SortEngine<T extends CollectionItem> {
     addedItemCount: number,
   ): void {
     const cachedIndex = this.cache.get(field as string);
-    if (!cachedIndex) {
-      return;
-    }
+    if (!cachedIndex) return;
 
     const appendedIndexes = this.buildSortedIndexesForRange(
       field,
@@ -280,6 +327,7 @@ export class SortEngine<T extends CollectionItem> {
       dataRef: this.dataset,
       itemCount: startIndex + addedItemCount,
     });
+
     this.dirtyIndexedFields.delete(field);
   }
 
@@ -290,14 +338,11 @@ export class SortEngine<T extends CollectionItem> {
   ): Uint32Array {
     const indexes = new Uint32Array(itemCount);
 
-    for (let index = 0; index < itemCount; index++) {
-      indexes[index] = startIndex + index;
+    for (let i = 0; i < itemCount; i++) {
+      indexes[i] = startIndex + i;
     }
 
-    indexes.sort((leftIndex, rightIndex) =>
-      this.compareIndexesByField(field, leftIndex, rightIndex),
-    );
-
+    indexes.sort((l, r) => this.compareIndexesByField(field, l, r));
     return indexes;
   }
 
@@ -310,35 +355,28 @@ export class SortEngine<T extends CollectionItem> {
       existingIndexes.length + appendedIndexes.length,
     );
 
-    let existingIndex = 0;
-    let appendedIndex = 0;
-    let writeIndex = 0;
+    let ei = 0;
+    let ai = 0;
+    let wi = 0;
 
-    while (
-      existingIndex < existingIndexes.length &&
-      appendedIndex < appendedIndexes.length
-    ) {
+    while (ei < existingIndexes.length && ai < appendedIndexes.length) {
       if (
         this.compareIndexesByField(
           field,
-          existingIndexes[existingIndex],
-          appendedIndexes[appendedIndex],
+          existingIndexes[ei],
+          appendedIndexes[ai],
         ) <= 0
       ) {
-        mergedIndexes[writeIndex++] = existingIndexes[existingIndex++];
-        continue;
+        mergedIndexes[wi++] = existingIndexes[ei++];
+      } else {
+        mergedIndexes[wi++] = appendedIndexes[ai++];
       }
-
-      mergedIndexes[writeIndex++] = appendedIndexes[appendedIndex++];
     }
 
-    while (existingIndex < existingIndexes.length) {
-      mergedIndexes[writeIndex++] = existingIndexes[existingIndex++];
-    }
-
-    while (appendedIndex < appendedIndexes.length) {
-      mergedIndexes[writeIndex++] = appendedIndexes[appendedIndex++];
-    }
+    while (ei < existingIndexes.length)
+      mergedIndexes[wi++] = existingIndexes[ei++];
+    while (ai < appendedIndexes.length)
+      mergedIndexes[wi++] = appendedIndexes[ai++];
 
     return mergedIndexes;
   }
@@ -348,83 +386,37 @@ export class SortEngine<T extends CollectionItem> {
     leftIndex: number,
     rightIndex: number,
   ): number {
-    const leftValue = this.dataset[leftIndex]?.[field];
-    const rightValue = this.dataset[rightIndex]?.[field];
+    const lv = this.dataset[leftIndex]?.[field];
+    const rv = this.dataset[rightIndex]?.[field];
 
-    if (typeof leftValue === "number" && typeof rightValue === "number") {
-      const difference = leftValue - rightValue;
-      if (difference !== 0) {
-        return difference;
-      }
+    if (typeof lv === "number" && typeof rv === "number") {
+      const diff = lv - rv;
+      if (diff !== 0) return diff;
     } else {
-      if (leftValue < rightValue) {
-        return -1;
-      }
-
-      if (leftValue > rightValue) {
-        return 1;
-      }
+      if (lv < rv) return -1;
+      if (lv > rv) return 1;
     }
 
     return leftIndex - rightIndex;
   }
 
-  /**
-   * Builds a comparator function for sorting.
-   */
   private buildComparator(
     descriptors: SortDescriptor<T>[],
   ): (a: T, b: T) => number {
     const fields = descriptors.map(({ field }) => field);
-    const directionMultipliers = descriptors.map(({ direction }) =>
+    const multipliers = descriptors.map(({ direction }) =>
       direction === "asc" ? 1 : -1,
     );
-
     const fieldCount = fields.length;
 
     return (a: T, b: T): number => {
-      for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++) {
-        const leftValue = a[fields[fieldIndex]];
-        const rightValue = b[fields[fieldIndex]];
-
-        if (leftValue < rightValue) return -directionMultipliers[fieldIndex];
-        if (leftValue > rightValue) return directionMultipliers[fieldIndex];
+      for (let i = 0; i < fieldCount; i++) {
+        const lv = a[fields[i]];
+        const rv = b[fields[i]];
+        if (lv < rv) return -multipliers[i];
+        if (lv > rv) return multipliers[i];
       }
       return 0;
     };
-  }
-
-  /**
-   * Sorts numeric data using radix sort.
-   */
-  private radixSortNumeric(
-    data: T[],
-    field: string,
-    direction: SortDirection,
-  ): T[] {
-    const itemCount = data.length;
-
-    const values = new Float64Array(itemCount);
-    for (let index = 0; index < itemCount; index++) {
-      values[index] = data[index][field] as number;
-    }
-
-    const indexes = new Uint32Array(itemCount);
-    for (let index = 0; index < itemCount; index++) indexes[index] = index;
-
-    indexes.sort((a, b) => values[a] - values[b]);
-
-    const result: T[] = new Array(itemCount);
-    if (direction === "asc") {
-      for (let index = 0; index < itemCount; index++) {
-        result[index] = data[indexes[index]];
-      }
-    } else {
-      for (let index = 0; index < itemCount; index++) {
-        result[itemCount - 1 - index] = data[indexes[index]];
-      }
-    }
-
-    return result;
   }
 }

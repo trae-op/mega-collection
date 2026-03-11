@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { FilterEngine } from "../filter/filter";
 import { TextSearchEngine } from "../search/text-search";
+import type { TextSearchEngineOptions } from "../search/types";
 import { SortEngine } from "../sort/sorter";
 import { MergeEnginesError } from "./errors";
 import { MergeEngines } from "./merge-engines";
@@ -9,6 +10,17 @@ import { MergeEngines } from "./merge-engines";
 class CustomSearchEngine<
   T extends { id: number; name: string; city: string },
 > extends TextSearchEngine<T> {}
+
+class CountingSearchEngine<
+  T extends { id: number; name: string; city: string },
+> extends TextSearchEngine<T> {
+  static constructionCount = 0;
+
+  constructor(options: TextSearchEngineOptions<T> = {}) {
+    super(options);
+    CountingSearchEngine.constructionCount += 1;
+  }
+}
 
 type User = {
   id: number;
@@ -137,6 +149,19 @@ describe("MergeEngines", () => {
       search: { fields: ["name", "city"], minQueryLength: 1 },
     });
 
+    expect(merge.search("Kyiv").map((user) => user.id)).toEqual([1, 3]);
+  });
+
+  it("instantiates each imported engine only once during setup", () => {
+    CountingSearchEngine.constructionCount = 0;
+
+    const merge = new MergeEngines<User>({
+      imports: [CountingSearchEngine],
+      data: users,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+    });
+
+    expect(CountingSearchEngine.constructionCount).toBe(1);
     expect(merge.search("Kyiv").map((user) => user.id)).toEqual([1, 3]);
   });
 

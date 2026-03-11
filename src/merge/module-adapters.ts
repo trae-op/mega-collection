@@ -3,6 +3,7 @@ import type {
   EngineConstructor,
   MergeAppendableEngine,
   MergeModuleAdapter,
+  MergeModuleName,
   MergeFilterEngine,
   MergeSearchEngine,
   MergeSortEngine,
@@ -52,6 +53,26 @@ function isFilterEngine<T extends CollectionItem>(
 ): engine is MergeFilterEngine<T> {
   return hasMethod(engine, "rawFilter") && hasMethod(engine, "getOriginData");
 }
+
+export const resolveMergeModuleName = (
+  EngineModule: EngineConstructor,
+): MergeModuleName | null => {
+  const { prototype } = EngineModule;
+
+  if (isFilterEngine(prototype)) {
+    return "filter";
+  }
+
+  if (isSortEngine(prototype)) {
+    return "sort";
+  }
+
+  if (isSearchEngine(prototype)) {
+    return "search";
+  }
+
+  return null;
+};
 
 export const createMergeModuleAdapter = <T extends CollectionItem>(
   EngineModule: EngineConstructor,

@@ -5,7 +5,10 @@
 
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
 import { MergeEnginesChain, MergeEnginesChainBuilder } from "./chain";
-import { createMergeModuleAdapter } from "./module-adapters";
+import {
+  createMergeModuleAdapter,
+  resolveMergeModuleName,
+} from "./module-adapters";
 import type {
   EngineConstructor,
   FilterModuleAdapter,
@@ -118,14 +121,14 @@ export class MergeEngines<T extends CollectionItem> {
     let getOriginDataMethod: (() => T[]) | null = null;
 
     for (const EngineModule of importedEngines) {
-      const moduleAdapter = createMergeModuleAdapter<T>(EngineModule, data, {});
+      const moduleName = resolveMergeModuleName(EngineModule);
 
-      if (!moduleAdapter) {
+      if (!moduleName) {
         continue;
       }
 
       const currentModuleOptions = this.getModuleInitOptions(
-        moduleAdapter.moduleName,
+        moduleName,
         EngineModule.name,
         moduleOptions,
       );
