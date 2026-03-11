@@ -4,7 +4,10 @@ export type {
   EngineApi,
   EngineConstructor,
   MergeEnginesChain,
+  MergeFilterOptions,
   MergeModuleName,
+  MergeSearchOptions,
+  MergeSortOptions,
 } from "./types";
 
 export type {

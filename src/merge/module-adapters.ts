@@ -1,75 +1,96 @@
-import { FilterEngine } from "../filter/filter";
-import { TextSearchEngine } from "../search/text-search";
-import { SortEngine } from "../sort/sorter";
-import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
+import type { CollectionItem } from "../types";
 import type {
-  BaseModuleAdapter,
   EngineConstructor,
-  MergeModuleName,
+  MergeAppendableEngine,
+  MergeModuleAdapter,
+  MergeFilterEngine,
+  MergeSearchEngine,
+  MergeSortEngine,
 } from "./types";
 
-export type SearchModuleAdapter<T extends CollectionItem> = BaseModuleAdapter<
-  T,
-  TextSearchEngine<T>
-> & {
-  moduleName: "search";
-  executeSearch: (fieldOrQuery: string, maybeQuery?: string) => T[];
-};
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
-export type SortModuleAdapter<T extends CollectionItem> = BaseModuleAdapter<
-  T,
-  SortEngine<T>
-> & {
-  moduleName: "sort";
-  executeSort: (
-    dataOrDescriptors: T[] | SortDescriptor<T>[],
-    descriptors?: SortDescriptor<T>[],
-    inPlace?: boolean,
-  ) => T[];
-};
+function hasMethod<TName extends string>(
+  value: unknown,
+  methodName: TName,
+): value is Record<TName, (...args: unknown[]) => unknown> {
+  return isRecord(value) && typeof value[methodName] === "function";
+}
 
-export type FilterModuleAdapter<T extends CollectionItem> = BaseModuleAdapter<
-  T,
-  FilterEngine<T>
-> & {
-  moduleName: "filter";
-  executeFilter: (
-    dataOrCriteria: T[] | FilterCriterion<T>[],
-    criteria?: FilterCriterion<T>[],
-  ) => T[];
-};
+function createAddAdapter<T extends CollectionItem>(
+  engine: MergeAppendableEngine<T>,
+): (items: T[], appendToDataset?: boolean) => unknown {
+  return (items, appendToDataset = true) => {
+    if (typeof engine.applyAddedItems === "function") {
+      return engine.applyAddedItems(items, appendToDataset);
+    }
 
-export type MergeModuleAdapter<T extends CollectionItem> =
-  | SearchModuleAdapter<T>
-  | SortModuleAdapter<T>
-  | FilterModuleAdapter<T>;
+    if (appendToDataset) {
+      return engine.add(items);
+    }
 
-export const getMergeModuleName = (
-  EngineModule: EngineConstructor,
-): MergeModuleName | null => {
-  if (EngineModule === TextSearchEngine) {
-    return "search";
-  }
+    return engine.data(engine.getOriginData());
+  };
+}
 
-  if (EngineModule === SortEngine) {
-    return "sort";
-  }
+function isSearchEngine<T extends CollectionItem>(
+  engine: unknown,
+): engine is MergeSearchEngine<T> {
+  return hasMethod(engine, "search") && hasMethod(engine, "getOriginData");
+}
 
-  if (EngineModule === FilterEngine) {
-    return "filter";
-  }
+function isSortEngine<T extends CollectionItem>(
+  engine: unknown,
+): engine is MergeSortEngine<T> {
+  return hasMethod(engine, "sort") && hasMethod(engine, "getOriginData");
+}
 
-  return null;
-};
+function isFilterEngine<T extends CollectionItem>(
+  engine: unknown,
+): engine is MergeFilterEngine<T> {
+  return hasMethod(engine, "rawFilter") && hasMethod(engine, "getOriginData");
+}
 
 export const createMergeModuleAdapter = <T extends CollectionItem>(
   EngineModule: EngineConstructor,
   data: T[],
   config: Record<string, unknown>,
 ): MergeModuleAdapter<T> | null => {
-  if (EngineModule === TextSearchEngine) {
-    const engine = new TextSearchEngine<T>({ data, ...config });
+  const engine = new EngineModule({ data, ...config });
 
+  if (isFilterEngine<T>(engine)) {
+    return {
+      moduleName: "filter",
+      executeFilter: (dataOrCriteria, criteria) =>
+        criteria === undefined
+          ? engine.rawFilter(dataOrCriteria as any)
+          : engine.rawFilter(dataOrCriteria as T[], criteria),
+      add: createAddAdapter(engine),
+      clearIndexes: () => engine.clearIndexes(),
+      clearData: () => engine.clearData(),
+      data: (nextData) => engine.data(nextData),
+      getOriginData: () => engine.getOriginData(),
+    };
+  }
+
+  if (isSortEngine<T>(engine)) {
+    return {
+      moduleName: "sort",
+      executeSort: (dataOrDescriptors, descriptors, inPlace) =>
+        descriptors === undefined
+          ? engine.sort(dataOrDescriptors as any)
+          : engine.sort(dataOrDescriptors as T[], descriptors, inPlace),
+      add: createAddAdapter(engine),
+      clearIndexes: () => engine.clearIndexes(),
+      clearData: () => engine.clearData(),
+      data: (nextData) => engine.data(nextData),
+      getOriginData: () => engine.getOriginData(),
+    };
+  }
+
+  if (isSearchEngine<T>(engine)) {
     return {
       moduleName: "search",
       executeSearch: (fieldOrQuery, maybeQuery) =>
@@ -79,44 +100,7 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
               fieldOrQuery as (keyof T & string) | (string & {}),
               maybeQuery,
             ),
-      add: (items, appendToDataset = true) =>
-        (engine as any).applyAddedItems(items, appendToDataset),
-      clearIndexes: () => engine.clearIndexes(),
-      clearData: () => engine.clearData(),
-      data: (nextData) => engine.data(nextData),
-      getOriginData: () => engine.getOriginData(),
-    };
-  }
-
-  if (EngineModule === SortEngine) {
-    const engine = new SortEngine<T>({ data, ...config });
-
-    return {
-      moduleName: "sort",
-      executeSort: (dataOrDescriptors, descriptors, inPlace) =>
-        descriptors === undefined
-          ? engine.sort(dataOrDescriptors as SortDescriptor<T>[])
-          : engine.sort(dataOrDescriptors as T[], descriptors, inPlace),
-      add: (items, appendToDataset = true) =>
-        (engine as any).applyAddedItems(items, appendToDataset),
-      clearIndexes: () => engine.clearIndexes(),
-      clearData: () => engine.clearData(),
-      data: (nextData) => engine.data(nextData),
-      getOriginData: () => engine.getOriginData(),
-    };
-  }
-
-  if (EngineModule === FilterEngine) {
-    const engine = new FilterEngine<T>({ data, ...config });
-
-    return {
-      moduleName: "filter",
-      executeFilter: (dataOrCriteria, criteria) =>
-        criteria === undefined
-          ? engine.rawFilter(dataOrCriteria as FilterCriterion<T>[])
-          : engine.rawFilter(dataOrCriteria as T[], criteria),
-      add: (items, appendToDataset = true) =>
-        (engine as any).applyAddedItems(items, appendToDataset),
+      add: createAddAdapter(engine),
       clearIndexes: () => engine.clearIndexes(),
       clearData: () => engine.clearData(),
       data: (nextData) => engine.data(nextData),

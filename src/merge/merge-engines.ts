@@ -5,19 +5,14 @@
 
 import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
 import { MergeEnginesChain, MergeEnginesChainBuilder } from "./chain";
-import {
-  createMergeModuleAdapter,
-  getMergeModuleName,
-} from "./module-adapters";
-import type {
-  FilterModuleAdapter,
-  SearchModuleAdapter,
-  SortModuleAdapter,
-} from "./module-adapters";
+import { createMergeModuleAdapter } from "./module-adapters";
 import type {
   EngineConstructor,
+  FilterModuleAdapter,
   MergeEnginesOptions,
   MergeModuleName,
+  SearchModuleAdapter,
+  SortModuleAdapter,
 } from "./types";
 import { MergeEnginesError } from "./errors";
 
@@ -123,50 +118,53 @@ export class MergeEngines<T extends CollectionItem> {
     let getOriginDataMethod: (() => T[]) | null = null;
 
     for (const EngineModule of importedEngines) {
-      const moduleName = getMergeModuleName(EngineModule);
-      if (!moduleName) {
-        continue;
-      }
-
-      const currentModuleOptions = this.getModuleInitOptions(
-        moduleName,
-        EngineModule.name,
-        moduleOptions,
-      );
-
-      const moduleAdapter = createMergeModuleAdapter<T>(
-        EngineModule,
-        data,
-        currentModuleOptions,
-      );
+      const moduleAdapter = createMergeModuleAdapter<T>(EngineModule, data, {});
 
       if (!moduleAdapter) {
         continue;
       }
 
-      if (moduleAdapter.moduleName === "search" && !searchModule) {
-        searchModule = moduleAdapter;
+      const currentModuleOptions = this.getModuleInitOptions(
+        moduleAdapter.moduleName,
+        EngineModule.name,
+        moduleOptions,
+      );
+
+      const configuredModuleAdapter = createMergeModuleAdapter<T>(
+        EngineModule,
+        data,
+        currentModuleOptions,
+      );
+
+      if (!configuredModuleAdapter) {
+        continue;
       }
 
-      if (moduleAdapter.moduleName === "sort" && !sortModule) {
-        sortModule = moduleAdapter;
+      if (configuredModuleAdapter.moduleName === "search" && !searchModule) {
+        searchModule = configuredModuleAdapter;
       }
 
-      if (moduleAdapter.moduleName === "filter" && !filterModule) {
-        filterModule = moduleAdapter;
+      if (configuredModuleAdapter.moduleName === "sort" && !sortModule) {
+        sortModule = configuredModuleAdapter;
       }
 
-      clearIndexMethods[moduleAdapter.moduleName] = () =>
-        moduleAdapter.clearIndexes();
-      clearDataMethods[moduleAdapter.moduleName] = () =>
-        moduleAdapter.clearData();
-      addMethods[moduleAdapter.moduleName] = (items, appendToDataset) =>
-        moduleAdapter.add(items, appendToDataset);
-      getOriginDataMethods[moduleAdapter.moduleName] = () =>
-        moduleAdapter.getOriginData();
-      setDataMethods[moduleAdapter.moduleName] = (nextData) =>
-        moduleAdapter.data(nextData);
-      getOriginDataMethod ??= () => moduleAdapter.getOriginData();
+      if (configuredModuleAdapter.moduleName === "filter" && !filterModule) {
+        filterModule = configuredModuleAdapter;
+      }
+
+      clearIndexMethods[configuredModuleAdapter.moduleName] = () =>
+        configuredModuleAdapter.clearIndexes();
+      clearDataMethods[configuredModuleAdapter.moduleName] = () =>
+        configuredModuleAdapter.clearData();
+      addMethods[configuredModuleAdapter.moduleName] = (
+        items,
+        appendToDataset,
+      ) => configuredModuleAdapter.add(items, appendToDataset);
+      getOriginDataMethods[configuredModuleAdapter.moduleName] = () =>
+        configuredModuleAdapter.getOriginData();
+      setDataMethods[configuredModuleAdapter.moduleName] = (nextData) =>
+        configuredModuleAdapter.data(nextData);
+      getOriginDataMethod ??= () => configuredModuleAdapter.getOriginData();
     }
 
     this.searchModule = searchModule;

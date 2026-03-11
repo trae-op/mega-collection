@@ -6,6 +6,10 @@ import { SortEngine } from "../sort/sorter";
 import { MergeEnginesError } from "./errors";
 import { MergeEngines } from "./merge-engines";
 
+class CustomSearchEngine<
+  T extends { id: number; name: string; city: string },
+> extends TextSearchEngine<T> {}
+
 type User = {
   id: number;
   name: string;
@@ -124,6 +128,16 @@ describe("MergeEngines", () => {
           data: users,
         }),
     ).not.toThrow();
+  });
+
+  it("works with engines exposed only through the abstract merge provider", () => {
+    const merge = new MergeEngines<User>({
+      imports: [CustomSearchEngine],
+      data: users,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+    });
+
+    expect(merge.search("Kyiv").map((user) => user.id)).toEqual([1, 3]);
   });
 
   it("clearIndexes() clears indexes for selected module", () => {
