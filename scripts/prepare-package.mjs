@@ -56,6 +56,10 @@ async function readRootPackage() {
 }
 
 function createPublishPackage(rootPackage) {
+  const repositoryUrl = rootPackage.repository?.url
+    ?.replace(/^git\+/, "")
+    .replace(/\.git$/, "");
+
   return {
     name: rootPackage.name,
     version: rootPackage.version,
@@ -64,6 +68,12 @@ function createPublishPackage(rootPackage) {
     types: "./dist/index.d.mts",
     exports: PACKAGE_EXPORTS,
     typesVersions: PACKAGE_TYPES_VERSIONS,
+    repository: repositoryUrl
+      ? {
+          type: "git",
+          url: repositoryUrl,
+        }
+      : undefined,
   };
 }
 
