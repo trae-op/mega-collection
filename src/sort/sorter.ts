@@ -14,6 +14,8 @@ export class SortEngine<T extends CollectionItem> {
 
   private readonly indexedFields = new Set<keyof T & string>();
 
+  private readonly dirtyIndexedFields = new Set<keyof T & string>();
+
   /**
    * Creates a new SortEngine with optional data and fields to index.
    */
@@ -92,6 +94,7 @@ export class SortEngine<T extends CollectionItem> {
       dataRef: data,
       itemCount,
     });
+    this.dirtyIndexedFields.delete(resolvedField);
     return this;
   }
 
@@ -100,18 +103,43 @@ export class SortEngine<T extends CollectionItem> {
    */
   clearIndexes(): this {
     this.cache.clear();
+    this.dirtyIndexedFields.clear();
     return this;
   }
 
   clearData(): this {
     this.dataset = [];
     this.cache.clear();
+    this.dirtyIndexedFields.clear();
     return this;
   }
 
   data(data: T[]): this {
     this.dataset = data;
+    this.dirtyIndexedFields.clear();
     this.rebuildConfiguredIndexes();
+    return this;
+  }
+
+  add(items: T[]): this {
+    return this.applyAddedItems(items, true);
+  }
+
+  private applyAddedItems(items: T[], appendToDataset: boolean): this {
+    if (items.length === 0) {
+      return this;
+    }
+
+    if (appendToDataset) {
+      this.dataset.push(...items);
+    }
+
+    for (const field of this.indexedFields) {
+      if (this.cache.has(field as string)) {
+        this.dirtyIndexedFields.add(field);
+      }
+    }
+
     return this;
   }
 
@@ -151,6 +179,14 @@ export class SortEngine<T extends CollectionItem> {
 
     if (resolvedDescriptors.length === 1) {
       const { field, direction } = resolvedDescriptors[0];
+      if (
+        usesStoredDataset &&
+        this.dirtyIndexedFields.has(field) &&
+        this.cache.has(field as string)
+      ) {
+        this.buildIndex(field);
+      }
+
       const cached = this.cache.get(field as string);
 
       if (

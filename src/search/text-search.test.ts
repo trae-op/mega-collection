@@ -163,6 +163,60 @@ describe("TextSearchEngine", () => {
     ]);
   });
 
+  it("add() appends new items to indexed flat fields", () => {
+    const dataset = cityCards.map((card) => ({ ...card }));
+    const engine = new TextSearchEngine<CardItem>({
+      data: dataset,
+      fields: ["city"],
+    });
+
+    engine.add([
+      {
+        id: 3,
+        title: "Nina 2",
+        description: "User from Paris",
+        tag: "Odd",
+        city: "Paris",
+      },
+    ]);
+
+    expect(engine.search("city", "Paris").map((item) => item.id)).toEqual([3]);
+  });
+
+  it("add() treats an empty batch as a no-op", () => {
+    const dataset = cityCards.map((card) => ({ ...card }));
+    const engine = new TextSearchEngine<CardItem>({
+      data: dataset,
+      fields: ["city"],
+    });
+
+    engine.add([]);
+
+    expect(engine.getOriginData()).toBe(dataset);
+    expect(engine.search("city", "Kyiv").map((item) => item.id)).toEqual([2]);
+  });
+
+  it("add() does not rebuild cleared indexes and keeps linear fallback working", () => {
+    const dataset = cityCards.map((card) => ({ ...card }));
+    const engine = new TextSearchEngine<CardItem>({
+      data: dataset,
+      fields: ["city"],
+    });
+
+    engine.clearIndexes();
+    engine.add([
+      {
+        id: 3,
+        title: "Nina 2",
+        description: "User from Paris",
+        tag: "Odd",
+        city: "Paris",
+      },
+    ]);
+
+    expect(engine.search("city", "Paris").map((item) => item.id)).toEqual([3]);
+  });
+
   it("returns a plain array result", () => {
     const engine = new TextSearchEngine<CardItem>({
       data: cityCards,
@@ -421,6 +475,32 @@ describe("TextSearchEngine — nestedFields", () => {
     expect(engine.search("orders.status", "shipped").map((u) => u.id)).toEqual([
       "10",
     ]);
+  });
+
+  it("add() updates nested search indexes incrementally", () => {
+    const dataset = usersWithOrders.map((user) => ({
+      ...user,
+      orders: user.orders.map((order) => ({ ...order })),
+    }));
+    const engine = new TextSearchEngine<UserWithOrders>({
+      data: dataset,
+      fields: ["name"],
+      nestedFields: ["orders.status"],
+    });
+
+    engine.add([
+      {
+        id: "10",
+        name: "Lia",
+        city: "Berlin",
+        age: 28,
+        orders: [{ id: "10", status: "shipped" }],
+      },
+    ]);
+
+    expect(
+      engine.search("orders.status", "shipped").map((user) => user.id),
+    ).toEqual(["10"]);
   });
 
   it("works without flat fields, only nestedFields", () => {

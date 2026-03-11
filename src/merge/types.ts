@@ -21,6 +21,7 @@ export interface MergeEnginesChain<T extends CollectionItem> {
   filter(criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
   getOriginData(): T[];
+  add(items: T[]): MergeEngines<T>;
   data(data: T[]): MergeEngines<T>;
   clearIndexes(module: MergeModuleName): T[] & MergeEnginesChain<T>;
   clearData(module: MergeModuleName): T[] & MergeEnginesChain<T>;
@@ -65,6 +66,7 @@ export type MergeEnginesChainCallbacks<T extends CollectionItem> = {
     criteria?: FilterCriterion<T>[],
   ) => T[] & MergeEnginesChain<T>;
   getOriginData: () => T[];
+  add: (items: T[]) => MergeEngines<T>;
   data: (data: T[]) => MergeEngines<T>;
   clearIndexes: (module: MergeModuleName) => MergeEngines<T>;
   clearData: (module: MergeModuleName) => MergeEngines<T>;
@@ -72,6 +74,7 @@ export type MergeEnginesChainCallbacks<T extends CollectionItem> = {
 
 export type BaseModuleAdapter<T extends CollectionItem, TEngine> = {
   moduleName: MergeModuleName;
+  add: (items: T[], appendToDataset?: boolean) => TEngine;
   clearIndexes: () => TEngine;
   clearData: () => TEngine;
   data: (data: T[]) => TEngine;

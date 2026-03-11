@@ -288,6 +288,38 @@ describe("MergeEngines", () => {
     ).toEqual([11]);
   });
 
+  it("add() appends a batch once and updates all imported modules", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: dataset,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"], filterByPreviousResult: true },
+    });
+
+    merge.search("Alice");
+    merge.sort([{ field: "age", direction: "asc" }]);
+    merge.filter([{ field: "city", values: ["Kyiv"] }]);
+    merge.add([
+      { id: 10, name: "Tim", city: "Boston", age: 20 },
+      { id: 11, name: "Mila", city: "Kyiv", age: 40 },
+    ]);
+
+    expect(merge.getOriginData().map((user) => user.id)).toEqual([
+      1, 2, 3, 4, 5, 10, 11,
+    ]);
+    expect(merge.search("Tim").map((user) => user.id)).toEqual([10]);
+    expect(
+      merge
+        .filter([{ field: "city", values: ["Kyiv"] }])
+        .map((user) => user.id),
+    ).toEqual([1, 3, 11]);
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([10, 1, 4, 2, 3, 5, 11]);
+  });
+
   it("getOriginData() returns shared origin dataset", () => {
     const merge = new MergeEngines<User>({
       imports: [TextSearchEngine, SortEngine, FilterEngine],

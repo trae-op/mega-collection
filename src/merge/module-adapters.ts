@@ -79,6 +79,8 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
               fieldOrQuery as (keyof T & string) | (string & {}),
               maybeQuery,
             ),
+      add: (items, appendToDataset = true) =>
+        (engine as any).applyAddedItems(items, appendToDataset),
       clearIndexes: () => engine.clearIndexes(),
       clearData: () => engine.clearData(),
       data: (nextData) => engine.data(nextData),
@@ -95,6 +97,8 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
         descriptors === undefined
           ? engine.sort(dataOrDescriptors as SortDescriptor<T>[])
           : engine.sort(dataOrDescriptors as T[], descriptors, inPlace),
+      add: (items, appendToDataset = true) =>
+        (engine as any).applyAddedItems(items, appendToDataset),
       clearIndexes: () => engine.clearIndexes(),
       clearData: () => engine.clearData(),
       data: (nextData) => engine.data(nextData),
@@ -111,6 +115,8 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
         criteria === undefined
           ? engine.rawFilter(dataOrCriteria as FilterCriterion<T>[])
           : engine.rawFilter(dataOrCriteria as T[], criteria),
+      add: (items, appendToDataset = true) =>
+        (engine as any).applyAddedItems(items, appendToDataset),
       clearIndexes: () => engine.clearIndexes(),
       clearData: () => engine.clearData(),
       data: (nextData) => engine.data(nextData),

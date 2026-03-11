@@ -344,11 +344,64 @@ export class TextSearchEngine<T extends CollectionItem> {
     return this;
   }
 
+  add(items: T[]): this {
+    return this.applyAddedItems(items, true);
+  }
+
+  private applyAddedItems(items: T[], appendToDataset: boolean): this {
+    if (items.length === 0) {
+      return this;
+    }
+
+    const startIndex = appendToDataset
+      ? this.dataset.length
+      : this.dataset.length - items.length;
+
+    if (appendToDataset) {
+      this.dataset.push(...items);
+    }
+
+    for (const field of this.indexedFields) {
+      this.addItemsToField(field, items, startIndex);
+    }
+
+    this.nestedCollection.addItems(items, startIndex);
+    return this;
+  }
+
   clearData(): this {
     this.dataset = [];
     this.ngramIndexes.clear();
     this.normalizedFieldValues.clear();
     this.nestedCollection.clearIndexes();
     return this;
+  }
+
+  private addItemsToField(
+    field: keyof T & string,
+    items: T[],
+    startIndex: number,
+  ): void {
+    const ngramMap = this.ngramIndexes.get(field as string);
+    if (!ngramMap) {
+      return;
+    }
+
+    const normalizedValues =
+      this.normalizedFieldValues.get(field as string) ?? [];
+
+    for (let itemOffset = 0; itemOffset < items.length; itemOffset++) {
+      const rawValue = items[itemOffset][field];
+      if (typeof rawValue !== "string") {
+        continue;
+      }
+
+      const lowerValue = rawValue.toLowerCase();
+      const datasetIndex = startIndex + itemOffset;
+      normalizedValues[datasetIndex] = lowerValue;
+      indexLowerValue(ngramMap, lowerValue, datasetIndex);
+    }
+
+    this.normalizedFieldValues.set(field as string, normalizedValues);
   }
 }

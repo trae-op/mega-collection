@@ -41,6 +41,16 @@ export class FilterNestedCollection<T extends CollectionItem> {
     }
   }
 
+  addItems(items: T[]): void {
+    if (items.length === 0 || this.indexes.size === 0) {
+      return;
+    }
+
+    for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+      this.addItem(items[itemIndex]);
+    }
+  }
+
   removeItem(item: T): void {
     for (const fieldPath of this.indexes.keys()) {
       this.removeItemFromIndex(fieldPath, item);
@@ -227,6 +237,56 @@ export class FilterNestedCollection<T extends CollectionItem> {
         indexMap.delete(nestedValue);
         fieldItemPositions.delete(nestedValue);
       }
+    }
+  }
+
+  private addItem(item: T): void {
+    for (const fieldPath of this.indexes.keys()) {
+      this.addItemToIndex(fieldPath, item);
+    }
+  }
+
+  private addItemToIndex(fieldPath: string, item: T): void {
+    const descriptor = this.fieldDescriptors.get(fieldPath);
+    const indexMap = this.indexes.get(fieldPath);
+    const fieldItemPositions = this.itemPositions.get(fieldPath);
+
+    if (!descriptor || !indexMap || !fieldItemPositions) {
+      return;
+    }
+
+    const { collectionKey, nestedKey } = descriptor;
+    const collection = item[collectionKey];
+    if (!Array.isArray(collection) || collection.length === 0) {
+      return;
+    }
+
+    const nestedValues = new Set<any>();
+
+    for (let nestedIndex = 0; nestedIndex < collection.length; nestedIndex++) {
+      const nestedValue = collection[nestedIndex][nestedKey];
+      if (nestedValue === undefined || nestedValue === null) {
+        continue;
+      }
+
+      nestedValues.add(nestedValue);
+    }
+
+    for (const nestedValue of nestedValues) {
+      const bucket = indexMap.get(nestedValue);
+      const bucketItemPositions = fieldItemPositions.get(nestedValue);
+
+      if (bucket && bucketItemPositions) {
+        bucket.push(item);
+        bucketItemPositions.set(item, bucket.length - 1);
+        continue;
+      }
+
+      indexMap.set(nestedValue, [item]);
+
+      const nextBucketItemPositions = new WeakMap<T, number>();
+      nextBucketItemPositions.set(item, 0);
+      fieldItemPositions.set(nestedValue, nextBucketItemPositions);
     }
   }
 

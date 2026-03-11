@@ -14,6 +14,7 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 - [Install](#install) – how to install the package
 - [Quick Start](#quick-start) – basic usage examples
   - [All-in-one: `MergeEngines`](#all-in-one-mergeengines) – use search, filter, and sort from one engine
+  - [Add items with `add([])`](#add-items-with-add) – append multiple items to stored data
   - [Search only](#search-only) – use only text search
     - [Flat collections search](#flat-collections-search) – search simple fields like `name` or `city`
     - [Nested collections search](#nested-collections-search) – search inside nested arrays like `orders.status`
@@ -175,6 +176,81 @@ engine.getOriginData();
 
 // Remove items through the root facade.
 mutableMerge.filter([{ field: "id", exclude: [1, 4] }]);
+```
+
+---
+
+### Add items with `add([])`
+
+Use `add([])` when you need to append several new items to the stored dataset.
+This is different from `data(...)`:
+
+- `data(...)` replaces the whole stored dataset.
+- `add([])` appends new items to the existing stored dataset.
+
+If indexes are already built, the engine updates only the new items instead of rebuilding the whole dataset.
+If you cleared indexes with `clearIndexes()`, `add([])` does not rebuild them automatically.
+
+```ts
+import { MergeEngines } from "@devisfuture/mega-collection";
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+import { SortEngine } from "@devisfuture/mega-collection/sort";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const merge = new MergeEngines<User>({
+  imports: [TextSearchEngine, SortEngine, FilterEngine],
+  data: users,
+  search: { fields: ["name", "city"], minQueryLength: 2 },
+  filter: { fields: ["city", "age"] },
+  sort: { fields: ["age", "name"] },
+});
+
+merge.add([
+  { id: 6, name: "Lia", city: "Berlin", age: 28 },
+  { id: 7, name: "Omar", city: "Kyiv", age: 31 },
+]);
+
+merge.search("Berlin");
+merge.filter([{ field: "city", values: ["Kyiv"] }]);
+merge.sort([{ field: "age", direction: "asc" }]);
+```
+
+The same method works in each engine:
+
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+import { SortEngine } from "@devisfuture/mega-collection/sort";
+
+const searchEngine = new TextSearchEngine<User>({
+  data: users,
+  fields: ["name", "city"],
+});
+
+searchEngine.add([
+  { id: 6, name: "Lia", city: "Berlin", age: 28 },
+  { id: 7, name: "Omar", city: "Kyiv", age: 31 },
+]);
+
+const filterEngine = new FilterEngine<User>({
+  data: users,
+  fields: ["city", "age"],
+});
+
+filterEngine.add([
+  { id: 6, name: "Lia", city: "Berlin", age: 28 },
+  { id: 7, name: "Omar", city: "Kyiv", age: 31 },
+]);
+
+const sortEngine = new SortEngine<User>({
+  data: users,
+  fields: ["age", "name"],
+});
+
+sortEngine.add([
+  { id: 6, name: "Lia", city: "Berlin", age: 28 },
+  { id: 7, name: "Omar", city: "Kyiv", age: 31 },
+]);
 ```
 
 ---
@@ -454,6 +530,7 @@ One class that combines search, filter, and sort for the same dataset.
 | `filter(criteria)`                  | Filter using stored dataset                                                                                                |
 | `filter(data, criteria)`            | Filter with an explicit dataset                                                                                            |
 | `getOriginData()`                   | Get the shared original dataset                                                                                            |
+| `add(items)`                        | Append multiple items to the stored dataset and update existing indexes or caches for new items only                       |
 | `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
 | `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`)                                                        |
@@ -474,6 +551,7 @@ Search methods return plain arrays.
 | `search(query)`        | Search all indexed fields (including nested), deduplicated |
 | `search(field, query)` | Search a specific indexed field or nested field path       |
 | `getOriginData()`      | Get the original stored dataset                            |
+| `add(items)`           | Append multiple items to the stored dataset                |
 | `data(data)`           | Replace stored dataset and rebuild configured indexes      |
 | `clearIndexes()`       | Clear n-gram indexes (including nested)                    |
 | `clearData()`          | Clear stored data                                          |
@@ -497,6 +575,7 @@ Main constructor options:
 | `filter(criteria)`       | Filter using stored dataset (supports nested field criteria)               |
 | `filter(data, criteria)` | Filter with an explicit dataset                                            |
 | `getOriginData()`        | Get the original stored dataset                                            |
+| `add(items)`             | Append multiple items to the stored dataset                                |
 | `data(data)`             | Replace stored dataset, rebuild configured indexes, and reset filter state |
 | `resetFilterState()`     | Reset previous-result state for sequential filtering                       |
 | `clearIndexes()`         | Free all index memory (including nested indexes)                           |
@@ -512,6 +591,7 @@ Sort methods return plain arrays.
 | `sort(descriptors)`                 | Sort using stored dataset                             |
 | `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                         |
 | `getOriginData()`                   | Get the original stored dataset                       |
+| `add(items)`                        | Append multiple items to the stored dataset           |
 | `data(data)`                        | Replace stored dataset and rebuild configured indexes |
 | `clearIndexes()`                    | Free all cached indexes                               |
 | `clearData()`                       | Clear stored data                                     |

@@ -36,6 +36,14 @@ export class MergeEngines<T extends CollectionItem> {
     Record<MergeModuleName, () => unknown>
   >;
 
+  private readonly addMethods: Partial<
+    Record<MergeModuleName, (items: T[], appendToDataset?: boolean) => unknown>
+  >;
+
+  private readonly getOriginDataMethods: Partial<
+    Record<MergeModuleName, () => T[]>
+  >;
+
   private readonly setDataMethods: Partial<
     Record<MergeModuleName, (data: T[]) => unknown>
   >;
@@ -80,6 +88,7 @@ export class MergeEngines<T extends CollectionItem> {
       return this.filter(dataOrCriteria as T[], criteria);
     },
     getOriginData: () => this.getOriginData(),
+    add: (items) => this.add(items),
     data: (data) => this.data(data),
     clearIndexes: (module) => this.clearIndexes(module),
     clearData: (module) => this.clearData(module),
@@ -99,6 +108,14 @@ export class MergeEngines<T extends CollectionItem> {
     const clearIndexMethods: Partial<Record<MergeModuleName, () => unknown>> =
       {};
     const clearDataMethods: Partial<Record<MergeModuleName, () => unknown>> =
+      {};
+    const addMethods: Partial<
+      Record<
+        MergeModuleName,
+        (items: T[], appendToDataset?: boolean) => unknown
+      >
+    > = {};
+    const getOriginDataMethods: Partial<Record<MergeModuleName, () => T[]>> =
       {};
     const setDataMethods: Partial<
       Record<MergeModuleName, (data: T[]) => unknown>
@@ -143,6 +160,10 @@ export class MergeEngines<T extends CollectionItem> {
         moduleAdapter.clearIndexes();
       clearDataMethods[moduleAdapter.moduleName] = () =>
         moduleAdapter.clearData();
+      addMethods[moduleAdapter.moduleName] = (items, appendToDataset) =>
+        moduleAdapter.add(items, appendToDataset);
+      getOriginDataMethods[moduleAdapter.moduleName] = () =>
+        moduleAdapter.getOriginData();
       setDataMethods[moduleAdapter.moduleName] = (nextData) =>
         moduleAdapter.data(nextData);
       getOriginDataMethod ??= () => moduleAdapter.getOriginData();
@@ -153,6 +174,8 @@ export class MergeEngines<T extends CollectionItem> {
     this.filterModule = filterModule;
     this.clearIndexMethods = clearIndexMethods;
     this.clearDataMethods = clearDataMethods;
+    this.addMethods = addMethods;
+    this.getOriginDataMethods = getOriginDataMethods;
     this.setDataMethods = setDataMethods;
     this.getOriginDataMethod = getOriginDataMethod;
   }
@@ -335,6 +358,37 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     throw MergeEnginesError.unavailableGetOriginData();
+  }
+
+  add(items: T[]): this {
+    if (items.length === 0) {
+      return this;
+    }
+
+    const moduleNames: MergeModuleName[] = ["search", "sort", "filter"];
+    const appendedDatasets = new Set<T[]>();
+
+    this.clearOperationState();
+
+    for (const moduleName of moduleNames) {
+      const addMethod = this.addMethods[moduleName];
+      const getOriginDataMethod = this.getOriginDataMethods[moduleName];
+      if (!addMethod) {
+        continue;
+      }
+
+      const currentDataset = getOriginDataMethod?.();
+      const appendToDataset =
+        currentDataset === undefined || !appendedDatasets.has(currentDataset);
+
+      addMethod(items, appendToDataset);
+
+      if (currentDataset !== undefined) {
+        appendedDatasets.add(currentDataset);
+      }
+    }
+
+    return this;
   }
 
   clearIndexes(module: MergeModuleName): this {

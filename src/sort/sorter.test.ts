@@ -102,6 +102,41 @@ describe("SortEngine", () => {
     expect(engine.getOriginData()).toEqual([]);
   });
 
+  it("add() appends items and refreshes cached single-field sorting lazily", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
+
+    engine.sort([{ field: "age", direction: "asc" }]);
+    engine.add([{ id: 5, name: "Zara", city: "Dnipro", age: 20 }]);
+
+    expect(
+      engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([5, 2, 3, 1, 4]);
+  });
+
+  it("add() treats an empty batch as a no-op", () => {
+    const engine = new SortEngine<User>({ data: users, fields: ["age"] });
+
+    engine.add([]);
+
+    expect(engine.getOriginData()).toBe(users);
+    expect(
+      engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([2, 3, 1, 4]);
+  });
+
+  it("add() keeps sorting correct after indexes were cleared", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
+
+    engine.clearIndexes();
+    engine.add([{ id: 5, name: "Zara", city: "Dnipro", age: 20 }]);
+
+    expect(
+      engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([5, 2, 3, 1, 4]);
+  });
+
   describe("buildIndex (cached fast path)", () => {
     it("sorts asc/desc via cached index", () => {
       const engine = new SortEngine<User>({ data: users, fields: ["age"] });

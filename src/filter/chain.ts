@@ -36,6 +36,9 @@ export class FilterEngineChainBuilder<T extends CollectionItem> {
           return this.callbacks.filter(dataOrCriteria as T[], criteria);
         },
       ),
+      add: createChainMethodDescriptor((items: T[]) =>
+        this.callbacks.add(items),
+      ),
       clearIndexes: createChainMethodDescriptor(() =>
         this.callbacks.clearIndexes(),
       ),

@@ -10,6 +10,16 @@ export class Indexer<T extends CollectionItem> {
 
   private itemPositions = new Map<string, Map<any, WeakMap<T, number>>>();
 
+  addItems(items: T[]): void {
+    if (items.length === 0 || this.indexes.size === 0) {
+      return;
+    }
+
+    for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+      this.addItem(items[itemIndex]);
+    }
+  }
+
   /**
    * Builds an index for the given field and data.
    */
@@ -86,6 +96,12 @@ export class Indexer<T extends CollectionItem> {
     return this.indexes.has(field);
   }
 
+  addItem(item: T): void {
+    for (const field of this.indexes.keys()) {
+      this.addItemToField(field as keyof T & string, item);
+    }
+  }
+
   removeItem(item: T): void {
     for (const field of this.indexes.keys()) {
       this.removeItemFromField(field as keyof T & string, item);
@@ -138,5 +154,34 @@ export class Indexer<T extends CollectionItem> {
       indexMap.delete(fieldValue);
       fieldItemPositions.delete(fieldValue);
     }
+  }
+
+  private addItemToField(field: keyof T & string, item: T): void {
+    const fieldValue = item[field];
+    if (fieldValue === undefined || fieldValue === null) {
+      return;
+    }
+
+    const indexMap = this.indexes.get(field as string);
+    const fieldItemPositions = this.itemPositions.get(field as string);
+
+    if (!indexMap || !fieldItemPositions) {
+      return;
+    }
+
+    const bucket = indexMap.get(fieldValue);
+    const bucketItemPositions = fieldItemPositions.get(fieldValue);
+
+    if (bucket && bucketItemPositions) {
+      bucket.push(item);
+      bucketItemPositions.set(item, bucket.length - 1);
+      return;
+    }
+
+    indexMap.set(fieldValue, [item]);
+
+    const nextBucketItemPositions = new WeakMap<T, number>();
+    nextBucketItemPositions.set(item, 0);
+    fieldItemPositions.set(fieldValue, nextBucketItemPositions);
   }
 }

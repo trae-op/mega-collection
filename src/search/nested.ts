@@ -44,6 +44,16 @@ export class SearchNestedCollection<T extends CollectionItem> {
     }
   }
 
+  addItems(items: T[], startIndex: number): void {
+    if (items.length === 0 || this.ngramIndexes.size === 0) {
+      return;
+    }
+
+    for (const fieldPath of this.ngramIndexes.keys()) {
+      this.addItemsToField(fieldPath, items, startIndex);
+    }
+  }
+
   searchAllIndexedFields(
     data: T[],
     lowerQuery: string,
@@ -235,6 +245,57 @@ export class SearchNestedCollection<T extends CollectionItem> {
     }
 
     this.ngramIndexes.set(fieldPath, ngramMap);
+    this.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
+  }
+
+  private addItemsToField(
+    fieldPath: string,
+    items: T[],
+    startIndex: number,
+  ): void {
+    const descriptor = this.fieldDescriptors.get(fieldPath);
+    const ngramMap = this.ngramIndexes.get(fieldPath);
+
+    if (!descriptor || !ngramMap) {
+      return;
+    }
+
+    const normalizedFieldValues =
+      this.normalizedFieldValues.get(fieldPath) ?? [];
+    const { collectionKey, nestedKey } = descriptor;
+
+    for (let itemOffset = 0; itemOffset < items.length; itemOffset++) {
+      const item = items[itemOffset];
+      const collection = item[collectionKey];
+      if (!Array.isArray(collection)) {
+        continue;
+      }
+
+      const normalizedNestedValues: string[] = [];
+      const datasetIndex = startIndex + itemOffset;
+
+      for (
+        let nestedIndex = 0;
+        nestedIndex < collection.length;
+        nestedIndex++
+      ) {
+        const rawValue = collection[nestedIndex][nestedKey];
+        if (typeof rawValue !== "string") {
+          continue;
+        }
+
+        const lowerValue = rawValue.toLowerCase();
+        normalizedNestedValues.push(lowerValue);
+        indexLowerValue(ngramMap, lowerValue, datasetIndex);
+      }
+
+      if (normalizedNestedValues.length === 0) {
+        continue;
+      }
+
+      normalizedFieldValues[datasetIndex] = normalizedNestedValues.join("\n");
+    }
+
     this.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
   }
 }

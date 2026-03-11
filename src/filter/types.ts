@@ -5,6 +5,7 @@ export interface FilterEngineChain<T extends CollectionItem> {
   filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
   getOriginData(): T[];
+  add(items: T[]): FilterEngine<T>;
   data(data: T[]): FilterEngine<T>;
   clearIndexes(): FilterEngine<T>;
   clearData(): FilterEngine<T>;
@@ -36,6 +37,7 @@ export type FilterEngineChainCallbacks<T extends CollectionItem> = {
     criteria?: FilterCriterion<T>[],
   ) => T[] & FilterEngineChain<T>;
   getOriginData: () => T[];
+  add: (items: T[]) => FilterEngine<T>;
   data: (data: T[]) => FilterEngine<T>;
   clearIndexes: () => FilterEngine<T>;
   clearData: () => FilterEngine<T>;

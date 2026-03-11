@@ -210,6 +210,58 @@ describe("FilterEngine", () => {
     expect(engine.getOriginData()).toEqual([]);
   });
 
+  it("add() appends items to the stored dataset and keeps flat indexes in sync", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      fields: ["city", "age"],
+      filterByPreviousResult: true,
+    });
+
+    engine.filter([{ field: "city", values: ["Kyiv"] }]);
+    engine.add([
+      { id: 10, name: "Lia", city: "Kyiv", age: 28, active: true },
+      { id: 11, name: "Omar", city: "Berlin", age: 31, active: false },
+    ]);
+
+    expect(
+      engine
+        .filter([{ field: "city", values: ["Kyiv"] }])
+        .map((user) => user.id),
+    ).toEqual([1, 3, 10]);
+    expect(
+      engine.filter([{ field: "age", values: [31] }]).map((user) => user.id),
+    ).toEqual([11]);
+  });
+
+  it("add() treats an empty batch as a no-op", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({ data: dataset, fields: ["city"] });
+
+    engine.add([]);
+
+    expect(engine.getOriginData()).toBe(dataset);
+    expect(
+      engine
+        .filter([{ field: "city", values: ["Kyiv"] }])
+        .map((user) => user.id),
+    ).toEqual([1, 3]);
+  });
+
+  it("add() updates mutable exclude duplicate tracking", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      mutableExcludeField: "id",
+    });
+
+    engine.add([{ id: 1, name: "Lia", city: "Berlin", age: 28, active: true }]);
+
+    expect(() => engine.filter([{ field: "id", exclude: [1] }])).toThrow(
+      "cannot use mutable exclude on field `id` because it contains duplicate values",
+    );
+  });
+
   it("internal raw execution returns plain arrays for merge integration", () => {
     const engine = new FilterEngine<User>({
       data: users,
@@ -632,6 +684,33 @@ describe("FilterEngine — nestedFields", () => {
       { field: "orders.status", values: ["delivered"] },
     ]);
     expect(result.map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("add() updates nested indexes without rebuilding the whole dataset", () => {
+    const dataset = usersWithOrders.map((user) => ({
+      ...user,
+      orders: user.orders.map((order) => ({ ...order })),
+    }));
+    const engine = new FilterEngine<UserWithOrders>({
+      data: dataset,
+      nestedFields: ["orders.status"],
+    });
+
+    engine.add([
+      {
+        id: "10",
+        name: "Lia",
+        city: "Berlin",
+        age: 28,
+        orders: [{ id: "10", status: "shipped" }],
+      },
+    ]);
+
+    expect(
+      engine
+        .filter([{ field: "orders.status", values: ["shipped"] }])
+        .map((user) => user.id),
+    ).toEqual(["10"]);
   });
 
   describe("filterByPreviousResult with nested criteria", () => {

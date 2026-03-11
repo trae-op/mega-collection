@@ -83,4 +83,20 @@ describe("Indexer", () => {
     expect(indexer.getIndexMap("category")).toBeInstanceOf(Map);
     expect(indexer.getIndexMap("price")).toBeUndefined();
   });
+
+  it("addItems appends new items to existing indexed buckets", () => {
+    indexer.buildIndex(products, "category");
+
+    indexer.addItems([
+      { id: 6, category: "electronics", price: 120 },
+      { id: 7, category: "books", price: 15 },
+    ]);
+
+    expect(
+      indexer.getByValue("category", "electronics").map((item) => item.id),
+    ).toEqual([1, 3, 6]);
+    expect(
+      indexer.getByValue("category", "books").map((item) => item.id),
+    ).toEqual([7]);
+  });
 });
