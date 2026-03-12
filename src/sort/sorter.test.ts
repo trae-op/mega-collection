@@ -147,6 +147,26 @@ describe("SortEngine", () => {
     ).toEqual([2, 3, 1, 4]);
   });
 
+  it("update() repositions cached sorting incrementally without full rebuild", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
+    const buildIndexSpy = vi.spyOn(
+      engine as never,
+      "buildIndexForDataset" as never,
+    );
+
+    engine.update({
+      field: "id",
+      data: { id: 1, name: "Alice", city: "Kyiv", age: 18 },
+    });
+
+    expect(engine.getOriginData()).toBe(dataset);
+    expect(
+      engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([1, 2, 3, 4]);
+    expect(buildIndexSpy).not.toHaveBeenCalled();
+  });
+
   it("add() keeps sorting correct after indexes were cleared", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });

@@ -1,4 +1,9 @@
-import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
+import type {
+  CollectionItem,
+  FilterCriterion,
+  SortDescriptor,
+  UpdateDescriptor,
+} from "../types";
 import type {
   MergeEnginesChain,
   MergeEnginesChainCallbacks,
@@ -69,6 +74,9 @@ export class MergeEnginesChainBuilder<T extends CollectionItem> {
       ),
       add: createChainMethodDescriptor((items: T[]) =>
         this.callbacks.add(items),
+      ),
+      update: createChainMethodDescriptor((descriptor: UpdateDescriptor<T>) =>
+        this.callbacks.update(descriptor),
       ),
       clearIndexes: createChainMethodDescriptor((module: MergeModuleName) => {
         this.callbacks.clearIndexes(module);

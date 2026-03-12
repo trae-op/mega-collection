@@ -262,6 +262,32 @@ describe("FilterEngine", () => {
     );
   });
 
+  it("update() keeps flat indexes in sync and preserves the dataset reference", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      fields: ["city", "age"],
+      filterByPreviousResult: true,
+    });
+
+    engine.filter([{ field: "city", values: ["Kyiv"] }]);
+    engine.update({
+      field: "id",
+      data: { id: 2, name: "Bob", city: "Kyiv", age: 26, active: true },
+    });
+
+    expect(engine.getOriginData()).toBe(dataset);
+    expect(
+      engine
+        .filter([{ field: "city", values: ["Kyiv"] }])
+        .map((user) => user.id)
+        .sort((left, right) => left - right),
+    ).toEqual([1, 2, 3]);
+    expect(
+      engine.filter([{ field: "age", values: [26] }]).map((user) => user.id),
+    ).toEqual([2]);
+  });
+
   it("internal raw execution returns plain arrays for merge integration", () => {
     const engine = new FilterEngine<User>({
       data: users,

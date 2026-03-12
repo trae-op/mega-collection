@@ -3,10 +3,19 @@
  * using n-gram indexing and intersection.
  */
 
-import { CollectionItem } from "../types";
+import { State } from "../State";
+import {
+  CollectionItem,
+  type StateMutation,
+  type UpdateDescriptor,
+} from "../types";
 import type { TextSearchEngineOptions } from "./types";
 import { TextSearchEngineError } from "./errors";
-import { buildIntersectionQueryGrams, indexLowerValue } from "./ngram";
+import {
+  buildIntersectionQueryGrams,
+  indexLowerValue,
+  removeLowerValue,
+} from "./ngram";
 import { SearchNestedCollection } from "./nested";
 
 export class TextSearchEngine<T extends CollectionItem> {
@@ -15,6 +24,8 @@ export class TextSearchEngine<T extends CollectionItem> {
   private normalizedFieldValues = new Map<string, string[]>();
 
   private dataset: T[] = [];
+
+  private readonly state: State<T>;
 
   private readonly indexedFields = new Set<keyof T & string>();
 
@@ -25,13 +36,12 @@ export class TextSearchEngine<T extends CollectionItem> {
   /**
    * Creates a new TextSearchEngine with optional data and fields to index.
    */
-  constructor(options: TextSearchEngineOptions<T> = {}) {
+  constructor(options: TextSearchEngineOptions<T> & { state?: State<T> } = {}) {
     this.minQueryLength = options.minQueryLength ?? 1;
     this.nestedCollection.registerFields(options.nestedFields);
-
-    if (!options.data) return;
-
-    this.dataset = options.data;
+    this.state = options.state ?? new State(options.data ?? []);
+    this.dataset = this.state.getOriginData();
+    this.state.subscribe((mutation) => this.handleStateMutation(mutation));
 
     const hasFields = options.fields?.length;
     const hasNestedFields = this.nestedCollection.hasRegisteredFields();
@@ -42,7 +52,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       }
     }
 
-    if (hasFields || hasNestedFields) {
+    if (this.dataset.length > 0 && (hasFields || hasNestedFields)) {
       this.rebuildConfiguredIndexes();
     }
   }
@@ -335,17 +345,22 @@ export class TextSearchEngine<T extends CollectionItem> {
   }
 
   getOriginData(): T[] {
-    return this.dataset;
+    return this.state.getOriginData();
   }
 
   data(data: T[]): this {
-    this.dataset = data;
-    this.rebuildConfiguredIndexes();
+    this.state.data(data);
     return this;
   }
 
   add(items: T[]): this {
-    return this.applyAddedItems(items, true);
+    this.state.add(items);
+    return this;
+  }
+
+  update(descriptor: UpdateDescriptor<T>): this {
+    this.state.update(descriptor);
+    return this;
   }
 
   private applyAddedItems(items: T[], appendToDataset: boolean): this {
@@ -370,11 +385,41 @@ export class TextSearchEngine<T extends CollectionItem> {
   }
 
   clearData(): this {
-    this.dataset = [];
-    this.ngramIndexes.clear();
-    this.normalizedFieldValues.clear();
-    this.nestedCollection.clearIndexes();
+    this.state.clearData();
     return this;
+  }
+
+  private handleStateMutation(mutation: StateMutation<T>): void {
+    switch (mutation.type) {
+      case "add":
+        this.applyAddedItems(mutation.items, false);
+        return;
+      case "update":
+        this.applyUpdatedItem(
+          mutation.index,
+          mutation.previousItem,
+          mutation.nextItem,
+        );
+        return;
+      case "data":
+        this.dataset = mutation.data;
+        this.rebuildConfiguredIndexes();
+        return;
+      case "clearData":
+        this.dataset = mutation.data;
+        this.ngramIndexes.clear();
+        this.normalizedFieldValues.clear();
+        this.nestedCollection.clearIndexes();
+        return;
+      case "remove":
+        this.applyRemovedItem(
+          mutation.removedItem,
+          mutation.removedIndex,
+          mutation.movedItem,
+          mutation.movedFromIndex,
+        );
+        return;
+    }
   }
 
   private addItemsToField(
@@ -403,5 +448,140 @@ export class TextSearchEngine<T extends CollectionItem> {
     }
 
     this.normalizedFieldValues.set(field as string, normalizedValues);
+  }
+
+  private applyUpdatedItem(index: number, previousItem: T, nextItem: T): void {
+    for (const field of this.indexedFields) {
+      this.updateIndexedField(field, index, previousItem, nextItem);
+    }
+
+    this.nestedCollection.updateItem(nextItem, previousItem, index);
+  }
+
+  private applyRemovedItem(
+    removedItem: T,
+    removedIndex: number,
+    movedItem: T | null,
+    movedFromIndex: number | null,
+  ): void {
+    for (const field of this.indexedFields) {
+      this.removeIndexedFieldValue(field, removedItem, removedIndex);
+
+      if (movedItem !== null && movedFromIndex !== null) {
+        this.moveIndexedFieldValue(
+          field,
+          movedItem,
+          movedFromIndex,
+          removedIndex,
+        );
+      }
+    }
+
+    this.nestedCollection.removeItem(removedItem, removedIndex);
+
+    if (movedItem !== null && movedFromIndex !== null) {
+      this.nestedCollection.moveItem(movedItem, movedFromIndex, removedIndex);
+    }
+  }
+
+  private updateIndexedField(
+    field: keyof T & string,
+    itemIndex: number,
+    previousItem: T,
+    nextItem: T,
+  ): void {
+    const ngramMap = this.ngramIndexes.get(field as string);
+
+    if (!ngramMap) {
+      return;
+    }
+
+    const normalizedValues =
+      this.normalizedFieldValues.get(field as string) ?? [];
+    const previousLowerValue = this.getNormalizedFieldValue(
+      previousItem,
+      field,
+    );
+
+    if (previousLowerValue) {
+      removeLowerValue(ngramMap, previousLowerValue, itemIndex);
+    }
+
+    const nextLowerValue = this.getNormalizedFieldValue(nextItem, field);
+
+    if (!nextLowerValue) {
+      delete normalizedValues[itemIndex];
+      this.normalizedFieldValues.set(field as string, normalizedValues);
+      return;
+    }
+
+    normalizedValues[itemIndex] = nextLowerValue;
+    indexLowerValue(ngramMap, nextLowerValue, itemIndex);
+    this.normalizedFieldValues.set(field as string, normalizedValues);
+  }
+
+  private removeIndexedFieldValue(
+    field: keyof T & string,
+    item: T,
+    itemIndex: number,
+  ): void {
+    const ngramMap = this.ngramIndexes.get(field as string);
+
+    if (!ngramMap) {
+      return;
+    }
+
+    const normalizedValues =
+      this.normalizedFieldValues.get(field as string) ?? [];
+    const lowerValue = this.getNormalizedFieldValue(item, field);
+
+    if (lowerValue) {
+      removeLowerValue(ngramMap, lowerValue, itemIndex);
+    }
+
+    delete normalizedValues[itemIndex];
+    this.normalizedFieldValues.set(field as string, normalizedValues);
+  }
+
+  private moveIndexedFieldValue(
+    field: keyof T & string,
+    item: T,
+    fromIndex: number,
+    toIndex: number,
+  ): void {
+    if (fromIndex === toIndex) {
+      return;
+    }
+
+    const ngramMap = this.ngramIndexes.get(field as string);
+
+    if (!ngramMap) {
+      return;
+    }
+
+    const normalizedValues =
+      this.normalizedFieldValues.get(field as string) ?? [];
+    const lowerValue =
+      normalizedValues[fromIndex] ?? this.getNormalizedFieldValue(item, field);
+
+    if (!lowerValue) {
+      delete normalizedValues[fromIndex];
+      this.normalizedFieldValues.set(field as string, normalizedValues);
+      return;
+    }
+
+    removeLowerValue(ngramMap, lowerValue, fromIndex);
+    indexLowerValue(ngramMap, lowerValue, toIndex);
+    normalizedValues[toIndex] = lowerValue;
+    delete normalizedValues[fromIndex];
+    this.normalizedFieldValues.set(field as string, normalizedValues);
+  }
+
+  private getNormalizedFieldValue(
+    item: T,
+    field: keyof T & string,
+  ): string | null {
+    const rawValue = item[field];
+    return typeof rawValue === "string" ? rawValue.toLowerCase() : null;
   }
 }

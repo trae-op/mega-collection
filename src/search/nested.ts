@@ -1,5 +1,5 @@
 import { CollectionItem } from "../types";
-import { indexLowerValue } from "./ngram";
+import { indexLowerValue, removeLowerValue } from "./ngram";
 import type { NestedFieldDescriptor } from "./types";
 
 export class SearchNestedCollection<T extends CollectionItem> {
@@ -51,6 +51,36 @@ export class SearchNestedCollection<T extends CollectionItem> {
 
     for (const fieldPath of this.ngramIndexes.keys()) {
       this.addItemsToField(fieldPath, items, startIndex);
+    }
+  }
+
+  updateItem(item: T, previousItem: T, itemIndex: number): void {
+    if (this.ngramIndexes.size === 0) {
+      return;
+    }
+
+    for (const fieldPath of this.ngramIndexes.keys()) {
+      this.updateItemInField(fieldPath, item, previousItem, itemIndex);
+    }
+  }
+
+  removeItem(item: T, itemIndex: number): void {
+    if (this.ngramIndexes.size === 0) {
+      return;
+    }
+
+    for (const fieldPath of this.ngramIndexes.keys()) {
+      this.removeItemFromField(fieldPath, item, itemIndex);
+    }
+  }
+
+  moveItem(item: T, fromIndex: number, toIndex: number): void {
+    if (this.ngramIndexes.size === 0 || fromIndex === toIndex) {
+      return;
+    }
+
+    for (const fieldPath of this.ngramIndexes.keys()) {
+      this.moveItemForField(fieldPath, item, fromIndex, toIndex);
     }
   }
 
@@ -297,5 +327,125 @@ export class SearchNestedCollection<T extends CollectionItem> {
     }
 
     this.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
+  }
+
+  private updateItemInField(
+    fieldPath: string,
+    item: T,
+    previousItem: T,
+    itemIndex: number,
+  ): void {
+    const ngramMap = this.ngramIndexes.get(fieldPath);
+    const normalizedFieldValues =
+      this.normalizedFieldValues.get(fieldPath) ?? [];
+
+    if (!ngramMap) {
+      return;
+    }
+
+    const previousNormalizedValue = this.getNormalizedItemValue(
+      fieldPath,
+      previousItem,
+    );
+
+    if (previousNormalizedValue) {
+      removeLowerValue(ngramMap, previousNormalizedValue, itemIndex);
+    }
+
+    const nextNormalizedValue = this.getNormalizedItemValue(fieldPath, item);
+
+    if (!nextNormalizedValue) {
+      delete normalizedFieldValues[itemIndex];
+      this.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
+      return;
+    }
+
+    normalizedFieldValues[itemIndex] = nextNormalizedValue;
+    indexLowerValue(ngramMap, nextNormalizedValue, itemIndex);
+    this.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
+  }
+
+  private removeItemFromField(
+    fieldPath: string,
+    item: T,
+    itemIndex: number,
+  ): void {
+    const ngramMap = this.ngramIndexes.get(fieldPath);
+    const normalizedFieldValues =
+      this.normalizedFieldValues.get(fieldPath) ?? [];
+
+    if (!ngramMap) {
+      return;
+    }
+
+    const normalizedValue = this.getNormalizedItemValue(fieldPath, item);
+
+    if (normalizedValue) {
+      removeLowerValue(ngramMap, normalizedValue, itemIndex);
+    }
+
+    delete normalizedFieldValues[itemIndex];
+    this.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
+  }
+
+  private moveItemForField(
+    fieldPath: string,
+    item: T,
+    fromIndex: number,
+    toIndex: number,
+  ): void {
+    const ngramMap = this.ngramIndexes.get(fieldPath);
+    const normalizedFieldValues =
+      this.normalizedFieldValues.get(fieldPath) ?? [];
+
+    if (!ngramMap) {
+      return;
+    }
+
+    const normalizedValue =
+      normalizedFieldValues[fromIndex] ??
+      this.getNormalizedItemValue(fieldPath, item);
+
+    if (!normalizedValue) {
+      delete normalizedFieldValues[fromIndex];
+      this.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
+      return;
+    }
+
+    removeLowerValue(ngramMap, normalizedValue, fromIndex);
+    indexLowerValue(ngramMap, normalizedValue, toIndex);
+    normalizedFieldValues[toIndex] = normalizedValue;
+    delete normalizedFieldValues[fromIndex];
+    this.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
+  }
+
+  private getNormalizedItemValue(fieldPath: string, item: T): string | null {
+    const descriptor = this.fieldDescriptors.get(fieldPath);
+    if (!descriptor) {
+      return null;
+    }
+
+    const { collectionKey, nestedKey } = descriptor;
+    const collection = item[collectionKey];
+    if (!Array.isArray(collection)) {
+      return null;
+    }
+
+    const normalizedNestedValues: string[] = [];
+
+    for (let nestedIndex = 0; nestedIndex < collection.length; nestedIndex++) {
+      const rawValue = collection[nestedIndex][nestedKey];
+      if (typeof rawValue !== "string") {
+        continue;
+      }
+
+      normalizedNestedValues.push(rawValue.toLowerCase());
+    }
+
+    if (normalizedNestedValues.length === 0) {
+      return null;
+    }
+
+    return normalizedNestedValues.join("\n");
   }
 }

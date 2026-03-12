@@ -15,6 +15,7 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 - [Quick Start](#quick-start) – basic usage examples
   - [All-in-one: `MergeEngines`](#all-in-one-mergeengines) – use search, filter, and sort from one engine
   - [Add items with `add([])`](#add-items-with-add) – append multiple items to stored data
+  - [Update items with `update(...)`](#update-items-with-update) – replace one stored item by unique field
   - [Search only](#search-only) – use only text search
     - [Flat collections search](#flat-collections-search) – search simple fields like `name` or `city`
     - [Nested collections search](#nested-collections-search) – search inside nested arrays like `orders.status`
@@ -255,6 +256,56 @@ sortEngine.add([
 
 ---
 
+### Update items with `update(...)`
+
+Use `update(...)` when you need to replace one stored item by a unique field such as `id`.
+
+- `update(...)` keeps the same stored array reference.
+- `update(...)` replaces only the matched item in stored data.
+- configured indexes or caches refresh only the affected item instead of rebuilding the whole dataset.
+
+```ts
+import { MergeEngines } from "@devisfuture/mega-collection";
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+import { SortEngine } from "@devisfuture/mega-collection/sort";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const merge = new MergeEngines<User>({
+  imports: [TextSearchEngine, SortEngine, FilterEngine],
+  data: users,
+  search: { fields: ["name", "city"], minQueryLength: 2 },
+  filter: { fields: ["city", "age"] },
+  sort: { fields: ["age", "name"] },
+});
+
+merge.update({
+  field: "id",
+  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+});
+
+merge.search("Paris");
+merge.filter([{ field: "city", values: ["Paris"] }]);
+merge.sort([{ field: "age", direction: "asc" }]);
+```
+
+The same method works in each engine:
+
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+
+const searchEngine = new TextSearchEngine<User>({
+  data: users,
+  fields: ["name", "city"],
+});
+
+searchEngine.update({
+  field: "id",
+  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+});
+```
+
+---
+
 ### Search only
 
 Use `TextSearchEngine` when you only need text search.
@@ -282,6 +333,12 @@ engine.search("name", "john"); // searches a specific field
 
 // replace dataset without re-initializing
 engine.data(users);
+
+// replace one stored item by unique field
+engine.update({
+  field: "id",
+  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+});
 
 // access original dataset stored in the engine
 engine.getOriginData();
@@ -334,6 +391,12 @@ engine.filter([
 
 // Replace dataset without creating a new engine.
 engine.data(users);
+
+// Replace one stored item by unique field.
+engine.update({
+  field: "id",
+  data: { id: 2, name: "Bob", city: "Paris", age: 19, active: true },
+});
 
 // Get original stored dataset.
 engine.getOriginData();
@@ -487,6 +550,12 @@ engine.sort([{ field: "age", direction: "asc" }]);
 // replace dataset without re-initializing
 engine.data(users);
 
+// replace one stored item by unique field
+engine.update({
+  field: "id",
+  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+});
+
 // access original dataset stored in the engine
 engine.getOriginData();
 
@@ -531,9 +600,10 @@ One class that combines search, filter, and sort for the same dataset.
 | `filter(data, criteria)`            | Filter with an explicit dataset                                                                                            |
 | `getOriginData()`                   | Get the shared original dataset                                                                                            |
 | `add(items)`                        | Append multiple items to the stored dataset and update existing indexes or caches for new items only                       |
+| `update({ field, data })`           | Replace one stored item by a unique field and refresh only the affected cached or indexed data                             |
 | `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
-| `clearData(module)`                 | Clear stored data for one module (`"search"`, `"sort"`, `"filter"`)                                                        |
+| `clearData(module)`                 | Clear the shared stored dataset through one imported module (`"search"`, `"sort"`, `"filter"`)                             |
 
 If `filter.mutableExcludeField` is configured, `filter([{ field, exclude }])` on that field removes items from the stored filter dataset with swap-pop.
 This changes the stored filter dataset and does not preserve order.
@@ -546,15 +616,16 @@ Text search engine.
 It supports `nestedFields` if you need to search inside nested collections such as `["orders.status"]`.
 Search methods return plain arrays.
 
-| Method                 | Description                                                |
-| ---------------------- | ---------------------------------------------------------- |
-| `search(query)`        | Search all indexed fields (including nested), deduplicated |
-| `search(field, query)` | Search a specific indexed field or nested field path       |
-| `getOriginData()`      | Get the original stored dataset                            |
-| `add(items)`           | Append multiple items to the stored dataset                |
-| `data(data)`           | Replace stored dataset and rebuild configured indexes      |
-| `clearIndexes()`       | Clear n-gram indexes (including nested)                    |
-| `clearData()`          | Clear stored data                                          |
+| Method                    | Description                                                |
+| ------------------------- | ---------------------------------------------------------- |
+| `search(query)`           | Search all indexed fields (including nested), deduplicated |
+| `search(field, query)`    | Search a specific indexed field or nested field path       |
+| `getOriginData()`         | Get the original stored dataset                            |
+| `add(items)`              | Append multiple items to the stored dataset                |
+| `update({ field, data })` | Replace one stored item by a unique field                  |
+| `data(data)`              | Replace stored dataset and rebuild configured indexes      |
+| `clearIndexes()`          | Clear n-gram indexes (including nested)                    |
+| `clearData()`             | Clear stored data                                          |
 
 ### `FilterEngine<T>` (filter module)
 
@@ -570,16 +641,17 @@ Main constructor options:
 | `mutableExcludeField`    | `string`   | Optional field for removing items from stored data with swap-pop. This changes the stored dataset and does not preserve order.     |
 | `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                               |
 
-| Method                   | Description                                                                |
-| ------------------------ | -------------------------------------------------------------------------- |
-| `filter(criteria)`       | Filter using stored dataset (supports nested field criteria)               |
-| `filter(data, criteria)` | Filter with an explicit dataset                                            |
-| `getOriginData()`        | Get the original stored dataset                                            |
-| `add(items)`             | Append multiple items to the stored dataset                                |
-| `data(data)`             | Replace stored dataset, rebuild configured indexes, and reset filter state |
-| `resetFilterState()`     | Reset previous-result state for sequential filtering                       |
-| `clearIndexes()`         | Free all index memory (including nested indexes)                           |
-| `clearData()`            | Clear stored data                                                          |
+| Method                    | Description                                                                |
+| ------------------------- | -------------------------------------------------------------------------- |
+| `filter(criteria)`        | Filter using stored dataset (supports nested field criteria)               |
+| `filter(data, criteria)`  | Filter with an explicit dataset                                            |
+| `getOriginData()`         | Get the original stored dataset                                            |
+| `add(items)`              | Append multiple items to the stored dataset                                |
+| `update({ field, data })` | Replace one stored item by a unique field                                  |
+| `data(data)`              | Replace stored dataset, rebuild configured indexes, and reset filter state |
+| `resetFilterState()`      | Reset previous-result state for sequential filtering                       |
+| `clearIndexes()`          | Free all index memory (including nested indexes)                           |
+| `clearData()`             | Clear stored data                                                          |
 
 ### `SortEngine<T>` (sort module)
 
@@ -592,6 +664,7 @@ Sort methods return plain arrays.
 | `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                         |
 | `getOriginData()`                   | Get the original stored dataset                       |
 | `add(items)`                        | Append multiple items to the stored dataset           |
+| `update({ field, data })`           | Replace one stored item by a unique field             |
 | `data(data)`                        | Replace stored dataset and rebuild configured indexes |
 | `clearIndexes()`                    | Free all cached indexes                               |
 | `clearData()`                       | Clear stored data                                     |
@@ -611,6 +684,7 @@ import type {
   FilterCriterion,
   SortDescriptor,
   SortDirection,
+  UpdateDescriptor,
   MergeEnginesOptions,
 } from "@devisfuture/mega-collection";
 ```

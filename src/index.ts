@@ -1,6 +1,3 @@
-export { TextSearchEngine } from "./search/text-search";
-export { FilterEngine } from "./filter/filter";
-export { SortEngine } from "./sort/sorter";
 export { MergeEngines } from "./merge";
 
 export type {
@@ -17,4 +14,5 @@ export type {
   SortDescriptor,
   SortDirection,
   IndexableKey,
+  UpdateDescriptor,
 } from "./types";

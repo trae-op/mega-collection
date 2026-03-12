@@ -359,6 +359,33 @@ describe("MergeEngines", () => {
     ).toEqual([10, 1, 4, 2, 3, 5, 11]);
   });
 
+  it("update() refreshes all imported modules against the shared dataset", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: dataset,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"], filterByPreviousResult: true },
+    });
+
+    merge.update({
+      field: "id",
+      data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+    });
+
+    expect(merge.getOriginData()).toBe(dataset);
+    expect(merge.search("Paris").map((user) => user.id)).toEqual([2]);
+    expect(
+      merge
+        .filter([{ field: "city", values: ["Paris"] }])
+        .map((user) => user.id),
+    ).toEqual([2]);
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([2, 1, 4, 3, 5]);
+  });
+
   it("getOriginData() returns shared origin dataset", () => {
     const merge = new MergeEngines<User>({
       imports: [TextSearchEngine, SortEngine, FilterEngine],

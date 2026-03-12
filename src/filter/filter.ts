@@ -3,7 +3,14 @@
  * supporting indexed lookups and linear scans for large datasets.
  */
 
-import { CollectionItem, FilterCriterion } from "../types";
+import { State } from "../State";
+import {
+  CollectionItem,
+  FilterCriterion,
+  type IndexableKey,
+  type StateMutation,
+  type UpdateDescriptor,
+} from "../types";
 import { Indexer } from "../indexer";
 import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
 import type { FilterEngineOptions } from "./types";
@@ -24,7 +31,13 @@ export class FilterEngine<T extends CollectionItem> {
 
   private dataset: T[] = [];
 
+  private readonly state: State<T>;
+
   private readonly datasetPositions = new Map<any, number>();
+
+  private readonly mutableExcludeValueCounts = new Map<any, number>();
+
+  private duplicateMutableExcludeValueCount = 0;
 
   private hasDuplicateMutableExcludeValues = false;
 
@@ -50,6 +63,7 @@ export class FilterEngine<T extends CollectionItem> {
     },
     getOriginData: () => this.getOriginData(),
     add: (items) => this.add(items),
+    update: (descriptor) => this.update(descriptor),
     data: (data) => this.data(data),
     clearIndexes: () => this.clearIndexes(),
     clearData: () => this.clearData(),
@@ -59,15 +73,14 @@ export class FilterEngine<T extends CollectionItem> {
   /**
    * Creates a new FilterEngine with optional data and fields to index.
    */
-  constructor(options: FilterEngineOptions<T> = {}) {
+  constructor(options: FilterEngineOptions<T> & { state?: State<T> } = {}) {
     this.indexer = new Indexer<T>();
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
     this.mutableExcludeField = options.mutableExcludeField ?? null;
     this.nestedCollection.registerFields(options.nestedFields);
-
-    if (!options.data) return;
-
-    this.dataset = options.data;
+    this.state = options.state ?? new State(options.data ?? []);
+    this.dataset = this.state.getOriginData();
+    this.state.subscribe((mutation) => this.handleStateMutation(mutation));
     this.rebuildMutableExcludeState();
 
     const hasFields = options.fields?.length;
@@ -79,7 +92,7 @@ export class FilterEngine<T extends CollectionItem> {
       }
     }
 
-    if (hasFields || hasNestedFields) {
+    if (this.dataset.length > 0 && (hasFields || hasNestedFields)) {
       this.rebuildConfiguredIndexes();
     }
   }
@@ -137,25 +150,23 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   clearData(): this {
-    this.dataset = [];
-    this.datasetPositions.clear();
-    this.hasDuplicateMutableExcludeValues = false;
-    this.indexer.clear();
-    this.nestedCollection.clearIndexes();
-    this.resetFilterState();
+    this.state.clearData();
     return this;
   }
 
   data(data: T[]): this {
-    this.dataset = data;
-    this.rebuildMutableExcludeState();
-    this.resetFilterState();
-    this.rebuildConfiguredIndexes();
+    this.state.data(data);
     return this;
   }
 
   add(items: T[]): this {
-    return this.applyAddedItems(items, true);
+    this.state.add(items);
+    return this;
+  }
+
+  update(descriptor: UpdateDescriptor<T>): this {
+    this.state.update(descriptor);
+    return this;
   }
 
   private applyAddedItems(items: T[], appendToDataset: boolean): this {
@@ -179,7 +190,7 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   getOriginData(): T[] {
-    return this.dataset;
+    return this.state.getOriginData();
   }
 
   /**
@@ -448,9 +459,45 @@ export class FilterEngine<T extends CollectionItem> {
     return this.chainBuilder.create(result);
   }
 
+  private handleStateMutation(mutation: StateMutation<T>): void {
+    switch (mutation.type) {
+      case "add":
+        this.applyAddedItems(mutation.items, false);
+        return;
+      case "update":
+        this.applyUpdatedItem(
+          mutation.index,
+          mutation.previousItem,
+          mutation.nextItem,
+        );
+        return;
+      case "data":
+        this.dataset = mutation.data;
+        this.rebuildMutableExcludeState();
+        this.resetFilterState();
+        this.rebuildConfiguredIndexes();
+        return;
+      case "clearData":
+        this.dataset = mutation.data;
+        this.clearMutableExcludeState();
+        this.indexer.clear();
+        this.nestedCollection.clearIndexes();
+        this.resetFilterState();
+        return;
+      case "remove":
+        this.applyRemovedItem(
+          mutation.field,
+          mutation.value,
+          mutation.removedItem,
+          mutation.removedIndex,
+          mutation.movedItem,
+        );
+        return;
+    }
+  }
+
   private rebuildMutableExcludeState(): void {
-    this.datasetPositions.clear();
-    this.hasDuplicateMutableExcludeValues = false;
+    this.clearMutableExcludeState();
 
     if (this.mutableExcludeField === null) {
       return;
@@ -464,11 +511,7 @@ export class FilterEngine<T extends CollectionItem> {
         continue;
       }
 
-      if (this.datasetPositions.has(fieldValue)) {
-        this.hasDuplicateMutableExcludeValues = true;
-      }
-
-      this.datasetPositions.set(fieldValue, itemIndex);
+      this.registerMutableExcludeValue(fieldValue, itemIndex);
     }
   }
 
@@ -487,11 +530,7 @@ export class FilterEngine<T extends CollectionItem> {
         continue;
       }
 
-      if (this.datasetPositions.has(fieldValue)) {
-        this.hasDuplicateMutableExcludeValues = true;
-      }
-
-      this.datasetPositions.set(fieldValue, startIndex + itemIndex);
+      this.registerMutableExcludeValue(fieldValue, startIndex + itemIndex);
     }
   }
 
@@ -523,39 +562,125 @@ export class FilterEngine<T extends CollectionItem> {
       valueIndex < criterion.exclude.length;
       valueIndex++
     ) {
-      this.removeStoredItem(criterion.exclude[valueIndex]);
+      this.state.removeByFieldValue(
+        this.mutableExcludeField as IndexableKey<T> & string,
+        criterion.exclude[valueIndex],
+      );
     }
 
     this.resetFilterState();
     return this.dataset;
   }
 
-  private removeStoredItem(fieldValue: any): void {
-    const itemIndex = this.datasetPositions.get(fieldValue);
-    if (itemIndex === undefined) {
-      return;
-    }
+  private applyUpdatedItem(index: number, previousItem: T, nextItem: T): void {
+    this.updateMutableExcludeStateForUpdatedItem(index, previousItem, nextItem);
+    this.resetFilterState();
+    this.indexer.removeItem(previousItem);
+    this.indexer.addItem(nextItem);
+    this.nestedCollection.removeItem(previousItem);
+    this.nestedCollection.addItems([nextItem]);
+  }
 
-    const lastIndex = this.dataset.length - 1;
-    const removedItem = this.dataset[itemIndex];
-    const lastItem = this.dataset[lastIndex];
+  private applyRemovedItem(
+    field: IndexableKey<T> & string,
+    value: T[IndexableKey<T> & string],
+    removedItem: T,
+    removedIndex: number,
+    movedItem: T | null,
+  ): void {
+    if (field === this.mutableExcludeField) {
+      this.unregisterMutableExcludeValue(value);
+      this.datasetPositions.delete(value);
 
-    this.indexer.removeItem(removedItem);
-    this.nestedCollection.removeItem(removedItem);
+      if (movedItem !== null && this.mutableExcludeField !== null) {
+        const movedValue = movedItem[this.mutableExcludeField];
 
-    if (itemIndex !== lastIndex) {
-      this.dataset[itemIndex] = lastItem;
-
-      if (this.mutableExcludeField !== null) {
-        const movedValue = lastItem[this.mutableExcludeField];
         if (movedValue !== undefined && movedValue !== null) {
-          this.datasetPositions.set(movedValue, itemIndex);
+          this.datasetPositions.set(movedValue, removedIndex);
         }
       }
     }
 
-    this.dataset.pop();
-    this.datasetPositions.delete(fieldValue);
+    this.resetFilterState();
+    this.indexer.removeItem(removedItem);
+    this.nestedCollection.removeItem(removedItem);
+  }
+
+  private updateMutableExcludeStateForUpdatedItem(
+    itemIndex: number,
+    previousItem: T,
+    nextItem: T,
+  ): void {
+    if (this.mutableExcludeField === null) {
+      return;
+    }
+
+    const previousFieldValue = previousItem[this.mutableExcludeField];
+    const nextFieldValue = nextItem[this.mutableExcludeField];
+
+    if (previousFieldValue === nextFieldValue) {
+      if (nextFieldValue !== undefined && nextFieldValue !== null) {
+        this.datasetPositions.set(nextFieldValue, itemIndex);
+      }
+
+      return;
+    }
+
+    if (previousFieldValue !== undefined && previousFieldValue !== null) {
+      this.unregisterMutableExcludeValue(previousFieldValue);
+
+      if (this.datasetPositions.get(previousFieldValue) === itemIndex) {
+        this.datasetPositions.delete(previousFieldValue);
+      }
+    }
+
+    if (nextFieldValue !== undefined && nextFieldValue !== null) {
+      this.registerMutableExcludeValue(nextFieldValue, itemIndex);
+    }
+  }
+
+  private clearMutableExcludeState(): void {
+    this.datasetPositions.clear();
+    this.mutableExcludeValueCounts.clear();
+    this.duplicateMutableExcludeValueCount = 0;
+    this.hasDuplicateMutableExcludeValues = false;
+  }
+
+  private registerMutableExcludeValue(
+    fieldValue: any,
+    itemIndex: number,
+  ): void {
+    const nextCount = (this.mutableExcludeValueCounts.get(fieldValue) ?? 0) + 1;
+
+    if (nextCount === 2) {
+      this.duplicateMutableExcludeValueCount++;
+    }
+
+    this.mutableExcludeValueCounts.set(fieldValue, nextCount);
+    this.datasetPositions.set(fieldValue, itemIndex);
+    this.hasDuplicateMutableExcludeValues =
+      this.duplicateMutableExcludeValueCount > 0;
+  }
+
+  private unregisterMutableExcludeValue(fieldValue: any): void {
+    const currentCount = this.mutableExcludeValueCounts.get(fieldValue);
+
+    if (currentCount === undefined) {
+      return;
+    }
+
+    if (currentCount === 2) {
+      this.duplicateMutableExcludeValueCount--;
+    }
+
+    if (currentCount <= 1) {
+      this.mutableExcludeValueCounts.delete(fieldValue);
+    } else {
+      this.mutableExcludeValueCounts.set(fieldValue, currentCount - 1);
+    }
+
+    this.hasDuplicateMutableExcludeValues =
+      this.duplicateMutableExcludeValueCount > 0;
   }
 
   /**

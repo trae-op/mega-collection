@@ -1,4 +1,8 @@
-import type { CollectionItem, FilterCriterion } from "../types";
+import type {
+  CollectionItem,
+  FilterCriterion,
+  UpdateDescriptor,
+} from "../types";
 import type { FilterEngineChain, FilterEngineChainCallbacks } from "./types";
 
 export type { FilterEngineChain } from "./types";
@@ -38,6 +42,9 @@ export class FilterEngineChainBuilder<T extends CollectionItem> {
       ),
       add: createChainMethodDescriptor((items: T[]) =>
         this.callbacks.add(items),
+      ),
+      update: createChainMethodDescriptor((descriptor: UpdateDescriptor<T>) =>
+        this.callbacks.update(descriptor),
       ),
       clearIndexes: createChainMethodDescriptor(() =>
         this.callbacks.clearIndexes(),

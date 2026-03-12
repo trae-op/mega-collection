@@ -3,7 +3,13 @@
  * sorting, and filtering operations on collections.
  */
 
-import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
+import { State } from "../State";
+import type {
+  CollectionItem,
+  FilterCriterion,
+  SortDescriptor,
+  UpdateDescriptor,
+} from "../types";
 import { MergeEnginesChain, MergeEnginesChainBuilder } from "./chain";
 import {
   createMergeModuleAdapter,
@@ -20,6 +26,8 @@ import type {
 import { MergeEnginesError } from "./errors";
 
 export class MergeEngines<T extends CollectionItem> {
+  private readonly state: State<T>;
+
   private readonly searchModule: SearchModuleAdapter<T> | null;
 
   private readonly sortModule: SortModuleAdapter<T> | null;
@@ -30,23 +38,7 @@ export class MergeEngines<T extends CollectionItem> {
     Record<MergeModuleName, () => unknown>
   >;
 
-  private readonly clearDataMethods: Partial<
-    Record<MergeModuleName, () => unknown>
-  >;
-
-  private readonly addMethods: Partial<
-    Record<MergeModuleName, (items: T[], appendToDataset?: boolean) => unknown>
-  >;
-
-  private readonly getOriginDataMethods: Partial<
-    Record<MergeModuleName, () => T[]>
-  >;
-
-  private readonly setDataMethods: Partial<
-    Record<MergeModuleName, (data: T[]) => unknown>
-  >;
-
-  private readonly getOriginDataMethod: (() => T[]) | null;
+  private readonly importedModules = new Set<MergeModuleName>();
 
   private previousSearchState: {
     key: string;
@@ -87,6 +79,7 @@ export class MergeEngines<T extends CollectionItem> {
     },
     getOriginData: () => this.getOriginData(),
     add: (items) => this.add(items),
+    update: (descriptor) => this.update(descriptor),
     data: (data) => this.data(data),
     clearIndexes: (module) => this.clearIndexes(module),
     clearData: (module) => this.clearData(module),
@@ -98,6 +91,7 @@ export class MergeEngines<T extends CollectionItem> {
    */
   constructor(options: MergeEnginesOptions<T>) {
     const { imports, data, ...moduleOptions } = options;
+    this.state = new State(data);
 
     const importedEngines = new Set<EngineConstructor>(imports);
     let searchModule: SearchModuleAdapter<T> | null = null;
@@ -105,20 +99,6 @@ export class MergeEngines<T extends CollectionItem> {
     let filterModule: FilterModuleAdapter<T> | null = null;
     const clearIndexMethods: Partial<Record<MergeModuleName, () => unknown>> =
       {};
-    const clearDataMethods: Partial<Record<MergeModuleName, () => unknown>> =
-      {};
-    const addMethods: Partial<
-      Record<
-        MergeModuleName,
-        (items: T[], appendToDataset?: boolean) => unknown
-      >
-    > = {};
-    const getOriginDataMethods: Partial<Record<MergeModuleName, () => T[]>> =
-      {};
-    const setDataMethods: Partial<
-      Record<MergeModuleName, (data: T[]) => unknown>
-    > = {};
-    let getOriginDataMethod: (() => T[]) | null = null;
 
     for (const EngineModule of importedEngines) {
       const moduleName = resolveMergeModuleName(EngineModule);
@@ -136,6 +116,7 @@ export class MergeEngines<T extends CollectionItem> {
       const configuredModuleAdapter = createMergeModuleAdapter<T>(
         EngineModule,
         data,
+        this.state,
         currentModuleOptions,
       );
 
@@ -155,30 +136,15 @@ export class MergeEngines<T extends CollectionItem> {
         filterModule = configuredModuleAdapter;
       }
 
+      this.importedModules.add(configuredModuleAdapter.moduleName);
       clearIndexMethods[configuredModuleAdapter.moduleName] = () =>
         configuredModuleAdapter.clearIndexes();
-      clearDataMethods[configuredModuleAdapter.moduleName] = () =>
-        configuredModuleAdapter.clearData();
-      addMethods[configuredModuleAdapter.moduleName] = (
-        items,
-        appendToDataset,
-      ) => configuredModuleAdapter.add(items, appendToDataset);
-      getOriginDataMethods[configuredModuleAdapter.moduleName] = () =>
-        configuredModuleAdapter.getOriginData();
-      setDataMethods[configuredModuleAdapter.moduleName] = (nextData) =>
-        configuredModuleAdapter.data(nextData);
-      getOriginDataMethod ??= () => configuredModuleAdapter.getOriginData();
     }
 
     this.searchModule = searchModule;
     this.sortModule = sortModule;
     this.filterModule = filterModule;
     this.clearIndexMethods = clearIndexMethods;
-    this.clearDataMethods = clearDataMethods;
-    this.addMethods = addMethods;
-    this.getOriginDataMethods = getOriginDataMethods;
-    this.setDataMethods = setDataMethods;
-    this.getOriginDataMethod = getOriginDataMethod;
   }
 
   /**
@@ -245,7 +211,7 @@ export class MergeEngines<T extends CollectionItem> {
       throw MergeEnginesError.unavailableEngine("search");
     }
 
-    const originData = this.searchModule.getOriginData();
+    const originData = this.state.getOriginData();
     const cacheKey = this.createSearchCacheKey(fieldOrQuery, maybeQuery);
 
     if (
@@ -354,8 +320,8 @@ export class MergeEngines<T extends CollectionItem> {
   }
 
   getOriginData(): T[] {
-    if (this.getOriginDataMethod) {
-      return this.getOriginDataMethod();
+    if (this.importedModules.size > 0) {
+      return this.state.getOriginData();
     }
 
     throw MergeEnginesError.unavailableGetOriginData();
@@ -366,29 +332,15 @@ export class MergeEngines<T extends CollectionItem> {
       return this;
     }
 
-    const moduleNames: MergeModuleName[] = ["search", "sort", "filter"];
-    const appendedDatasets = new Set<T[]>();
-
     this.clearOperationState();
+    this.state.add(items);
 
-    for (const moduleName of moduleNames) {
-      const addMethod = this.addMethods[moduleName];
-      const getOriginDataMethod = this.getOriginDataMethods[moduleName];
-      if (!addMethod) {
-        continue;
-      }
+    return this;
+  }
 
-      const currentDataset = getOriginDataMethod?.();
-      const appendToDataset =
-        currentDataset === undefined || !appendedDatasets.has(currentDataset);
-
-      addMethod(items, appendToDataset);
-
-      if (currentDataset !== undefined) {
-        appendedDatasets.add(currentDataset);
-      }
-    }
-
+  update(descriptor: UpdateDescriptor<T>): this {
+    this.clearOperationState();
+    this.state.update(descriptor);
     return this;
   }
 
@@ -405,24 +357,15 @@ export class MergeEngines<T extends CollectionItem> {
   }
 
   data(data: T[]): this {
-    const moduleNames: MergeModuleName[] = ["search", "sort", "filter"];
-
     this.clearOperationState();
-
-    for (const moduleName of moduleNames) {
-      const setDataMethod = this.setDataMethods[moduleName];
-      if (!setDataMethod) continue;
-      setDataMethod(data);
-    }
+    this.state.data(data);
 
     return this;
   }
 
   clearData(module: MergeModuleName): this {
-    const clearMethod = this.clearDataMethods[module];
-
-    if (clearMethod) {
-      clearMethod();
+    if (this.importedModules.has(module)) {
+      this.state.clearData();
       this.clearOperationState(module);
       return this;
     }

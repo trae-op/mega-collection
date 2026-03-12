@@ -196,6 +196,29 @@ describe("TextSearchEngine", () => {
     expect(engine.search("city", "Kyiv").map((item) => item.id)).toEqual([2]);
   });
 
+  it("update() refreshes indexed flat search data without replacing the dataset", () => {
+    const dataset = cityCards.map((card) => ({ ...card }));
+    const engine = new TextSearchEngine<CardItem>({
+      data: dataset,
+      fields: ["city"],
+    });
+
+    engine.update({
+      field: "id",
+      data: {
+        id: 2,
+        title: "Daria 1",
+        description: "User from Paris",
+        tag: "Even",
+        city: "Paris",
+      },
+    });
+
+    expect(engine.getOriginData()).toBe(dataset);
+    expect(engine.search("city", "Kyiv")).toEqual([]);
+    expect(engine.search("city", "Paris").map((item) => item.id)).toEqual([2]);
+  });
+
   it("add() does not rebuild cleared indexes and keeps linear fallback working", () => {
     const dataset = cityCards.map((card) => ({ ...card }));
     const engine = new TextSearchEngine<CardItem>({

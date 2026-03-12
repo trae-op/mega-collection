@@ -1,4 +1,9 @@
-import type { CollectionItem, FilterCriterion, SortDescriptor } from "../types";
+import type {
+  CollectionItem,
+  FilterCriterion,
+  SortDescriptor,
+  UpdateDescriptor,
+} from "../types";
 import type { MergeEngines } from "./merge-engines";
 
 export type MergeModuleName = "search" | "sort" | "filter";
@@ -47,6 +52,7 @@ export interface MergeEnginesChain<T extends CollectionItem> {
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
   getOriginData(): T[];
   add(items: T[]): MergeEngines<T>;
+  update(descriptor: UpdateDescriptor<T>): MergeEngines<T>;
   data(data: T[]): MergeEngines<T>;
   clearIndexes(module: MergeModuleName): T[] & MergeEnginesChain<T>;
   clearData(module: MergeModuleName): T[] & MergeEnginesChain<T>;
@@ -92,6 +98,7 @@ export type MergeEnginesChainCallbacks<T extends CollectionItem> = {
   ) => T[] & MergeEnginesChain<T>;
   getOriginData: () => T[];
   add: (items: T[]) => MergeEngines<T>;
+  update: (descriptor: UpdateDescriptor<T>) => MergeEngines<T>;
   data: (data: T[]) => MergeEngines<T>;
   clearIndexes: (module: MergeModuleName) => MergeEngines<T>;
   clearData: (module: MergeModuleName) => MergeEngines<T>;
@@ -104,6 +111,7 @@ export type BaseModuleAdapter<T extends CollectionItem> = {
   clearData: () => unknown;
   data: (data: T[]) => unknown;
   getOriginData: () => T[];
+  update: (descriptor: UpdateDescriptor<T>) => unknown;
 };
 
 export type SearchModuleAdapter<T extends CollectionItem> =
@@ -148,6 +156,7 @@ export interface MergeBaseEngine<T extends CollectionItem> {
   clearData(): unknown;
   data(data: T[]): unknown;
   getOriginData(): T[];
+  update(descriptor: UpdateDescriptor<T>): unknown;
 }
 
 export interface MergeAppendableEngine<

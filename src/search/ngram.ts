@@ -65,3 +65,33 @@ export function indexLowerValue(
     }
   }
 }
+
+export function removeLowerValue(
+  ngramMap: Map<string, Set<number>>,
+  lowerValue: string,
+  itemIndex: number,
+): void {
+  for (
+    let startIndex = 0, lowerLength = lowerValue.length;
+    startIndex < lowerLength;
+    startIndex++
+  ) {
+    const remainingLength = lowerLength - startIndex;
+    const maxLengthAtPosition = Math.min(MAXIMUM_NGRAM_LENGTH, remainingLength);
+
+    for (let gramLength = 1; gramLength <= maxLengthAtPosition; gramLength++) {
+      const ngram = lowerValue.substring(startIndex, startIndex + gramLength);
+      const postingList = ngramMap.get(ngram);
+
+      if (!postingList) {
+        continue;
+      }
+
+      postingList.delete(itemIndex);
+
+      if (postingList.size === 0) {
+        ngramMap.delete(ngram);
+      }
+    }
+  }
+}

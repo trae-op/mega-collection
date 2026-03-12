@@ -1,3 +1,4 @@
+import type { State } from "../State";
 import type { CollectionItem } from "../types";
 import type {
   EngineConstructor,
@@ -77,9 +78,10 @@ export const resolveMergeModuleName = (
 export const createMergeModuleAdapter = <T extends CollectionItem>(
   EngineModule: EngineConstructor,
   data: T[],
+  state: State<T>,
   config: Record<string, unknown>,
 ): MergeModuleAdapter<T> | null => {
-  const engine = new EngineModule({ data, ...config });
+  const engine = new EngineModule({ data, state, ...config });
 
   if (isFilterEngine<T>(engine)) {
     return {
@@ -93,6 +95,7 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
       clearData: () => engine.clearData(),
       data: (nextData) => engine.data(nextData),
       getOriginData: () => engine.getOriginData(),
+      update: (descriptor) => engine.update(descriptor),
     };
   }
 
@@ -108,6 +111,7 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
       clearData: () => engine.clearData(),
       data: (nextData) => engine.data(nextData),
       getOriginData: () => engine.getOriginData(),
+      update: (descriptor) => engine.update(descriptor),
     };
   }
 
@@ -126,6 +130,7 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
       clearData: () => engine.clearData(),
       data: (nextData) => engine.data(nextData),
       getOriginData: () => engine.getOriginData(),
+      update: (descriptor) => engine.update(descriptor),
     };
   }
 
