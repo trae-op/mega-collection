@@ -5,13 +5,21 @@
 
 import { CollectionItem } from "./types";
 
-export class Indexer<T extends CollectionItem> {
-  private indexes = new Map<string, Map<any, T[]>>();
+export interface IndexerStorage<T extends CollectionItem> {
+  indexes: Map<string, Map<any, T[]>>;
+  itemPositions: Map<string, Map<any, WeakMap<T, number>>>;
+}
 
-  private itemPositions = new Map<string, Map<any, WeakMap<T, number>>>();
+export class Indexer<T extends CollectionItem> {
+  constructor(
+    private readonly storage: IndexerStorage<T> = {
+      indexes: new Map<string, Map<any, T[]>>(),
+      itemPositions: new Map<string, Map<any, WeakMap<T, number>>>(),
+    },
+  ) {}
 
   addItems(items: T[]): void {
-    if (items.length === 0 || this.indexes.size === 0) {
+    if (items.length === 0 || this.storage.indexes.size === 0) {
       return;
     }
 
@@ -49,15 +57,15 @@ export class Indexer<T extends CollectionItem> {
       }
     }
 
-    this.indexes.set(field as string, indexMap);
-    this.itemPositions.set(field as string, fieldItemPositions);
+    this.storage.indexes.set(field as string, indexMap);
+    this.storage.itemPositions.set(field as string, fieldItemPositions);
   }
 
   /**
    * Gets items that match the given value for the field.
    */
   getByValue(field: keyof T & string, value: any): T[] {
-    const indexMap = this.indexes.get(field as string);
+    const indexMap = this.storage.indexes.get(field as string);
     if (!indexMap) return [];
     return indexMap.get(value) ?? [];
   }
@@ -66,7 +74,7 @@ export class Indexer<T extends CollectionItem> {
    * Gets items that match any of the given values for the field.
    */
   getByValues(field: keyof T & string, values: any[]): T[] {
-    const indexMap = this.indexes.get(field as string);
+    const indexMap = this.storage.indexes.get(field as string);
     if (!indexMap) return [];
 
     if (values.length === 1) {
@@ -93,28 +101,28 @@ export class Indexer<T extends CollectionItem> {
   }
 
   hasIndex(field: string): boolean {
-    return this.indexes.has(field);
+    return this.storage.indexes.has(field);
   }
 
   addItem(item: T): void {
-    for (const field of this.indexes.keys()) {
+    for (const field of this.storage.indexes.keys()) {
       this.addItemToField(field as keyof T & string, item);
     }
   }
 
   removeItem(item: T): void {
-    for (const field of this.indexes.keys()) {
+    for (const field of this.storage.indexes.keys()) {
       this.removeItemFromField(field as keyof T & string, item);
     }
   }
 
   clear(): void {
-    this.indexes.clear();
-    this.itemPositions.clear();
+    this.storage.indexes.clear();
+    this.storage.itemPositions.clear();
   }
 
   getIndexMap(field: string): Map<any, T[]> | undefined {
-    return this.indexes.get(field);
+    return this.storage.indexes.get(field);
   }
 
   private removeItemFromField(field: keyof T & string, item: T): void {
@@ -123,8 +131,8 @@ export class Indexer<T extends CollectionItem> {
       return;
     }
 
-    const indexMap = this.indexes.get(field as string);
-    const fieldItemPositions = this.itemPositions.get(field as string);
+    const indexMap = this.storage.indexes.get(field as string);
+    const fieldItemPositions = this.storage.itemPositions.get(field as string);
     const bucket = indexMap?.get(fieldValue);
     const bucketItemPositionMap = fieldItemPositions?.get(fieldValue);
     const itemIndex = bucketItemPositionMap?.get(item);
@@ -162,8 +170,8 @@ export class Indexer<T extends CollectionItem> {
       return;
     }
 
-    const indexMap = this.indexes.get(field as string);
-    const fieldItemPositions = this.itemPositions.get(field as string);
+    const indexMap = this.storage.indexes.get(field as string);
+    const fieldItemPositions = this.storage.itemPositions.get(field as string);
 
     if (!indexMap || !fieldItemPositions) {
       return;

@@ -11,3 +11,9 @@ export interface SortEngineOptions<T extends CollectionItem = CollectionItem> {
 
   fields?: (keyof T & string)[];
 }
+
+export type SortRuntime<T extends CollectionItem> = {
+  indexedFields: Set<keyof T & string>;
+  cache: Map<string, SortIndex<T>>;
+  dirtyIndexedFields: Set<keyof T & string>;
+};

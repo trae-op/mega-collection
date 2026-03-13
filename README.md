@@ -104,12 +104,12 @@ Use `MergeEngines` when you want one class that works with one dataset.
 Add needed engines to `imports`. Only those engines will be created.
 
 You can create many engine instances in one project for different collections.
-Each instance stores its own data and indexes, so they do not affect each other.
+Each instance keeps its own dataset and runtime indexes inside an internal shared `State`, so separate instances do not affect each other.
 
 Each engine can receive an optional `fields` array through `search`, `filter`, or `sort` options.
 These fields are used for indexes.
 
-Indexes are built lazily on first use, so engine creation stays fast.
+Indexes are built lazily on first use inside that shared state, so engine creation stays fast.
 If you skip `fields`, everything still works, but the engine may scan the full array.
 
 ```ts

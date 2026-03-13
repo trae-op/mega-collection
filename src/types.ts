@@ -26,6 +26,10 @@ export type StateListener<T extends CollectionItem> = (
   mutation: StateMutation<T>,
 ) => void;
 
+export interface StateRegistryFactory<TValue> {
+  (): TValue;
+}
+
 export type StateAddMutation<T extends CollectionItem> = {
   type: "add";
   items: T[];

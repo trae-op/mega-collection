@@ -2,14 +2,22 @@ import { CollectionItem, type FilterCriterion } from "../types";
 import { resolveCriteria, type ResolvedFilterCriterion } from "./criterion";
 import type { NestedFieldDescriptor } from "./types";
 
+export interface FilterNestedCollectionStorage<T extends CollectionItem> {
+  indexes: Map<string, Map<any, T[]>>;
+  itemPositions: Map<string, Map<any, WeakMap<T, number>>>;
+}
+
 export class FilterNestedCollection<T extends CollectionItem> {
   private readonly registeredFields = new Set<string>();
 
   private readonly fieldDescriptors = new Map<string, NestedFieldDescriptor>();
 
-  private indexes = new Map<string, Map<any, T[]>>();
-
-  private itemPositions = new Map<string, Map<any, WeakMap<T, number>>>();
+  constructor(
+    private readonly storage: FilterNestedCollectionStorage<T> = {
+      indexes: new Map<string, Map<any, T[]>>(),
+      itemPositions: new Map<string, Map<any, WeakMap<T, number>>>(),
+    },
+  ) {}
 
   registerFields(fieldPaths?: readonly string[]): void {
     if (!fieldPaths?.length) return;
@@ -28,13 +36,13 @@ export class FilterNestedCollection<T extends CollectionItem> {
   }
 
   clearIndexes(): void {
-    this.indexes.clear();
-    this.itemPositions.clear();
+    this.storage.indexes.clear();
+    this.storage.itemPositions.clear();
   }
 
   buildIndexes(data: T[]): void {
-    this.indexes.clear();
-    this.itemPositions.clear();
+    this.storage.indexes.clear();
+    this.storage.itemPositions.clear();
 
     for (const fieldPath of this.registeredFields) {
       this.buildIndex(data, fieldPath);
@@ -42,7 +50,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
   }
 
   addItems(items: T[]): void {
-    if (items.length === 0 || this.indexes.size === 0) {
+    if (items.length === 0 || this.storage.indexes.size === 0) {
       return;
     }
 
@@ -52,7 +60,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
   }
 
   removeItem(item: T): void {
-    for (const fieldPath of this.indexes.keys()) {
+    for (const fieldPath of this.storage.indexes.keys()) {
       this.removeItemFromIndex(fieldPath, item);
     }
   }
@@ -77,7 +85,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
       criterionIndex++
     ) {
       const criterion = resolvedCriteria[criterionIndex];
-      if (this.indexes.has(criterion.field)) {
+      if (this.storage.indexes.has(criterion.field)) {
         indexedCriteria.push(criterion);
         continue;
       }
@@ -183,14 +191,14 @@ export class FilterNestedCollection<T extends CollectionItem> {
       }
     }
 
-    this.indexes.set(fieldPath, indexMap);
-    this.itemPositions.set(fieldPath, fieldItemPositions);
+    this.storage.indexes.set(fieldPath, indexMap);
+    this.storage.itemPositions.set(fieldPath, fieldItemPositions);
   }
 
   private removeItemFromIndex(fieldPath: string, item: T): void {
     const descriptor = this.fieldDescriptors.get(fieldPath);
-    const indexMap = this.indexes.get(fieldPath);
-    const fieldItemPositions = this.itemPositions.get(fieldPath);
+    const indexMap = this.storage.indexes.get(fieldPath);
+    const fieldItemPositions = this.storage.itemPositions.get(fieldPath);
 
     if (!descriptor || !indexMap || !fieldItemPositions) {
       return;
@@ -241,15 +249,15 @@ export class FilterNestedCollection<T extends CollectionItem> {
   }
 
   private addItem(item: T): void {
-    for (const fieldPath of this.indexes.keys()) {
+    for (const fieldPath of this.storage.indexes.keys()) {
       this.addItemToIndex(fieldPath, item);
     }
   }
 
   private addItemToIndex(fieldPath: string, item: T): void {
     const descriptor = this.fieldDescriptors.get(fieldPath);
-    const indexMap = this.indexes.get(fieldPath);
-    const fieldItemPositions = this.itemPositions.get(fieldPath);
+    const indexMap = this.storage.indexes.get(fieldPath);
+    const fieldItemPositions = this.storage.itemPositions.get(fieldPath);
 
     if (!descriptor || !indexMap || !fieldItemPositions) {
       return;
@@ -308,7 +316,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
     }
 
     if (inclusionCriteria.length === 1) {
-      const nestedIndex = this.indexes.get(inclusionCriteria[0].field);
+      const nestedIndex = this.storage.indexes.get(inclusionCriteria[0].field);
       if (!nestedIndex) return [];
 
       const matchingItems = this.getItemsByValues(
@@ -349,7 +357,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
       criterionIndex++
     ) {
       const { criterion } = estimatedCriteria[criterionIndex];
-      const nestedIndex = this.indexes.get(criterion.field);
+      const nestedIndex = this.storage.indexes.get(criterion.field);
 
       if (!nestedIndex) return [];
 
@@ -408,7 +416,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
   }
 
   private estimateIndexSize(criterion: ResolvedFilterCriterion<T>): number {
-    const indexMap = this.indexes.get(criterion.field);
+    const indexMap = this.storage.indexes.get(criterion.field);
     if (!indexMap) return Infinity;
 
     return criterion.values.reduce((totalSize, value) => {
@@ -483,7 +491,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
       criterionIndex++
     ) {
       const criterion = criteria[criterionIndex];
-      const indexMap = this.indexes.get(criterion.field);
+      const indexMap = this.storage.indexes.get(criterion.field);
       if (!indexMap) {
         continue;
       }

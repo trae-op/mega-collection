@@ -25,8 +25,29 @@ import type {
 } from "./types";
 import { MergeEnginesError } from "./errors";
 
+type MergeSearchCache<T extends CollectionItem> = {
+  key: string;
+  originData: T[];
+  result: T[];
+  version: number;
+};
+
+type MergeSortCache<T extends CollectionItem> = {
+  key: string;
+  sourceData: T[];
+  result: T[];
+  version: number;
+};
+
+type MergeRuntime<T extends CollectionItem> = {
+  previousSearchState: MergeSearchCache<T> | null;
+  previousSortState: MergeSortCache<T> | null;
+};
+
 export class MergeEngines<T extends CollectionItem> {
   private readonly state: State<T>;
+
+  private readonly namespace: string;
 
   private readonly searchModule: SearchModuleAdapter<T> | null;
 
@@ -39,18 +60,6 @@ export class MergeEngines<T extends CollectionItem> {
   >;
 
   private readonly importedModules = new Set<MergeModuleName>();
-
-  private previousSearchState: {
-    key: string;
-    originData: T[];
-    result: T[];
-  } | null = null;
-
-  private previousSortState: {
-    key: string;
-    sourceData: T[];
-    result: T[];
-  } | null = null;
 
   private readonly chainBuilder = new MergeEnginesChainBuilder<T>({
     search: (fieldOrQuery, maybeQuery) => {
@@ -92,6 +101,7 @@ export class MergeEngines<T extends CollectionItem> {
   constructor(options: MergeEnginesOptions<T>) {
     const { imports, data, ...moduleOptions } = options;
     this.state = new State(data);
+    this.namespace = this.state.createNamespace("merge");
 
     const importedEngines = new Set<EngineConstructor>(imports);
     let searchModule: SearchModuleAdapter<T> | null = null;
@@ -147,6 +157,17 @@ export class MergeEngines<T extends CollectionItem> {
     this.clearIndexMethods = clearIndexMethods;
   }
 
+  private get runtime(): MergeRuntime<T> {
+    return this.state.getOrCreateScopedValue<MergeRuntime<T>>(
+      this.namespace,
+      "runtime",
+      () => ({
+        previousSearchState: null,
+        previousSortState: null,
+      }),
+    );
+  }
+
   /**
    * Gets the initialization options for a module.
    */
@@ -176,11 +197,11 @@ export class MergeEngines<T extends CollectionItem> {
 
   private clearOperationState(module?: MergeModuleName): void {
     if (!module || module === "search") {
-      this.previousSearchState = null;
+      this.runtime.previousSearchState = null;
     }
 
     if (!module || module === "sort") {
-      this.previousSortState = null;
+      this.runtime.previousSortState = null;
     }
   }
 
@@ -212,13 +233,16 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     const originData = this.state.getOriginData();
+    const mutationVersion = this.state.getMutationVersion();
     const cacheKey = this.createSearchCacheKey(fieldOrQuery, maybeQuery);
+    const previousSearchState = this.runtime.previousSearchState;
 
     if (
-      this.previousSearchState?.originData === originData &&
-      this.previousSearchState.key === cacheKey
+      previousSearchState?.originData === originData &&
+      previousSearchState.key === cacheKey &&
+      previousSearchState.version === mutationVersion
     ) {
-      return this.withChain(this.previousSearchState.result);
+      return this.withChain(previousSearchState.result);
     }
 
     let result: T[];
@@ -232,10 +256,11 @@ export class MergeEngines<T extends CollectionItem> {
       );
     }
 
-    this.previousSearchState = {
+    this.runtime.previousSearchState = {
       key: cacheKey,
       originData,
       result,
+      version: mutationVersion,
     };
 
     return this.withChain(result);
@@ -265,13 +290,16 @@ export class MergeEngines<T extends CollectionItem> {
     const sourceData = dataOrDescriptors as T[];
 
     if (!inPlace) {
+      const mutationVersion = this.state.getMutationVersion();
       const cacheKey = this.createSortCacheKey(descriptors, inPlace);
+      const previousSortState = this.runtime.previousSortState;
 
       if (
-        this.previousSortState?.sourceData === sourceData &&
-        this.previousSortState.key === cacheKey
+        previousSortState?.sourceData === sourceData &&
+        previousSortState.key === cacheKey &&
+        previousSortState.version === mutationVersion
       ) {
-        return this.withChain(this.previousSortState.result);
+        return this.withChain(previousSortState.result);
       }
 
       const result = this.sortModule.executeSort(
@@ -280,10 +308,11 @@ export class MergeEngines<T extends CollectionItem> {
         inPlace,
       );
 
-      this.previousSortState = {
+      this.runtime.previousSortState = {
         key: cacheKey,
         sourceData,
         result,
+        version: mutationVersion,
       };
 
       return this.withChain(result);

@@ -3,16 +3,23 @@ import type {
   IndexableKey,
   StateListener,
   StateMutation,
+  StateRegistryFactory,
   UpdateDescriptor,
 } from "./types";
 
 export class State<T extends CollectionItem> {
   private originData: T[];
 
+  private mutationVersion = 0;
+
+  private namespaceSequence = 0;
+
   private readonly indexMaps = new Map<
     IndexableKey<T> & string,
     Map<any, number>
   >();
+
+  private readonly scopedRegistry = new Map<string, Map<string, unknown>>();
 
   private readonly listeners = new Set<StateListener<T>>();
 
@@ -32,8 +39,67 @@ export class State<T extends CollectionItem> {
     return this.originData;
   }
 
+  getMutationVersion(): number {
+    return this.mutationVersion;
+  }
+
+  createNamespace(prefix = "scope"): string {
+    this.namespaceSequence += 1;
+    return `${prefix}:${this.namespaceSequence}`;
+  }
+
+  getScopedValue<TValue>(namespace: string, key: string): TValue | undefined {
+    return this.scopedRegistry.get(namespace)?.get(key) as TValue | undefined;
+  }
+
+  getOrCreateScopedValue<TValue>(
+    namespace: string,
+    key: string,
+    createValue: StateRegistryFactory<TValue>,
+  ): TValue {
+    const existingValue = this.getScopedValue<TValue>(namespace, key);
+
+    if (existingValue !== undefined) {
+      return existingValue;
+    }
+
+    const scopedValues = this.getOrCreateScope(namespace);
+    const nextValue = createValue();
+    scopedValues.set(key, nextValue);
+    return nextValue;
+  }
+
+  setScopedValue<TValue>(
+    namespace: string,
+    key: string,
+    value: TValue,
+  ): TValue {
+    const scopedValues = this.getOrCreateScope(namespace);
+    scopedValues.set(key, value);
+    return value;
+  }
+
+  deleteScopedValue(namespace: string, key: string): void {
+    const scopedValues = this.scopedRegistry.get(namespace);
+
+    if (!scopedValues) {
+      return;
+    }
+
+    scopedValues.delete(key);
+
+    if (scopedValues.size === 0) {
+      this.scopedRegistry.delete(namespace);
+    }
+  }
+
+  clearScope(namespace: string): void {
+    this.scopedRegistry.delete(namespace);
+  }
+
   data(data: T[]): void {
     this.originData = data;
+    this.bumpMutationVersion();
 
     for (const field of this.indexMaps.keys()) {
       this.rebuildIndexMap(field);
@@ -49,6 +115,7 @@ export class State<T extends CollectionItem> {
 
     const startIndex = this.originData.length;
     this.originData.push(...items);
+    this.bumpMutationVersion();
 
     for (const [field, indexMap] of this.indexMaps) {
       for (let itemOffset = 0; itemOffset < items.length; itemOffset++) {
@@ -76,6 +143,7 @@ export class State<T extends CollectionItem> {
 
     const previousItem = this.originData[itemIndex];
     this.originData[itemIndex] = data;
+    this.bumpMutationVersion();
 
     for (const [indexedField, indexedFieldMap] of this.indexMaps) {
       const previousFieldValue = previousItem[indexedField];
@@ -104,6 +172,7 @@ export class State<T extends CollectionItem> {
   clearData(): void {
     const data: T[] = [];
     this.originData = data;
+    this.bumpMutationVersion();
 
     for (const indexMap of this.indexMaps.values()) {
       indexMap.clear();
@@ -130,6 +199,7 @@ export class State<T extends CollectionItem> {
     }
 
     this.originData.pop();
+    this.bumpMutationVersion();
 
     for (const [indexedField, indexedFieldMap] of this.indexMaps) {
       const removedFieldValue = removedItem[indexedField];
@@ -158,6 +228,22 @@ export class State<T extends CollectionItem> {
     for (const listener of this.listeners) {
       listener(mutation);
     }
+  }
+
+  private getOrCreateScope(namespace: string): Map<string, unknown> {
+    const existingScope = this.scopedRegistry.get(namespace);
+
+    if (existingScope) {
+      return existingScope;
+    }
+
+    const nextScope = new Map<string, unknown>();
+    this.scopedRegistry.set(namespace, nextScope);
+    return nextScope;
+  }
+
+  private bumpMutationVersion(): void {
+    this.mutationVersion += 1;
   }
 
   private getOrCreateIndexMap(

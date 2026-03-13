@@ -109,6 +109,25 @@ describe("MergeEngines", () => {
     ).toEqual([2, 5]);
   });
 
+  it("invalidates cached merge searches after mutable exclude changes the shared dataset", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, FilterEngine],
+      data: dataset,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      filter: {
+        fields: ["id", "city"],
+        mutableExcludeField: "id",
+      },
+    });
+
+    expect(merge.search("Kyiv").map((user) => user.id)).toEqual([1, 3]);
+
+    merge.filter([{ field: "id", exclude: [1] }]);
+
+    expect(merge.search("Kyiv").map((user) => user.id)).toEqual([3]);
+  });
+
   it("throws when calling a method whose engine was not imported", () => {
     const searchOnly = new MergeEngines<User>({
       imports: [TextSearchEngine],

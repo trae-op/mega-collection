@@ -1,5 +1,8 @@
+import type { IndexerStorage } from "../indexer";
 import type { CollectionItem, FilterCriterion } from "../types";
+import type { ResolvedFilterCriterion } from "./criterion";
 import type { FilterEngine } from "./filter";
+import type { FilterNestedCollectionStorage } from "./nested";
 
 export interface FilterEngineChain<T extends CollectionItem> {
   filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
@@ -46,4 +49,26 @@ export type FilterEngineChainCallbacks<T extends CollectionItem> = {
   clearIndexes: () => FilterEngine<T>;
   clearData: () => FilterEngine<T>;
   resetFilterState: () => FilterEngine<T>;
+};
+
+export type FilterSequentialCache<T extends CollectionItem> = {
+  previousResult: T[] | null;
+  previousCriteria: ResolvedFilterCriterion<T>[] | null;
+  previousBaseData: T[] | null;
+  previousResultsByCriteria: Map<string, T[]>;
+};
+
+export type MutableExcludeRuntime = {
+  datasetPositions: Map<any, number>;
+  valueCounts: Map<any, number>;
+  duplicateValueCount: number;
+  hasDuplicateValues: boolean;
+};
+
+export type FilterRuntime<T extends CollectionItem> = {
+  indexedFields: Set<keyof T & string>;
+  indexerStorage: IndexerStorage<T>;
+  nestedStorage: FilterNestedCollectionStorage<T>;
+  mutableExclude: MutableExcludeRuntime;
+  sequentialCache: FilterSequentialCache<T>;
 };

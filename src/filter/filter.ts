@@ -13,7 +13,12 @@ import {
 } from "../types";
 import { Indexer } from "../indexer";
 import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
-import type { FilterEngineOptions } from "./types";
+import type {
+  FilterEngineOptions,
+  FilterRuntime,
+  FilterSequentialCache,
+  MutableExcludeRuntime,
+} from "./types";
 import { FilterEngineError } from "./errors";
 import {
   isCriterionUnsatisfiable,
@@ -23,35 +28,41 @@ import {
 } from "./criterion";
 import { FilterNestedCollection } from "./nested";
 
+const createFilterRuntime = <T extends CollectionItem>(): FilterRuntime<T> => ({
+  indexedFields: new Set<keyof T & string>(),
+  indexerStorage: {
+    indexes: new Map<string, Map<any, T[]>>(),
+    itemPositions: new Map<string, Map<any, WeakMap<T, number>>>(),
+  },
+  nestedStorage: {
+    indexes: new Map<string, Map<any, T[]>>(),
+    itemPositions: new Map<string, Map<any, WeakMap<T, number>>>(),
+  },
+  mutableExclude: {
+    datasetPositions: new Map<any, number>(),
+    valueCounts: new Map<any, number>(),
+    duplicateValueCount: 0,
+    hasDuplicateValues: false,
+  },
+  sequentialCache: {
+    previousResult: null,
+    previousCriteria: null,
+    previousBaseData: null,
+    previousResultsByCriteria: new Map<string, T[]>(),
+  },
+});
+
 export class FilterEngine<T extends CollectionItem> {
-  private indexer: Indexer<T>;
+  private readonly indexer: Indexer<T>;
   private readonly filterByPreviousResult: boolean;
 
   private readonly mutableExcludeField: (keyof T & string) | null;
 
-  private dataset: T[] = [];
-
   private readonly state: State<T>;
 
-  private readonly datasetPositions = new Map<any, number>();
+  private readonly namespace: string;
 
-  private readonly mutableExcludeValueCounts = new Map<any, number>();
-
-  private duplicateMutableExcludeValueCount = 0;
-
-  private hasDuplicateMutableExcludeValues = false;
-
-  private readonly indexedFields = new Set<keyof T & string>();
-
-  private readonly nestedCollection = new FilterNestedCollection<T>();
-
-  private previousResult: T[] | null = null;
-
-  private previousCriteria: ResolvedFilterCriterion<T>[] | null = null;
-
-  private previousBaseData: T[] | null = null;
-
-  private readonly previousResultsByCriteria = new Map<string, T[]>();
+  private readonly nestedCollection: FilterNestedCollection<T>;
 
   private readonly chainBuilder = new FilterEngineChainBuilder<T>({
     filter: (dataOrCriteria, criteria) => {
@@ -74,12 +85,15 @@ export class FilterEngine<T extends CollectionItem> {
    * Creates a new FilterEngine with optional data and fields to index.
    */
   constructor(options: FilterEngineOptions<T> & { state?: State<T> } = {}) {
-    this.indexer = new Indexer<T>();
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
     this.mutableExcludeField = options.mutableExcludeField ?? null;
-    this.nestedCollection.registerFields(options.nestedFields);
     this.state = options.state ?? new State(options.data ?? []);
-    this.dataset = this.state.getOriginData();
+    this.namespace = this.state.createNamespace("filter");
+    this.indexer = new Indexer<T>(this.runtime.indexerStorage);
+    this.nestedCollection = new FilterNestedCollection<T>(
+      this.runtime.nestedStorage,
+    );
+    this.nestedCollection.registerFields(options.nestedFields);
     this.state.subscribe((mutation) => this.handleStateMutation(mutation));
     this.rebuildMutableExcludeState();
 
@@ -95,6 +109,30 @@ export class FilterEngine<T extends CollectionItem> {
     if (this.dataset.length > 0 && (hasFields || hasNestedFields)) {
       this.rebuildConfiguredIndexes();
     }
+  }
+
+  private get dataset(): T[] {
+    return this.state.getOriginData();
+  }
+
+  private get runtime(): FilterRuntime<T> {
+    return this.state.getOrCreateScopedValue<FilterRuntime<T>>(
+      this.namespace,
+      "runtime",
+      createFilterRuntime,
+    );
+  }
+
+  private get mutableExcludeState(): MutableExcludeRuntime {
+    return this.runtime.mutableExclude;
+  }
+
+  private get indexedFields(): Set<keyof T & string> {
+    return this.runtime.indexedFields;
+  }
+
+  private get sequentialCache(): FilterSequentialCache<T> {
+    return this.runtime.sequentialCache;
   }
 
   private rebuildConfiguredIndexes(): void {
@@ -128,7 +166,6 @@ export class FilterEngine<T extends CollectionItem> {
       return this;
     }
 
-    this.dataset = dataOrField;
     this.resetFilterState();
     this.rebuildMutableExcludeState();
     this.indexer.buildIndex(dataOrField, field!);
@@ -142,10 +179,10 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   resetFilterState(): this {
-    this.previousResult = null;
-    this.previousCriteria = null;
-    this.previousBaseData = null;
-    this.previousResultsByCriteria.clear();
+    this.sequentialCache.previousResult = null;
+    this.sequentialCache.previousCriteria = null;
+    this.sequentialCache.previousBaseData = null;
+    this.sequentialCache.previousResultsByCriteria.clear();
     return this;
   }
 
@@ -174,13 +211,12 @@ export class FilterEngine<T extends CollectionItem> {
       return this;
     }
 
-    const startIndex = appendToDataset
-      ? this.dataset.length
-      : this.dataset.length - items.length;
-
     if (appendToDataset) {
-      this.dataset.push(...items);
+      this.state.add(items);
+      return this;
     }
+
+    const startIndex = this.dataset.length - items.length;
 
     this.updateMutableExcludeStateForAddedItems(items, startIndex);
     this.resetFilterState();
@@ -218,6 +254,12 @@ export class FilterEngine<T extends CollectionItem> {
     criteria?: FilterCriterion<T>[],
   ): T[] {
     const usesStoredData = criteria === undefined;
+    const {
+      previousBaseData,
+      previousCriteria,
+      previousResult,
+      previousResultsByCriteria,
+    } = this.sequentialCache;
 
     let sourceData: T[];
     let resolvedCriteria: ResolvedFilterCriterion<T>[];
@@ -239,19 +281,17 @@ export class FilterEngine<T extends CollectionItem> {
 
       if (
         this.filterByPreviousResult &&
-        this.previousResult !== null &&
-        this.previousCriteria !== null &&
-        this.previousBaseData === this.dataset
+        previousResult !== null &&
+        previousCriteria !== null &&
+        previousBaseData === this.dataset
       ) {
         const nextCriteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
-        const previousCriteriaKey = this.createCriteriaCacheKey(
-          this.previousCriteria,
-        );
-        const cachedResult =
-          this.previousResultsByCriteria.get(nextCriteriaKey);
+        const previousCriteriaKey =
+          this.createCriteriaCacheKey(previousCriteria);
+        const cachedResult = previousResultsByCriteria.get(nextCriteriaKey);
 
         if (nextCriteriaKey === previousCriteriaKey) {
-          return this.previousResult;
+          return previousResult;
         }
 
         if (cachedResult !== undefined) {
@@ -265,20 +305,20 @@ export class FilterEngine<T extends CollectionItem> {
         }
 
         const shouldRecalculateFromDataset =
-          this.hasCriteriaBacktrack(this.previousCriteria, resolvedCriteria) ||
-          (this.previousResult.length === 0 &&
+          this.hasCriteriaBacktrack(previousCriteria, resolvedCriteria) ||
+          (previousResult.length === 0 &&
             !this.canApplySequentiallyToEmptyResult(
-              this.previousCriteria,
+              previousCriteria,
               resolvedCriteria,
             ));
 
         sourceData = shouldRecalculateFromDataset
           ? this.dataset
-          : this.previousResult;
+          : previousResult;
         executionCriteria = shouldRecalculateFromDataset
           ? resolvedCriteria
           : this.createSequentialExecutionCriteria(
-              this.previousCriteria,
+              previousCriteria,
               resolvedCriteria,
             );
       } else {
@@ -291,19 +331,17 @@ export class FilterEngine<T extends CollectionItem> {
 
       if (
         this.filterByPreviousResult &&
-        this.previousResult !== null &&
-        this.previousCriteria !== null &&
-        this.previousBaseData === sourceData
+        previousResult !== null &&
+        previousCriteria !== null &&
+        previousBaseData === sourceData
       ) {
         const nextCriteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
-        const previousCriteriaKey = this.createCriteriaCacheKey(
-          this.previousCriteria,
-        );
-        const cachedResult =
-          this.previousResultsByCriteria.get(nextCriteriaKey);
+        const previousCriteriaKey =
+          this.createCriteriaCacheKey(previousCriteria);
+        const cachedResult = previousResultsByCriteria.get(nextCriteriaKey);
 
         if (nextCriteriaKey === previousCriteriaKey) {
-          return this.previousResult;
+          return previousResult;
         }
 
         if (cachedResult !== undefined) {
@@ -317,20 +355,20 @@ export class FilterEngine<T extends CollectionItem> {
         }
 
         const shouldRecalculateFromDataset =
-          this.hasCriteriaBacktrack(this.previousCriteria, resolvedCriteria) ||
-          (this.previousResult.length === 0 &&
+          this.hasCriteriaBacktrack(previousCriteria, resolvedCriteria) ||
+          (previousResult.length === 0 &&
             !this.canApplySequentiallyToEmptyResult(
-              this.previousCriteria,
+              previousCriteria,
               resolvedCriteria,
             ));
 
         sourceData = shouldRecalculateFromDataset
           ? (dataOrCriteria as T[])
-          : this.previousResult;
+          : previousResult;
         executionCriteria = shouldRecalculateFromDataset
           ? resolvedCriteria
           : this.createSequentialExecutionCriteria(
-              this.previousCriteria,
+              previousCriteria,
               resolvedCriteria,
             );
       } else {
@@ -472,13 +510,11 @@ export class FilterEngine<T extends CollectionItem> {
         );
         return;
       case "data":
-        this.dataset = mutation.data;
         this.rebuildMutableExcludeState();
         this.resetFilterState();
         this.rebuildConfiguredIndexes();
         return;
       case "clearData":
-        this.dataset = mutation.data;
         this.clearMutableExcludeState();
         this.indexer.clear();
         this.nestedCollection.clearIndexes();
@@ -551,7 +587,7 @@ export class FilterEngine<T extends CollectionItem> {
       return undefined;
     }
 
-    if (this.hasDuplicateMutableExcludeValues) {
+    if (this.mutableExcludeState.hasDuplicateValues) {
       throw FilterEngineError.duplicateMutableExcludeField(
         this.mutableExcludeField,
       );
@@ -590,13 +626,16 @@ export class FilterEngine<T extends CollectionItem> {
   ): void {
     if (field === this.mutableExcludeField) {
       this.unregisterMutableExcludeValue(value);
-      this.datasetPositions.delete(value);
+      this.mutableExcludeState.datasetPositions.delete(value);
 
       if (movedItem !== null && this.mutableExcludeField !== null) {
         const movedValue = movedItem[this.mutableExcludeField];
 
         if (movedValue !== undefined && movedValue !== null) {
-          this.datasetPositions.set(movedValue, removedIndex);
+          this.mutableExcludeState.datasetPositions.set(
+            movedValue,
+            removedIndex,
+          );
         }
       }
     }
@@ -620,7 +659,10 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (previousFieldValue === nextFieldValue) {
       if (nextFieldValue !== undefined && nextFieldValue !== null) {
-        this.datasetPositions.set(nextFieldValue, itemIndex);
+        this.mutableExcludeState.datasetPositions.set(
+          nextFieldValue,
+          itemIndex,
+        );
       }
 
       return;
@@ -629,8 +671,11 @@ export class FilterEngine<T extends CollectionItem> {
     if (previousFieldValue !== undefined && previousFieldValue !== null) {
       this.unregisterMutableExcludeValue(previousFieldValue);
 
-      if (this.datasetPositions.get(previousFieldValue) === itemIndex) {
-        this.datasetPositions.delete(previousFieldValue);
+      if (
+        this.mutableExcludeState.datasetPositions.get(previousFieldValue) ===
+        itemIndex
+      ) {
+        this.mutableExcludeState.datasetPositions.delete(previousFieldValue);
       }
     }
 
@@ -640,47 +685,48 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   private clearMutableExcludeState(): void {
-    this.datasetPositions.clear();
-    this.mutableExcludeValueCounts.clear();
-    this.duplicateMutableExcludeValueCount = 0;
-    this.hasDuplicateMutableExcludeValues = false;
+    this.mutableExcludeState.datasetPositions.clear();
+    this.mutableExcludeState.valueCounts.clear();
+    this.mutableExcludeState.duplicateValueCount = 0;
+    this.mutableExcludeState.hasDuplicateValues = false;
   }
 
   private registerMutableExcludeValue(
     fieldValue: any,
     itemIndex: number,
   ): void {
-    const nextCount = (this.mutableExcludeValueCounts.get(fieldValue) ?? 0) + 1;
+    const nextCount =
+      (this.mutableExcludeState.valueCounts.get(fieldValue) ?? 0) + 1;
 
     if (nextCount === 2) {
-      this.duplicateMutableExcludeValueCount++;
+      this.mutableExcludeState.duplicateValueCount++;
     }
 
-    this.mutableExcludeValueCounts.set(fieldValue, nextCount);
-    this.datasetPositions.set(fieldValue, itemIndex);
-    this.hasDuplicateMutableExcludeValues =
-      this.duplicateMutableExcludeValueCount > 0;
+    this.mutableExcludeState.valueCounts.set(fieldValue, nextCount);
+    this.mutableExcludeState.datasetPositions.set(fieldValue, itemIndex);
+    this.mutableExcludeState.hasDuplicateValues =
+      this.mutableExcludeState.duplicateValueCount > 0;
   }
 
   private unregisterMutableExcludeValue(fieldValue: any): void {
-    const currentCount = this.mutableExcludeValueCounts.get(fieldValue);
+    const currentCount = this.mutableExcludeState.valueCounts.get(fieldValue);
 
     if (currentCount === undefined) {
       return;
     }
 
     if (currentCount === 2) {
-      this.duplicateMutableExcludeValueCount--;
+      this.mutableExcludeState.duplicateValueCount--;
     }
 
     if (currentCount <= 1) {
-      this.mutableExcludeValueCounts.delete(fieldValue);
+      this.mutableExcludeState.valueCounts.delete(fieldValue);
     } else {
-      this.mutableExcludeValueCounts.set(fieldValue, currentCount - 1);
+      this.mutableExcludeState.valueCounts.set(fieldValue, currentCount - 1);
     }
 
-    this.hasDuplicateMutableExcludeValues =
-      this.duplicateMutableExcludeValueCount > 0;
+    this.mutableExcludeState.hasDuplicateValues =
+      this.mutableExcludeState.duplicateValueCount > 0;
   }
 
   /**
@@ -904,10 +950,12 @@ export class FilterEngine<T extends CollectionItem> {
       return;
     }
 
-    this.previousResult = result;
-    this.previousCriteria = resolvedCriteria;
-    this.previousBaseData = usesStoredData ? this.dataset : baseData;
-    this.previousResultsByCriteria.set(
+    this.sequentialCache.previousResult = result;
+    this.sequentialCache.previousCriteria = resolvedCriteria;
+    this.sequentialCache.previousBaseData = usesStoredData
+      ? this.dataset
+      : baseData;
+    this.sequentialCache.previousResultsByCriteria.set(
       this.createCriteriaCacheKey(resolvedCriteria),
       result,
     );

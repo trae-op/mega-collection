@@ -6,23 +6,23 @@ import {
   type StateMutation,
   type UpdateDescriptor,
 } from "../types";
-import type { SortEngineOptions, SortIndex } from "./types";
+import type { SortEngineOptions, SortIndex, SortRuntime } from "./types";
 import { SortEngineError } from "./errors";
 
+const createSortRuntime = <T extends CollectionItem>(): SortRuntime<T> => ({
+  indexedFields: new Set<keyof T & string>(),
+  cache: new Map<string, SortIndex<T>>(),
+  dirtyIndexedFields: new Set<keyof T & string>(),
+});
+
 export class SortEngine<T extends CollectionItem> {
-  private cache = new Map<string, SortIndex<T>>();
-
-  private dataset: T[] = [];
-
   private readonly state: State<T>;
 
-  private readonly indexedFields = new Set<keyof T & string>();
-
-  private readonly dirtyIndexedFields = new Set<keyof T & string>();
+  private readonly namespace: string;
 
   constructor(options: SortEngineOptions<T> & { state?: State<T> } = {}) {
     this.state = options.state ?? new State(options.data ?? []);
-    this.dataset = this.state.getOriginData();
+    this.namespace = this.state.createNamespace("sort");
     this.state.subscribe((mutation) => this.handleStateMutation(mutation));
 
     if (options.fields?.length) {
@@ -34,6 +34,30 @@ export class SortEngine<T extends CollectionItem> {
         this.rebuildConfiguredIndexes();
       }
     }
+  }
+
+  private get dataset(): T[] {
+    return this.state.getOriginData();
+  }
+
+  private get runtime(): SortRuntime<T> {
+    return this.state.getOrCreateScopedValue<SortRuntime<T>>(
+      this.namespace,
+      "runtime",
+      createSortRuntime,
+    );
+  }
+
+  private get cache(): Map<string, SortIndex<T>> {
+    return this.runtime.cache;
+  }
+
+  private get dirtyIndexedFields(): Set<keyof T & string> {
+    return this.runtime.dirtyIndexedFields;
+  }
+
+  private get indexedFields(): Set<keyof T & string> {
+    return this.runtime.indexedFields;
   }
 
   private rebuildConfiguredIndexes(): void {
@@ -76,7 +100,11 @@ export class SortEngine<T extends CollectionItem> {
       });
     }
 
-    this.cache.set(field as string, { indexes, dataRef: data, itemCount });
+    this.cache.set(field as string, {
+      indexes,
+      dataRef: data,
+      itemCount,
+    });
     this.dirtyIndexedFields.delete(field);
   }
 
@@ -109,13 +137,12 @@ export class SortEngine<T extends CollectionItem> {
   private applyAddedItems(items: T[], appendToDataset: boolean): this {
     if (items.length === 0) return this;
 
-    const startIndex = appendToDataset
-      ? this.dataset.length
-      : this.dataset.length - items.length;
-
     if (appendToDataset) {
-      this.dataset.push(...items);
+      this.state.add(items);
+      return this;
     }
+
+    const startIndex = this.dataset.length - items.length;
 
     for (const field of this.indexedFields) {
       const cachedIndex = this.cache.get(field as string);
@@ -154,12 +181,10 @@ export class SortEngine<T extends CollectionItem> {
         );
         return;
       case "data":
-        this.dataset = mutation.data;
         this.dirtyIndexedFields.clear();
         this.rebuildConfiguredIndexes();
         return;
       case "clearData":
-        this.dataset = mutation.data;
         this.cache.clear();
         this.dirtyIndexedFields.clear();
         return;
