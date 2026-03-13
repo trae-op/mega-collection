@@ -31,4 +31,10 @@ export class MergeEnginesError extends Error {
       "MergeEngines: getOriginData is not available.",
     );
   }
+
+  static invalidFilterByPreviousResultOption(): MergeEnginesError {
+    return new MergeEnginesError(
+      'MergeEngines: "filter.filterByPreviousResult" is not supported. Configure "filterByPreviousResult" on the MergeEngines root options.',
+    );
+  }
 }

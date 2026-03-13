@@ -30,6 +30,16 @@ export interface StateRegistryFactory<TValue> {
   (): TValue;
 }
 
+export interface StateOptions {
+  filterByPreviousResult?: boolean;
+}
+
+export interface StatePreviousResult<T extends CollectionItem> {
+  result: T[];
+  sourceData: T[];
+  version: number;
+}
+
 export type StateAddMutation<T extends CollectionItem> = {
   type: "add";
   items: T[];

@@ -99,8 +99,15 @@ export class MergeEngines<T extends CollectionItem> {
    * Collects all modules from imports.
    */
   constructor(options: MergeEnginesOptions<T>) {
-    const { imports, data, ...moduleOptions } = options;
-    this.state = new State(data);
+    const {
+      imports,
+      data,
+      filterByPreviousResult = false,
+      ...moduleOptions
+    } = options;
+
+    this.validateFilterByPreviousResultOptions(moduleOptions.filter);
+    this.state = new State(data, { filterByPreviousResult });
     this.namespace = this.state.createNamespace("merge");
 
     const importedEngines = new Set<EngineConstructor>(imports);
@@ -195,6 +202,38 @@ export class MergeEngines<T extends CollectionItem> {
     return typeof value === "object" && value !== null;
   }
 
+  private validateFilterByPreviousResultOptions(filterOptions: unknown): void {
+    if (
+      this.isRecord(filterOptions) &&
+      Object.prototype.hasOwnProperty.call(
+        filterOptions,
+        "filterByPreviousResult",
+      )
+    ) {
+      throw MergeEnginesError.invalidFilterByPreviousResultOption();
+    }
+  }
+
+  private isPreviousResultEnabled(): boolean {
+    return this.state.isFilterByPreviousResultEnabled();
+  }
+
+  private getPreviousResultInput(): T[] | null {
+    if (!this.isPreviousResultEnabled()) {
+      return null;
+    }
+
+    return this.state.getPreviousResult();
+  }
+
+  private trackPreviousResult(result: T[], sourceData: T[]): T[] {
+    if (this.isPreviousResultEnabled()) {
+      this.state.setPreviousResult(result, sourceData);
+    }
+
+    return result;
+  }
+
   private clearOperationState(module?: MergeModuleName): void {
     if (!module || module === "search") {
       this.runtime.previousSearchState = null;
@@ -242,7 +281,9 @@ export class MergeEngines<T extends CollectionItem> {
       previousSearchState.key === cacheKey &&
       previousSearchState.version === mutationVersion
     ) {
-      return this.withChain(previousSearchState.result);
+      return this.withChain(
+        this.trackPreviousResult(previousSearchState.result, originData),
+      );
     }
 
     let result: T[];
@@ -263,7 +304,7 @@ export class MergeEngines<T extends CollectionItem> {
       version: mutationVersion,
     };
 
-    return this.withChain(result);
+    return this.withChain(this.trackPreviousResult(result, originData));
   }
 
   sort(descriptors: SortDescriptor<T>[]): T[] & MergeEnginesChain<T>;
@@ -281,17 +322,20 @@ export class MergeEngines<T extends CollectionItem> {
       throw MergeEnginesError.unavailableEngine("sort");
     }
 
-    if (descriptors === undefined) {
-      return this.withChain(
-        this.sortModule.executeSort(dataOrDescriptors as SortDescriptor<T>[]),
-      );
-    }
+    let sourceData: T[];
+    let resolvedDescriptors: SortDescriptor<T>[];
 
-    const sourceData = dataOrDescriptors as T[];
+    if (descriptors === undefined) {
+      resolvedDescriptors = dataOrDescriptors as SortDescriptor<T>[];
+      sourceData = this.getPreviousResultInput() ?? this.state.getOriginData();
+    } else {
+      sourceData = dataOrDescriptors as T[];
+      resolvedDescriptors = descriptors;
+    }
 
     if (!inPlace) {
       const mutationVersion = this.state.getMutationVersion();
-      const cacheKey = this.createSortCacheKey(descriptors, inPlace);
+      const cacheKey = this.createSortCacheKey(resolvedDescriptors, inPlace);
       const previousSortState = this.runtime.previousSortState;
 
       if (
@@ -299,14 +343,19 @@ export class MergeEngines<T extends CollectionItem> {
         previousSortState.key === cacheKey &&
         previousSortState.version === mutationVersion
       ) {
-        return this.withChain(previousSortState.result);
+        return this.withChain(
+          this.trackPreviousResult(previousSortState.result, sourceData),
+        );
       }
 
-      const result = this.sortModule.executeSort(
-        sourceData,
-        descriptors,
-        inPlace,
-      );
+      const result =
+        descriptors === undefined && sourceData === this.state.getOriginData()
+          ? this.sortModule.executeSort(resolvedDescriptors)
+          : this.sortModule.executeSort(
+              sourceData,
+              resolvedDescriptors,
+              inPlace,
+            );
 
       this.runtime.previousSortState = {
         key: cacheKey,
@@ -315,11 +364,14 @@ export class MergeEngines<T extends CollectionItem> {
         version: mutationVersion,
       };
 
-      return this.withChain(result);
+      return this.withChain(this.trackPreviousResult(result, sourceData));
     }
 
     return this.withChain(
-      this.sortModule.executeSort(sourceData, descriptors, inPlace),
+      this.trackPreviousResult(
+        this.sortModule.executeSort(sourceData, resolvedDescriptors, inPlace),
+        sourceData,
+      ),
     );
   }
 
@@ -334,13 +386,27 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     if (criteria === undefined) {
+      const sourceData = this.getPreviousResultInput();
+      const resolvedCriteria = dataOrCriteria as FilterCriterion<T>[];
+      const result =
+        sourceData === null
+          ? this.filterModule.executeFilter(resolvedCriteria)
+          : this.filterModule.executeFilter(sourceData, resolvedCriteria);
+
       return this.withChain(
-        this.filterModule.executeFilter(dataOrCriteria as FilterCriterion<T>[]),
+        this.trackPreviousResult(
+          result,
+          sourceData ?? this.state.getOriginData(),
+        ),
       );
     }
 
+    const sourceData = dataOrCriteria as T[];
     return this.withChain(
-      this.filterModule.executeFilter(dataOrCriteria as T[], criteria),
+      this.trackPreviousResult(
+        this.filterModule.executeFilter(sourceData, criteria),
+        sourceData,
+      ),
     );
   }
 

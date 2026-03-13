@@ -161,6 +161,21 @@ describe("MergeEngines", () => {
     ).not.toThrow();
   });
 
+  it("throws when filterByPreviousResult is configured inside merge filter options", () => {
+    expect(
+      () =>
+        new MergeEngines<User>({
+          imports: [FilterEngine],
+          data: users,
+          filterByPreviousResult: true,
+          filter: {
+            fields: ["city", "age"],
+            filterByPreviousResult: true,
+          } as unknown as never,
+        }),
+    ).toThrow('"filter.filterByPreviousResult" is not supported');
+  });
+
   it("works with engines exposed only through the abstract merge provider", () => {
     const merge = new MergeEngines<User>({
       imports: [CustomSearchEngine],
@@ -252,12 +267,10 @@ describe("MergeEngines", () => {
         { id: 13, name: "Lina 33299", city: "Miami", age: 26 },
         { id: 14, name: "Owen 33277", city: "Boston", age: 26 },
       ],
+      filterByPreviousResult: true,
       search: { fields: ["name", "city"], minQueryLength: 1 },
       sort: { fields: ["age", "name", "city"] },
-      filter: {
-        fields: ["city", "age"],
-        filterByPreviousResult: true,
-      },
+      filter: { fields: ["city", "age"] },
     });
 
     const first = merge
@@ -278,6 +291,72 @@ describe("MergeEngines", () => {
 
     expect(first.map((user) => user.id)).toEqual([10, 11, 12]);
     expect(second).toEqual([]);
+  });
+
+  it("reuses the shared previous result across separate merge calls", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: users,
+      filterByPreviousResult: true,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    expect(
+      merge
+        .search("v")
+        .map((user) => user.id)
+        .sort((leftId, rightId) => leftId - rightId),
+    ).toEqual([1, 2, 3, 5]);
+    expect(
+      merge
+        .filter([{ field: "city", values: ["Lviv"] }])
+        .map((user) => user.id),
+    ).toEqual([2, 5]);
+    expect(
+      merge.sort([{ field: "age", direction: "desc" }]).map((user) => user.id),
+    ).toEqual([5, 2]);
+  });
+
+  it("uses the explicit overload result as the next shared source when enabled", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: users,
+      filterByPreviousResult: true,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    expect(
+      merge
+        .filter(users, [{ field: "city", values: ["Kyiv", "Lviv"] }])
+        .map((user) => user.id)
+        .sort((leftId, rightId) => leftId - rightId),
+    ).toEqual([1, 2, 3, 5]);
+    expect(
+      merge.sort([{ field: "age", direction: "desc" }]).map((user) => user.id),
+    ).toEqual([5, 2, 3, 1]);
+  });
+
+  it("clears the shared previous result after dataset mutation", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: dataset,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    merge.search("Kyiv");
+    merge.filter([{ field: "age", values: [25] }]);
+    merge.add([{ id: 10, name: "Tim", city: "Boston", age: 20 }]);
+
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([10, 1, 4, 2, 3, 5]);
   });
 
   it("clearData() clears data for selected module", () => {
@@ -353,7 +432,7 @@ describe("MergeEngines", () => {
       data: dataset,
       search: { fields: ["name", "city"], minQueryLength: 1 },
       sort: { fields: ["age", "name"] },
-      filter: { fields: ["city", "age"], filterByPreviousResult: true },
+      filter: { fields: ["city", "age"] },
     });
 
     merge.search("Alice");
@@ -385,7 +464,7 @@ describe("MergeEngines", () => {
       data: dataset,
       search: { fields: ["name", "city"], minQueryLength: 1 },
       sort: { fields: ["age", "name"] },
-      filter: { fields: ["city", "age"], filterByPreviousResult: true },
+      filter: { fields: ["city", "age"] },
     });
 
     merge.update({

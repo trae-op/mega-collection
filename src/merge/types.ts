@@ -32,8 +32,6 @@ export interface MergeFilterOptions<T extends CollectionItem = CollectionItem> {
   fields?: (keyof T & string)[];
 
   nestedFields?: string[];
-
-  filterByPreviousResult?: boolean;
 }
 
 export interface MergeEnginesChain<T extends CollectionItem> {
@@ -72,6 +70,8 @@ export interface MergeEnginesOptions<T extends CollectionItem> {
   imports: EngineConstructor[];
 
   data: T[];
+
+  filterByPreviousResult?: boolean;
 
   search?: MergeSearchOptions<T>;
 

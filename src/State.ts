@@ -3,6 +3,8 @@ import type {
   IndexableKey,
   StateListener,
   StateMutation,
+  StateOptions,
+  StatePreviousResult,
   StateRegistryFactory,
   UpdateDescriptor,
 } from "./types";
@@ -10,9 +12,13 @@ import type {
 export class State<T extends CollectionItem> {
   private originData: T[];
 
+  private filterByPreviousResult: boolean;
+
   private mutationVersion = 0;
 
   private namespaceSequence = 0;
+
+  private previousResultState: StatePreviousResult<T> | null = null;
 
   private readonly indexMaps = new Map<
     IndexableKey<T> & string,
@@ -23,8 +29,9 @@ export class State<T extends CollectionItem> {
 
   private readonly listeners = new Set<StateListener<T>>();
 
-  constructor(data: T[] = []) {
+  constructor(data: T[] = [], options: StateOptions = {}) {
     this.originData = data;
+    this.filterByPreviousResult = options.filterByPreviousResult ?? false;
   }
 
   subscribe(listener: StateListener<T>): () => void {
@@ -41,6 +48,45 @@ export class State<T extends CollectionItem> {
 
   getMutationVersion(): number {
     return this.mutationVersion;
+  }
+
+  isFilterByPreviousResultEnabled(): boolean {
+    return this.filterByPreviousResult;
+  }
+
+  setFilterByPreviousResult(enabled: boolean): void {
+    this.filterByPreviousResult = enabled;
+
+    if (!enabled) {
+      this.clearPreviousResult();
+    }
+  }
+
+  getPreviousResult(): T[] | null {
+    return this.getPreviousResultState()?.result ?? null;
+  }
+
+  getPreviousResultState(): StatePreviousResult<T> | null {
+    if (
+      this.previousResultState === null ||
+      this.previousResultState.version !== this.mutationVersion
+    ) {
+      return null;
+    }
+
+    return this.previousResultState;
+  }
+
+  setPreviousResult(result: T[], sourceData: T[]): void {
+    this.previousResultState = {
+      result,
+      sourceData,
+      version: this.mutationVersion,
+    };
+  }
+
+  clearPreviousResult(): void {
+    this.previousResultState = null;
   }
 
   createNamespace(prefix = "scope"): string {
@@ -244,6 +290,7 @@ export class State<T extends CollectionItem> {
 
   private bumpMutationVersion(): void {
     this.mutationVersion += 1;
+    this.clearPreviousResult();
   }
 
   private getOrCreateIndexMap(

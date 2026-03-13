@@ -85,9 +85,18 @@ export class FilterEngine<T extends CollectionItem> {
    * Creates a new FilterEngine with optional data and fields to index.
    */
   constructor(options: FilterEngineOptions<T> & { state?: State<T> } = {}) {
-    this.filterByPreviousResult = options.filterByPreviousResult ?? false;
     this.mutableExcludeField = options.mutableExcludeField ?? null;
-    this.state = options.state ?? new State(options.data ?? []);
+    this.state =
+      options.state ??
+      new State(options.data ?? [], {
+        filterByPreviousResult: options.filterByPreviousResult ?? false,
+      });
+
+    if (options.filterByPreviousResult) {
+      this.state.setFilterByPreviousResult(true);
+    }
+
+    this.filterByPreviousResult = this.state.isFilterByPreviousResultEnabled();
     this.namespace = this.state.createNamespace("filter");
     this.indexer = new Indexer<T>(this.runtime.indexerStorage);
     this.nestedCollection = new FilterNestedCollection<T>(
@@ -183,6 +192,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.sequentialCache.previousCriteria = null;
     this.sequentialCache.previousBaseData = null;
     this.sequentialCache.previousResultsByCriteria.clear();
+    this.state.clearPreviousResult();
     return this;
   }
 
@@ -955,6 +965,10 @@ export class FilterEngine<T extends CollectionItem> {
     this.sequentialCache.previousBaseData = usesStoredData
       ? this.dataset
       : baseData;
+    this.state.setPreviousResult(
+      result,
+      usesStoredData ? this.dataset : baseData,
+    );
     this.sequentialCache.previousResultsByCriteria.set(
       this.createCriteriaCacheKey(resolvedCriteria),
       result,

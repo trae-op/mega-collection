@@ -121,8 +121,9 @@ import { FilterEngine } from "@devisfuture/mega-collection/filter";
 const engine = new MergeEngines<User>({
   imports: [TextSearchEngine, SortEngine, FilterEngine],
   data: users,
+  filterByPreviousResult: true,
   search: { fields: ["name", "city"], minQueryLength: 2 },
-  filter: { fields: ["city", "age"], filterByPreviousResult: true },
+  filter: { fields: ["city", "age"] },
   sort: { fields: ["age", "name", "city"] },
 });
 
@@ -138,10 +139,19 @@ engine
   .sort([{ field: "age", direction: "asc" }])
   .filter([{ field: "city", values: ["Miami", "New York"] }]);
 
+// Separate calls also continue from the last result when
+// `filterByPreviousResult` is enabled on MergeEngines.
+const searchResult = engine.search("john");
+const filteredResult = engine.filter([
+  { field: "city", values: ["Miami", "New York"] },
+]);
+const sortedResult = engine.sort([{ field: "age", direction: "asc" }]);
+
 // Example with nested fields, for example `orders` inside each user.
 const nestedEngine = new MergeEngines<UserWithOrders>({
   imports: [TextSearchEngine, SortEngine, FilterEngine],
   data: usersWithOrders,
+  filterByPreviousResult: true,
   search: {
     fields: ["name", "city"],
     nestedFields: ["orders.status"],
@@ -150,7 +160,6 @@ const nestedEngine = new MergeEngines<UserWithOrders>({
   filter: {
     fields: ["city", "age"],
     nestedFields: ["orders.status"],
-    filterByPreviousResult: true,
   },
   sort: { fields: ["age", "name", "city"] },
 });
@@ -580,13 +589,14 @@ One class that combines search, filter, and sort for the same dataset.
 
 **Constructor options:**
 
-| Option    | Type                                                                       | Description                                  |
-| --------- | -------------------------------------------------------------------------- | -------------------------------------------- |
-| `imports` | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]`                | Engine classes to create                     |
-| `data`    | `T[]`                                                                      | Shared dataset — passed once at construction |
-| `search`  | `{ fields, nestedFields?, minQueryLength? }`                               | Config for TextSearchEngine                  |
-| `filter`  | `{ fields, nestedFields?, filterByPreviousResult?, mutableExcludeField? }` | Config for FilterEngine                      |
-| `sort`    | `{ fields }`                                                               | Config for SortEngine                        |
+| Option                   | Type                                                        | Description                                                                                                    |
+| ------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `imports`                | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to create                                                                                       |
+| `data`                   | `T[]`                                                       | Shared dataset — passed once at construction                                                                   |
+| `filterByPreviousResult` | `boolean`                                                   | When `true`, separate `filter(...)` and `sort(...)` calls continue from the last result stored in shared State |
+| `search`                 | `{ fields, nestedFields?, minQueryLength? }`                | Config for TextSearchEngine                                                                                    |
+| `filter`                 | `{ fields, nestedFields?, mutableExcludeField? }`           | Config for FilterEngine                                                                                        |
+| `sort`                   | `{ fields }`                                                | Config for SortEngine                                                                                          |
 
 **Methods:**
 
@@ -607,6 +617,8 @@ One class that combines search, filter, and sort for the same dataset.
 
 If `filter.mutableExcludeField` is configured, `filter([{ field, exclude }])` on that field removes items from the stored filter dataset with swap-pop.
 This changes the stored filter dataset and does not preserve order.
+
+`filter.filterByPreviousResult` is not supported inside `MergeEngines`. Use the root `filterByPreviousResult` option instead.
 
 ---
 
