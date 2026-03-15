@@ -4,10 +4,6 @@ export class SortEngineError extends Error {
     this.name = "SortEngineError";
   }
 
-  static missingDatasetForBuildIndex(): SortEngineError {
-    return new SortEngineError("SortEngine: no dataset in memory.");
-  }
-
   static missingDatasetForSort(): SortEngineError {
     return new SortEngineError("SortEngine: no dataset in memory.");
   }

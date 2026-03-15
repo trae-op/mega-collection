@@ -11,8 +11,7 @@ import { SortEngineError } from "./errors";
 
 const createSortRuntime = <T extends CollectionItem>(): SortRuntime<T> => ({
   indexedFields: new Set<keyof T & string>(),
-  cache: new Map<string, SortIndex<T>>(),
-  dirtyIndexedFields: new Set<keyof T & string>(),
+  cache: new Map<string, SortIndex>(),
 });
 
 export class SortEngine<T extends CollectionItem> {
@@ -48,12 +47,8 @@ export class SortEngine<T extends CollectionItem> {
     );
   }
 
-  private get cache(): Map<string, SortIndex<T>> {
+  private get cache(): Map<string, SortIndex> {
     return this.runtime.cache;
-  }
-
-  private get dirtyIndexedFields(): Set<keyof T & string> {
-    return this.runtime.dirtyIndexedFields;
   }
 
   private get indexedFields(): Set<keyof T & string> {
@@ -69,9 +64,7 @@ export class SortEngine<T extends CollectionItem> {
   }
 
   private buildIndexForDataset(field: keyof T & string): void {
-    if (!this.dataset.length) {
-      throw SortEngineError.missingDatasetForBuildIndex();
-    }
+    if (!this.dataset.length) return;
 
     this.buildIndexFromData(this.dataset, field);
   }
@@ -86,7 +79,12 @@ export class SortEngine<T extends CollectionItem> {
       fieldValues[i] = data[i][field];
     }
 
-    if (typeof fieldValues[0] === "number") {
+    let probe = 0;
+    while (probe < itemCount && fieldValues[probe] == null) probe++;
+    const isNumeric =
+      probe < itemCount && typeof fieldValues[probe] === "number";
+
+    if (isNumeric) {
       const numericValues = new Float64Array(itemCount);
       for (let i = 0; i < itemCount; i++) {
         numericValues[i] = fieldValues[i] as number;
@@ -102,15 +100,12 @@ export class SortEngine<T extends CollectionItem> {
 
     this.cache.set(field as string, {
       indexes,
-      dataRef: data,
-      itemCount,
+      version: this.state.getMutationVersion(),
     });
-    this.dirtyIndexedFields.delete(field);
   }
 
   clearIndexes(): this {
     this.cache.clear();
-    this.dirtyIndexedFields.clear();
     return this;
   }
 
@@ -134,13 +129,8 @@ export class SortEngine<T extends CollectionItem> {
     return this;
   }
 
-  private applyAddedItems(items: T[], appendToDataset: boolean): this {
+  private applyAddedItems(items: T[]): this {
     if (items.length === 0) return this;
-
-    if (appendToDataset) {
-      this.state.add(items);
-      return this;
-    }
 
     const startIndex = this.dataset.length - items.length;
 
@@ -148,15 +138,6 @@ export class SortEngine<T extends CollectionItem> {
       const cachedIndex = this.cache.get(field as string);
 
       if (!cachedIndex) continue;
-
-      if (
-        this.dirtyIndexedFields.has(field) ||
-        cachedIndex.dataRef !== this.dataset ||
-        cachedIndex.itemCount !== startIndex
-      ) {
-        this.dirtyIndexedFields.add(field);
-        continue;
-      }
 
       this.updateCachedIndexForAddedItems(field, startIndex, items.length);
     }
@@ -171,7 +152,7 @@ export class SortEngine<T extends CollectionItem> {
   private handleStateMutation(mutation: StateMutation<T>): void {
     switch (mutation.type) {
       case "add":
-        this.applyAddedItems(mutation.items, false);
+        this.applyAddedItems(mutation.items);
         return;
       case "update":
         this.applyUpdatedItem(
@@ -181,15 +162,13 @@ export class SortEngine<T extends CollectionItem> {
         );
         return;
       case "data":
-        this.dirtyIndexedFields.clear();
         this.rebuildConfiguredIndexes();
         return;
       case "clearData":
         this.cache.clear();
-        this.dirtyIndexedFields.clear();
         return;
       case "remove":
-        this.markCachedIndexesDirty();
+        this.cache.clear();
         return;
     }
   }
@@ -220,21 +199,15 @@ export class SortEngine<T extends CollectionItem> {
     if (resolvedDescriptors.length === 1) {
       const { field, direction } = resolvedDescriptors[0];
 
-      if (
-        usesStoredDataset &&
-        this.dirtyIndexedFields.has(field) &&
-        this.cache.has(field as string)
-      ) {
-        this.buildIndexForDataset(field);
-      }
+      if (usesStoredDataset && this.indexedFields.has(field)) {
+        let cached = this.cache.get(field as string);
+        const currentVersion = this.state.getMutationVersion();
 
-      const cached = this.cache.get(field as string);
+        if (!cached || cached.version !== currentVersion) {
+          this.buildIndexForDataset(field);
+          cached = this.cache.get(field as string)!;
+        }
 
-      if (
-        usesStoredDataset &&
-        cached?.dataRef === data &&
-        cached.itemCount === data.length
-      ) {
         return this.reconstructFromIndex(data, cached.indexes, direction);
       }
 
@@ -289,24 +262,21 @@ export class SortEngine<T extends CollectionItem> {
   ): T[] {
     const [primary, ...rest] = descriptors;
 
-    if (usesStoredDataset) {
-      if (
-        this.dirtyIndexedFields.has(primary.field) &&
-        this.cache.has(primary.field as string)
-      ) {
+    if (usesStoredDataset && this.indexedFields.has(primary.field)) {
+      let cached = this.cache.get(primary.field as string);
+      const currentVersion = this.state.getMutationVersion();
+
+      if (!cached || cached.version !== currentVersion) {
         this.buildIndexForDataset(primary.field);
+        cached = this.cache.get(primary.field as string)!;
       }
 
-      const cached = this.cache.get(primary.field as string);
-
-      if (cached?.dataRef === data && cached.itemCount === data.length) {
-        const primarySorted = this.reconstructFromIndex(
-          data,
-          cached.indexes,
-          primary.direction,
-        );
-        return this.sortTieGroups(primarySorted, primary.field, rest);
-      }
+      const primarySorted = this.reconstructFromIndex(
+        data,
+        cached.indexes,
+        primary.direction,
+      );
+      return this.sortTieGroups(primarySorted, primary.field, rest);
     }
 
     const sortable = inPlace ? data : data.slice();
@@ -390,11 +360,8 @@ export class SortEngine<T extends CollectionItem> {
         cachedIndex.indexes,
         appendedIndexes,
       ),
-      dataRef: this.dataset,
-      itemCount: startIndex + addedItemCount,
+      version: this.state.getMutationVersion(),
     });
-
-    this.dirtyIndexedFields.delete(field);
   }
 
   private buildSortedIndexesForRange(
@@ -468,23 +435,10 @@ export class SortEngine<T extends CollectionItem> {
 
   private applyUpdatedItem(index: number, previousItem: T, nextItem: T): void {
     for (const field of this.indexedFields) {
-      if (previousItem[field] === nextItem[field]) {
-        continue;
-      }
-
-      if (this.dirtyIndexedFields.has(field)) {
-        continue;
-      }
+      if (previousItem[field] === nextItem[field]) continue;
 
       const cachedIndex = this.cache.get(field as string);
-
-      if (!cachedIndex || cachedIndex.dataRef !== this.dataset) {
-        if (cachedIndex) {
-          this.dirtyIndexedFields.add(field);
-        }
-
-        continue;
-      }
+      if (!cachedIndex) continue;
 
       this.updateCachedIndexForUpdatedItem(field, index);
     }
@@ -495,39 +449,48 @@ export class SortEngine<T extends CollectionItem> {
     targetIndex: number,
   ): void {
     const cachedIndex = this.cache.get(field as string);
+    if (!cachedIndex) return;
 
-    if (!cachedIndex) {
-      return;
+    const { indexes } = cachedIndex;
+    const itemCount = indexes.length;
+
+    let currentPosition = -1;
+    for (let i = 0; i < itemCount; i++) {
+      if (indexes[i] === targetIndex) {
+        currentPosition = i;
+        break;
+      }
     }
-
-    const reorderedIndexes = Array.from(cachedIndex.indexes);
-    const currentPosition = reorderedIndexes.indexOf(targetIndex);
 
     if (currentPosition === -1) {
-      this.dirtyIndexedFields.add(field);
+      this.cache.delete(field as string);
       return;
     }
 
-    reorderedIndexes.splice(currentPosition, 1);
+    const reduced = new Uint32Array(itemCount - 1);
+    reduced.set(indexes.subarray(0, currentPosition));
+    reduced.set(indexes.subarray(currentPosition + 1), currentPosition);
 
     const nextPosition = this.findUpdatedIndexPosition(
       field,
-      reorderedIndexes,
+      reduced,
       targetIndex,
     );
 
-    reorderedIndexes.splice(nextPosition, 0, targetIndex);
+    const result = new Uint32Array(itemCount);
+    result.set(reduced.subarray(0, nextPosition));
+    result[nextPosition] = targetIndex;
+    result.set(reduced.subarray(nextPosition), nextPosition + 1);
+
     this.cache.set(field as string, {
-      indexes: Uint32Array.from(reorderedIndexes),
-      dataRef: this.dataset,
-      itemCount: this.dataset.length,
+      indexes: result,
+      version: this.state.getMutationVersion(),
     });
-    this.dirtyIndexedFields.delete(field);
   }
 
   private findUpdatedIndexPosition(
     field: keyof T & string,
-    indexes: number[],
+    indexes: Uint32Array,
     targetIndex: number,
   ): number {
     let low = 0;
@@ -546,12 +509,6 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     return low;
-  }
-
-  private markCachedIndexesDirty(): void {
-    for (const field of this.cache.keys()) {
-      this.dirtyIndexedFields.add(field as keyof T & string);
-    }
   }
 
   private buildComparator(
