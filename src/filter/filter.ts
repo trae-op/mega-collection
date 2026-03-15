@@ -216,12 +216,12 @@ export class FilterEngine<T extends CollectionItem> {
     return this;
   }
 
-  private applyAddedItems(items: T[], appendToDataset: boolean): this {
+  private applyAddedItems(items: T[], shouldAppendToDataset: boolean): this {
     if (items.length === 0) {
       return this;
     }
 
-    if (appendToDataset) {
+    if (shouldAppendToDataset) {
       this.state.add(items);
       return this;
     }
@@ -263,134 +263,50 @@ export class FilterEngine<T extends CollectionItem> {
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] {
-    const usesStoredData = criteria === undefined;
-    const {
-      previousBaseData,
-      previousCriteria,
-      previousResult,
-      previousResultsByCriteria,
-    } = this.sequentialCache;
+    const isUsingStoredData = criteria === undefined;
 
-    let sourceData: T[];
-    let resolvedCriteria: ResolvedFilterCriterion<T>[];
-    let executionCriteria: ResolvedFilterCriterion<T>[];
+    if (isUsingStoredData && !this.dataset.length) {
+      throw FilterEngineError.missingDatasetForFilter();
+    }
 
-    if (usesStoredData) {
-      if (!this.dataset.length) {
-        throw FilterEngineError.missingDatasetForFilter();
-      }
+    const resolvedCriteria = resolveCriteria(
+      isUsingStoredData ? (dataOrCriteria as FilterCriterion<T>[]) : criteria!,
+    );
 
-      resolvedCriteria = resolveCriteria(
-        dataOrCriteria as FilterCriterion<T>[],
-      );
+    const baseData: T[] = isUsingStoredData
+      ? this.dataset
+      : (dataOrCriteria as T[]);
 
+    if (isUsingStoredData) {
       const mutableExcludeResult = this.applyMutableExclude(resolvedCriteria);
       if (mutableExcludeResult !== undefined) {
         return mutableExcludeResult;
       }
+    }
 
-      if (
-        this.filterByPreviousResult &&
-        previousResult !== null &&
-        previousCriteria !== null &&
-        previousBaseData === this.dataset
-      ) {
-        const nextCriteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
-        const previousCriteriaKey =
-          this.createCriteriaCacheKey(previousCriteria);
-        const cachedResult = previousResultsByCriteria.get(nextCriteriaKey);
+    let sourceData = baseData;
+    let executionCriteria = resolvedCriteria;
 
-        if (nextCriteriaKey === previousCriteriaKey) {
-          return previousResult;
-        }
+    if (this.filterByPreviousResult) {
+      const cached = this.resolveWithSequentialCache(
+        baseData,
+        isUsingStoredData,
+        resolvedCriteria,
+      );
 
-        if (cachedResult !== undefined) {
-          this.storePreviousResult(
-            cachedResult,
-            true,
-            this.dataset,
-            resolvedCriteria,
-          );
-          return cachedResult;
-        }
-
-        const shouldRecalculateFromDataset =
-          this.hasCriteriaBacktrack(previousCriteria, resolvedCriteria) ||
-          (previousResult.length === 0 &&
-            !this.canApplySequentiallyToEmptyResult(
-              previousCriteria,
-              resolvedCriteria,
-            ));
-
-        sourceData = shouldRecalculateFromDataset
-          ? this.dataset
-          : previousResult;
-        executionCriteria = shouldRecalculateFromDataset
-          ? resolvedCriteria
-          : this.createSequentialExecutionCriteria(
-              previousCriteria,
-              resolvedCriteria,
-            );
-      } else {
-        sourceData = this.dataset;
-        executionCriteria = resolvedCriteria;
+      if (cached.isFromCache) {
+        return cached.result;
       }
-    } else {
-      resolvedCriteria = resolveCriteria(criteria);
-      sourceData = dataOrCriteria as T[];
 
-      if (
-        this.filterByPreviousResult &&
-        previousResult !== null &&
-        previousCriteria !== null &&
-        previousBaseData === sourceData
-      ) {
-        const nextCriteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
-        const previousCriteriaKey =
-          this.createCriteriaCacheKey(previousCriteria);
-        const cachedResult = previousResultsByCriteria.get(nextCriteriaKey);
-
-        if (nextCriteriaKey === previousCriteriaKey) {
-          return previousResult;
-        }
-
-        if (cachedResult !== undefined) {
-          this.storePreviousResult(
-            cachedResult,
-            false,
-            dataOrCriteria as T[],
-            resolvedCriteria,
-          );
-          return cachedResult;
-        }
-
-        const shouldRecalculateFromDataset =
-          this.hasCriteriaBacktrack(previousCriteria, resolvedCriteria) ||
-          (previousResult.length === 0 &&
-            !this.canApplySequentiallyToEmptyResult(
-              previousCriteria,
-              resolvedCriteria,
-            ));
-
-        sourceData = shouldRecalculateFromDataset
-          ? (dataOrCriteria as T[])
-          : previousResult;
-        executionCriteria = shouldRecalculateFromDataset
-          ? resolvedCriteria
-          : this.createSequentialExecutionCriteria(
-              previousCriteria,
-              resolvedCriteria,
-            );
-      } else {
-        executionCriteria = resolvedCriteria;
-      }
+      sourceData = cached.sourceData;
+      executionCriteria = cached.executionCriteria;
     }
 
     if (resolvedCriteria.length === 0) {
       if (this.filterByPreviousResult) {
         this.resetFilterState();
       }
-      return usesStoredData ? this.dataset : (dataOrCriteria as T[]);
+      return baseData;
     }
 
     for (
@@ -398,15 +314,13 @@ export class FilterEngine<T extends CollectionItem> {
       criterionIndex < executionCriteria.length;
       criterionIndex++
     ) {
-      if (!isCriterionUnsatisfiable(executionCriteria[criterionIndex])) {
-        continue;
+      if (isCriterionUnsatisfiable(executionCriteria[criterionIndex])) {
+        return this.createEmptyResult(
+          isUsingStoredData,
+          baseData,
+          resolvedCriteria,
+        );
       }
-
-      return this.createEmptyResult(
-        usesStoredData,
-        dataOrCriteria as T[],
-        resolvedCriteria,
-      );
     }
 
     const nestedCriteria: ResolvedFilterCriterion<T>[] = [];
@@ -433,8 +347,8 @@ export class FilterEngine<T extends CollectionItem> {
       );
       if (sourceData.length === 0) {
         return this.createEmptyResult(
-          usesStoredData,
-          dataOrCriteria as T[],
+          isUsingStoredData,
+          baseData,
           resolvedCriteria,
         );
       }
@@ -443,30 +357,28 @@ export class FilterEngine<T extends CollectionItem> {
     if (flatCriteria.length === 0) {
       this.storePreviousResult(
         sourceData,
-        usesStoredData,
-        dataOrCriteria as T[],
+        isUsingStoredData,
+        baseData,
         resolvedCriteria,
       );
       return sourceData;
     }
 
-    const { indexedCriteria, linearCriteria } = flatCriteria.reduce(
-      (
-        accumulator: {
-          indexedCriteria: ResolvedFilterCriterion<T>[];
-          linearCriteria: ResolvedFilterCriterion<T>[];
-        },
-        criterion,
-      ) => {
-        if (this.indexer.hasIndex(criterion.field)) {
-          accumulator.indexedCriteria.push(criterion);
-        } else {
-          accumulator.linearCriteria.push(criterion);
-        }
-        return accumulator;
-      },
-      { indexedCriteria: [], linearCriteria: [] },
-    );
+    const indexedCriteria: ResolvedFilterCriterion<T>[] = [];
+    const linearCriteria: ResolvedFilterCriterion<T>[] = [];
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < flatCriteria.length;
+      criterionIndex++
+    ) {
+      const criterion = flatCriteria[criterionIndex];
+      if (this.indexer.hasIndex(criterion.field)) {
+        indexedCriteria.push(criterion);
+      } else {
+        linearCriteria.push(criterion);
+      }
+    }
 
     let result: T[];
 
@@ -474,8 +386,8 @@ export class FilterEngine<T extends CollectionItem> {
       result = this.filterViaIndex(indexedCriteria, sourceData);
       this.storePreviousResult(
         result,
-        usesStoredData,
-        dataOrCriteria as T[],
+        isUsingStoredData,
+        baseData,
         resolvedCriteria,
       );
       return result;
@@ -486,8 +398,8 @@ export class FilterEngine<T extends CollectionItem> {
       result = this.linearFilter(candidates, linearCriteria);
       this.storePreviousResult(
         result,
-        usesStoredData,
-        dataOrCriteria as T[],
+        isUsingStoredData,
+        baseData,
         resolvedCriteria,
       );
       return result;
@@ -496,11 +408,79 @@ export class FilterEngine<T extends CollectionItem> {
     result = this.linearFilter(sourceData, flatCriteria);
     this.storePreviousResult(
       result,
-      usesStoredData,
-      dataOrCriteria as T[],
+      isUsingStoredData,
+      baseData,
       resolvedCriteria,
     );
     return result;
+  }
+
+  private resolveWithSequentialCache(
+    baseData: T[],
+    isUsingStoredData: boolean,
+    resolvedCriteria: ResolvedFilterCriterion<T>[],
+  ):
+    | { isFromCache: true; result: T[] }
+    | {
+        isFromCache: false;
+        sourceData: T[];
+        executionCriteria: ResolvedFilterCriterion<T>[];
+      } {
+    const {
+      previousResult,
+      previousCriteria,
+      previousBaseData,
+      previousResultsByCriteria,
+    } = this.sequentialCache;
+
+    if (
+      previousResult === null ||
+      previousCriteria === null ||
+      previousBaseData !== baseData
+    ) {
+      return {
+        isFromCache: false,
+        sourceData: baseData,
+        executionCriteria: resolvedCriteria,
+      };
+    }
+
+    const nextCriteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
+    const previousCriteriaKey = this.createCriteriaCacheKey(previousCriteria);
+    const cachedResult = previousResultsByCriteria.get(nextCriteriaKey);
+
+    if (nextCriteriaKey === previousCriteriaKey) {
+      return { isFromCache: true, result: previousResult };
+    }
+
+    if (cachedResult !== undefined) {
+      this.storePreviousResult(
+        cachedResult,
+        isUsingStoredData,
+        baseData,
+        resolvedCriteria,
+      );
+      return { isFromCache: true, result: cachedResult };
+    }
+
+    const shouldRecalculate =
+      this.hasCriteriaBacktrack(previousCriteria, resolvedCriteria) ||
+      (previousResult.length === 0 &&
+        !this.canApplySequentiallyToEmptyResult(
+          previousCriteria,
+          resolvedCriteria,
+        ));
+
+    return {
+      isFromCache: false,
+      sourceData: shouldRecalculate ? baseData : previousResult,
+      executionCriteria: shouldRecalculate
+        ? resolvedCriteria
+        : this.createSequentialExecutionCriteria(
+            previousCriteria,
+            resolvedCriteria,
+          ),
+    };
   }
 
   private withChain(result: T[]): T[] & FilterEngineChain<T> {
@@ -747,7 +727,7 @@ export class FilterEngine<T extends CollectionItem> {
 
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
       const item = data[itemIndex];
-      let matchesAllCriteria = true;
+      let isMatchingAll = true;
 
       for (
         let criterionIndex = 0;
@@ -756,12 +736,12 @@ export class FilterEngine<T extends CollectionItem> {
       ) {
         const criterion = criteria[criterionIndex];
         if (!matchesCriterionValue(criterion, item[criterion.field])) {
-          matchesAllCriteria = false;
+          isMatchingAll = false;
           break;
         }
       }
 
-      if (matchesAllCriteria) {
+      if (isMatchingAll) {
         result.push(item);
       }
     }
@@ -843,7 +823,7 @@ export class FilterEngine<T extends CollectionItem> {
       candidateIndex++
     ) {
       const item = candidateItems[candidateIndex];
-      let matchesAllCriteria = true;
+      let isMatchingAll = true;
 
       if (allowedItems && !allowedItems.has(item)) {
         continue;
@@ -856,12 +836,12 @@ export class FilterEngine<T extends CollectionItem> {
       ) {
         const criterion = estimatedCriteria[criterionIndex].criterion;
         if (!matchesCriterionValue(criterion, item[criterion.field])) {
-          matchesAllCriteria = false;
+          isMatchingAll = false;
           break;
         }
       }
 
-      if (matchesAllCriteria) {
+      if (isMatchingAll) {
         result.push(item);
       }
     }
@@ -936,14 +916,14 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   private createEmptyResult(
-    usesStoredData: boolean,
+    isUsingStoredData: boolean,
     baseData: T[],
     resolvedCriteria: ResolvedFilterCriterion<T>[],
   ): T[] {
     const emptyResult: T[] = [];
     this.storePreviousResult(
       emptyResult,
-      usesStoredData,
+      isUsingStoredData,
       baseData,
       resolvedCriteria,
     );
@@ -952,7 +932,7 @@ export class FilterEngine<T extends CollectionItem> {
 
   private storePreviousResult(
     result: T[],
-    usesStoredData: boolean,
+    isUsingStoredData: boolean,
     baseData: T[],
     resolvedCriteria: ResolvedFilterCriterion<T>[],
   ): void {
@@ -962,12 +942,12 @@ export class FilterEngine<T extends CollectionItem> {
 
     this.sequentialCache.previousResult = result;
     this.sequentialCache.previousCriteria = resolvedCriteria;
-    this.sequentialCache.previousBaseData = usesStoredData
+    this.sequentialCache.previousBaseData = isUsingStoredData
       ? this.dataset
       : baseData;
     this.state.setPreviousResult(
       result,
-      usesStoredData ? this.dataset : baseData,
+      isUsingStoredData ? this.dataset : baseData,
     );
     this.sequentialCache.previousResultsByCriteria.set(
       this.createCriteriaCacheKey(resolvedCriteria),
