@@ -72,6 +72,10 @@ export class Indexer<T extends CollectionItem> {
 
   /**
    * Gets items that match any of the given values for the field.
+   *
+   * Note: buildIndex indexes scalar field values, so buckets are always
+   * disjoint — deduplication via Set is not needed. If multi-value field
+   * indexing is ever added, re-introduce dedup here.
    */
   getByValues(field: keyof T & string, values: any[]): T[] {
     const indexMap = this.storage.indexes.get(field as string);
@@ -81,7 +85,15 @@ export class Indexer<T extends CollectionItem> {
       return indexMap.get(values[0]) ?? [];
     }
 
-    const seenItems = new Set<T>();
+    // Fast path for the most common 2-value case — avoid array allocation.
+    if (values.length === 2) {
+      const b0 = indexMap.get(values[0]);
+      const b1 = indexMap.get(values[1]);
+      if (!b0) return b1 ?? [];
+      if (!b1) return b0;
+      return b0.concat(b1);
+    }
+
     const result: T[] = [];
 
     for (let valueIndex = 0; valueIndex < values.length; valueIndex++) {
@@ -89,11 +101,7 @@ export class Indexer<T extends CollectionItem> {
       if (bucket === undefined) continue;
 
       for (let bucketIndex = 0; bucketIndex < bucket.length; bucketIndex++) {
-        const item = bucket[bucketIndex];
-        if (!seenItems.has(item)) {
-          seenItems.add(item);
-          result.push(item);
-        }
+        result.push(bucket[bucketIndex]);
       }
     }
 

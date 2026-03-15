@@ -56,6 +56,8 @@ export type FilterSequentialCache<T extends CollectionItem> = {
   previousCriteria: ResolvedFilterCriterion<T>[] | null;
   previousBaseData: T[] | null;
   previousResultsByCriteria: Map<string, T[]>;
+  /** Cached Set of previousResult items — avoids O(m) Set construction on each filterViaIndex narrowing call. */
+  previousResultSet: Set<T> | null;
 };
 
 export type MutableExcludeRuntime = {

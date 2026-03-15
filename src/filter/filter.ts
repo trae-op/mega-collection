@@ -49,6 +49,7 @@ const createFilterRuntime = <T extends CollectionItem>(): FilterRuntime<T> => ({
     previousCriteria: null,
     previousBaseData: null,
     previousResultsByCriteria: new Map<string, T[]>(),
+    previousResultSet: null,
   },
 });
 
@@ -192,6 +193,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.sequentialCache.previousCriteria = null;
     this.sequentialCache.previousBaseData = null;
     this.sequentialCache.previousResultsByCriteria.clear();
+    this.sequentialCache.previousResultSet = null;
     this.state.clearPreviousResult();
     return this;
   }
@@ -757,7 +759,19 @@ export class FilterEngine<T extends CollectionItem> {
     sourceData: T[],
   ): T[] {
     const isFilteringFromSubset = sourceData !== this.dataset;
-    const allowedItems = isFilteringFromSubset ? new Set(sourceData) : null;
+    let allowedItems: Set<T> | null = null;
+    if (isFilteringFromSubset) {
+      // Reuse the cached Set when sourceData is the stored previous result,
+      // avoiding an O(m) Set construction on every narrowing call.
+      if (
+        sourceData === this.sequentialCache.previousResult &&
+        this.sequentialCache.previousResultSet !== null
+      ) {
+        allowedItems = this.sequentialCache.previousResultSet;
+      } else {
+        allowedItems = new Set(sourceData);
+      }
+    }
     const inclusionCriteria = criteria.filter(
       (criterion) => criterion.hasValues,
     );
@@ -945,6 +959,8 @@ export class FilterEngine<T extends CollectionItem> {
     this.sequentialCache.previousBaseData = isUsingStoredData
       ? this.dataset
       : baseData;
+    this.sequentialCache.previousResultSet =
+      result.length > 0 ? new Set(result) : null;
     this.state.setPreviousResult(
       result,
       isUsingStoredData ? this.dataset : baseData,
@@ -958,23 +974,36 @@ export class FilterEngine<T extends CollectionItem> {
   private createCriteriaCacheKey(
     criteria: ResolvedFilterCriterion<T>[],
   ): string {
-    const criteriaByField = this.createCriteriaStateMap(criteria);
+    // Sort criteria by field name so key is order-independent.
+    const sorted = criteria
+      .slice()
+      .sort((a, b) => ((a.field as string) < (b.field as string) ? -1 : 1));
 
-    return JSON.stringify(
-      [...criteriaByField.entries()]
-        .sort(([leftField], [rightField]) =>
-          leftField.localeCompare(rightField),
-        )
-        .map(([field, criterion]) => ({
-          field,
-          hasValues: criterion.hasValues,
-          hasExclude: criterion.hasExclude,
-          values: criterion.values.map((value) => JSON.stringify(value)).sort(),
-          exclude: criterion.exclude
-            .map((value) => JSON.stringify(value))
-            .sort(),
-        })),
-    );
+    let key = "";
+    for (let i = 0; i < sorted.length; i++) {
+      const c = sorted[i];
+      // Segment format: "<field>|v:<v1>,<v2>|x:<x1>,<x2>;"
+      // String() handles boolean/number/string values correctly.
+      // Objects that appear as filter values are rare in practice; keep
+      // JSON.stringify only for them to preserve unambiguous encoding.
+      key += c.field as string;
+      key += "|v:";
+      if (c.hasValues) {
+        key += c.values
+          .map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v)))
+          .sort()
+          .join(",");
+      }
+      key += "|x:";
+      if (c.hasExclude) {
+        key += c.exclude
+          .map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v)))
+          .sort()
+          .join(",");
+      }
+      key += ";";
+    }
+    return key;
   }
 
   private createSequentialExecutionCriteria(
