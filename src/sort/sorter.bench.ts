@@ -10,10 +10,13 @@
  *   6. Ad-hoc sort  (external data array, no stored dataset)
  *   7. Native Array.sort  (baseline)
  *
- * Metrics    : execution time (ms) · memory delta (MB)
- * Thresholds : time <= 150 ms · memory <= 25 MB
+ * Metrics    : min_ms · p50_ms (median) · max_ms  across 5 measurement runs
+ * Warm-up    : 3 un-timed runs per scenario to saturate V8 JIT before measuring
+ * Thresholds : p50 <= 150 ms · memory <= 25 MB
  *
  * Run with:  npx tsx src/sort/sorter.bench.ts
+ * For GC isolation between scenarios (more accurate memory):
+ *   node --expose-gc -e "require('tsx').register()" src/sort/sorter.bench.ts
  */
 
 import { SortEngine } from "./sorter";
@@ -29,6 +32,8 @@ interface Item {
 
 /* -- Constants ------------------------------------------------------------------ */
 const N = 100_000;
+const WARMUP_RUNS = 3;
+const MEASURE_RUNS = 5;
 
 const THRESHOLDS = {
   time_ms: 150,
@@ -52,7 +57,9 @@ function generateDataset(): Item[] {
 /* -- Result types --------------------------------------------------------------- */
 interface ScenarioResult {
   scenario: string;
-  time_ms: number;
+  min_ms: number;
+  p50_ms: number;
+  max_ms: number;
   memory_mb: number;
   sorted_sample: unknown[];
   status: "PASS" | "FAIL";
@@ -61,6 +68,8 @@ interface ScenarioResult {
 
 interface BenchReport {
   dataset_size: number;
+  warmup_runs: number;
+  measure_runs: number;
   results: ScenarioResult[];
   failed_scenarios: string[];
   overall_status: "PASS" | "FAIL";
@@ -76,24 +85,44 @@ function run<T>(
   sampleFn: (result: T[]) => unknown[],
   fn: () => T[],
 ): ScenarioResult {
-  const memBefore = heapMB();
-  const t0 = performance.now();
-  const result = fn();
-  const t1 = performance.now();
-  const memAfter = heapMB();
+  const round = (v: number) => Math.round(v * 10) / 10;
 
-  const time_ms = Math.round((t1 - t0) * 10) / 10;
+  // Warm-up: let V8 JIT compile hot paths before measuring
+  for (let w = 0; w < WARMUP_RUNS; w++) fn();
+  globalThis.gc?.();
+
+  // Isolated memory measurement (single run after warm-up)
+  const memBefore = heapMB();
+  const memResult = fn();
+  const memAfter = heapMB();
   const memory_mb = Math.round(Math.max(0, memAfter - memBefore) * 100) / 100;
+  const sorted_sample = sampleFn(memResult);
+  globalThis.gc?.();
+
+  // Timing: collect wall-clock samples across MEASURE_RUNS
+  const times: number[] = [];
+  for (let r = 0; r < MEASURE_RUNS; r++) {
+    const t0 = performance.now();
+    fn();
+    times.push(performance.now() - t0);
+  }
+  times.sort((a, b) => a - b);
+
+  const min_ms = round(times[0]);
+  const p50_ms = round(times[Math.floor(MEASURE_RUNS / 2)]);
+  const max_ms = round(times[MEASURE_RUNS - 1]);
 
   const failed: string[] = [];
-  if (time_ms > THRESHOLDS.time_ms) failed.push("time_ms");
+  if (p50_ms > THRESHOLDS.time_ms) failed.push("p50_ms");
   if (memory_mb > THRESHOLDS.memory_mb) failed.push("memory_mb");
 
   return {
     scenario,
-    time_ms,
+    min_ms,
+    p50_ms,
+    max_ms,
     memory_mb,
-    sorted_sample: sampleFn(result),
+    sorted_sample,
     status: failed.length === 0 ? "PASS" : "FAIL",
     failed_metrics: failed,
   };
@@ -176,6 +205,8 @@ async function main(): Promise<void> {
 
   const report: BenchReport = {
     dataset_size: N,
+    warmup_runs: WARMUP_RUNS,
+    measure_runs: MEASURE_RUNS,
     results,
     failed_scenarios: failedScenarios,
     overall_status: failedScenarios.length === 0 ? "PASS" : "FAIL",

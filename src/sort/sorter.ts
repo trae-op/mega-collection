@@ -9,6 +9,68 @@ import {
 import type { SortEngineOptions, SortIndex, SortRuntime } from "./types";
 import { SortEngineError } from "./errors";
 
+// ---------------------------------------------------------------------------
+// Radix-sort helpers (LSD, 2-pass, base 2^16)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true if every value in `values` is a non-negative 32-bit integer,
+ * i.e. it can be treated as a Uint32 without precision loss.
+ */
+function canUseUint32Radix(values: Float64Array, n: number): boolean {
+  for (let i = 0; i < n; i++) {
+    const v = values[i];
+    // v >>> 0 converts to Uint32; equality fails for negatives, floats, or v > 2^32-1
+    if (v !== v >>> 0) return false;
+  }
+  return true;
+}
+
+/**
+ * 2-pass LSD radix sort — sorts `indexes` so that `values[indexes[i]]` is
+ * non-decreasing.  Requires all values to be in [0, 2^32-1] integers.
+ *
+ * Time  O(2n + 2·65536)  ≈ O(n)
+ * Space O(n + 65536)     for temp buffer + count array
+ */
+function radixSortUint32(
+  indexes: Uint32Array,
+  values: Float64Array,
+  n: number,
+): void {
+  const temp = new Uint32Array(n);
+  const count = new Uint32Array(65536);
+
+  // Pass 1 — lower 16 bits
+  for (let i = 0; i < n; i++) count[values[indexes[i]] & 0xffff]++;
+  let s = 0;
+  for (let i = 0; i < 65536; i++) {
+    const c = count[i];
+    count[i] = s;
+    s += c;
+  }
+  for (let i = 0; i < n; i++) {
+    const b = values[indexes[i]] & 0xffff;
+    temp[count[b]++] = indexes[i];
+  }
+
+  // Pass 2 — upper 16 bits
+  count.fill(0);
+  for (let i = 0; i < n; i++) count[(values[temp[i]] >>> 16) & 0xffff]++;
+  s = 0;
+  for (let i = 0; i < 65536; i++) {
+    const c = count[i];
+    count[i] = s;
+    s += c;
+  }
+  for (let i = 0; i < n; i++) {
+    const b = (values[temp[i]] >>> 16) & 0xffff;
+    indexes[count[b]++] = temp[i];
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 const createSortRuntime = <T extends CollectionItem>(): SortRuntime<T> => ({
   indexedFields: new Set<keyof T & string>(),
   cache: new Map<string, SortIndex>(),
@@ -72,28 +134,33 @@ export class SortEngine<T extends CollectionItem> {
   private buildIndexFromData(data: T[], field: keyof T & string): void {
     const itemCount = data.length;
     const indexes = new Uint32Array(itemCount);
-    const fieldValues = new Array<unknown>(itemCount);
+    for (let i = 0; i < itemCount; i++) indexes[i] = i;
 
-    for (let i = 0; i < itemCount; i++) {
-      indexes[i] = i;
-      fieldValues[i] = data[i][field];
-    }
-
+    // Probe the type from the first non-null element before allocating buffers,
+    // so numeric fields use a single Float64Array without an intermediate unknown[].
     let probe = 0;
-    while (probe < itemCount && fieldValues[probe] == null) probe++;
+    while (probe < itemCount && data[probe][field] == null) probe++;
     const isNumeric =
-      probe < itemCount && typeof fieldValues[probe] === "number";
+      probe < itemCount && typeof data[probe][field] === "number";
 
     if (isNumeric) {
       const numericValues = new Float64Array(itemCount);
       for (let i = 0; i < itemCount; i++) {
-        numericValues[i] = fieldValues[i] as number;
+        numericValues[i] = data[i][field] as number;
       }
-      indexes.sort((a, b) => numericValues[a] - numericValues[b]);
+      if (canUseUint32Radix(numericValues, itemCount)) {
+        radixSortUint32(indexes, numericValues, itemCount);
+      } else {
+        indexes.sort((a, b) => numericValues[a] - numericValues[b]);
+      }
     } else {
+      const strValues = new Array<string>(itemCount);
+      for (let i = 0; i < itemCount; i++) {
+        strValues[i] = data[i][field] as string;
+      }
       indexes.sort((a, b) => {
-        const av = fieldValues[a] as string;
-        const bv = fieldValues[b] as string;
+        const av = strValues[a];
+        const bv = strValues[b];
         return av < bv ? -1 : av > bv ? 1 : 0;
       });
     }
@@ -241,14 +308,16 @@ export class SortEngine<T extends CollectionItem> {
 
     const itemCount = data.length;
     const values = new Float64Array(itemCount);
-
-    for (let i = 0; i < itemCount; i++) {
-      values[i] = data[i][field] as number;
-    }
+    for (let i = 0; i < itemCount; i++) values[i] = data[i][field] as number;
 
     const indexes = new Uint32Array(itemCount);
     for (let i = 0; i < itemCount; i++) indexes[i] = i;
-    indexes.sort((a, b) => values[a] - values[b]);
+
+    if (canUseUint32Radix(values, itemCount)) {
+      radixSortUint32(indexes, values, itemCount);
+    } else {
+      indexes.sort((a, b) => values[a] - values[b]);
+    }
 
     return this.reconstructFromIndex(data, indexes, direction);
   }
@@ -419,8 +488,8 @@ export class SortEngine<T extends CollectionItem> {
     leftIndex: number,
     rightIndex: number,
   ): number {
-    const lv = this.dataset[leftIndex]?.[field];
-    const rv = this.dataset[rightIndex]?.[field];
+    const lv = this.dataset[leftIndex][field];
+    const rv = this.dataset[rightIndex][field];
 
     if (typeof lv === "number" && typeof rv === "number") {
       const diff = lv - rv;
