@@ -7,14 +7,13 @@ const MAXIMUM_NGRAM_LENGTH = 3;
 export const MINIMUM_INDEXED_QUERY_LENGTH = MAXIMUM_NGRAM_LENGTH;
 const MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION = 12;
 
-function extractQueryGrams(input: string): string[] {
-  const lower = input.toLowerCase();
-  const gramLength = Math.min(MAXIMUM_NGRAM_LENGTH, lower.length);
-  const gramCount = lower.length - gramLength + 1;
+function extractQueryGrams(lowerInput: string): string[] {
+  const gramLength = Math.min(MAXIMUM_NGRAM_LENGTH, lowerInput.length);
+  const gramCount = lowerInput.length - gramLength + 1;
   const queryGrams = new Array<string>(gramCount);
 
   for (let index = 0; index < gramCount; index++) {
-    queryGrams[index] = lower.substring(index, index + gramLength);
+    queryGrams[index] = lowerInput.substring(index, index + gramLength);
   }
 
   return queryGrams;
@@ -68,6 +67,58 @@ export function indexLowerValue(
     );
     getOrCreatePostingList(ngramMap, ngram).add(itemIndex);
   }
+}
+
+/**
+ * Intersects posting lists for the given query grams and confirms each
+ * candidate against the full normalizedValues string. Returns dataset indices
+ * of confirmed matches.
+ */
+export function intersectPostingLists(
+  ngramMap: Map<string, Set<number>>,
+  uniqueQueryGrams: ReadonlySet<string>,
+  normalizedValues: (string | undefined)[],
+  lowerQuery: string,
+): number[] {
+  const postingLists: Set<number>[] = [];
+
+  for (const queryGram of uniqueQueryGrams) {
+    const postingList = ngramMap.get(queryGram);
+    if (!postingList) return [];
+    postingLists.push(postingList);
+  }
+
+  // O4: find smallest posting list and swap to front — avoids allocating a sort comparator.
+  let minIdx = 0;
+  for (let i = 1; i < postingLists.length; i++) {
+    if (postingLists[i].size < postingLists[minIdx].size) minIdx = i;
+  }
+  if (minIdx !== 0) {
+    const tmp = postingLists[0];
+    postingLists[0] = postingLists[minIdx];
+    postingLists[minIdx] = tmp;
+  }
+
+  const smallestPostingList = postingLists[0];
+  const totalPostingLists = postingLists.length;
+  const matchedIndices: number[] = [];
+
+  for (const candidateIndex of smallestPostingList) {
+    let isCandidate = true;
+    for (let listIndex = 1; listIndex < totalPostingLists; listIndex++) {
+      if (!postingLists[listIndex].has(candidateIndex)) {
+        isCandidate = false;
+        break;
+      }
+    }
+    if (!isCandidate) continue;
+
+    if (normalizedValues[candidateIndex]?.includes(lowerQuery)) {
+      matchedIndices.push(candidateIndex);
+    }
+  }
+
+  return matchedIndices;
 }
 
 export function removeLowerValue(

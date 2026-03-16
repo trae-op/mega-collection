@@ -1,5 +1,9 @@
 import { CollectionItem } from "../types";
-import { indexLowerValue, removeLowerValue } from "./ngram";
+import {
+  indexLowerValue,
+  intersectPostingLists,
+  removeLowerValue,
+} from "./ngram";
 import type {
   NestedFieldDescriptor,
   SearchNestedCollectionStorage,
@@ -20,8 +24,8 @@ export class SearchNestedCollection<T extends CollectionItem> {
   registerFields(fieldPaths?: readonly string[]): void {
     if (!fieldPaths?.length) return;
 
-    for (let fieldIndex = 0; fieldIndex < fieldPaths.length; fieldIndex++) {
-      this.registerField(fieldPaths[fieldIndex]);
+    for (const fieldPath of fieldPaths) {
+      this.registerField(fieldPath);
     }
   }
 
@@ -101,7 +105,7 @@ export class SearchNestedCollection<T extends CollectionItem> {
     const seenIndices = new Set<number>();
     const matchedIndices: number[] = [];
 
-    for (const fieldPath of this.registeredFields) {
+    for (const fieldPath of this.storage.ngramIndexes.keys()) {
       for (const idx of this.searchIndexedFieldIndices(
         fieldPath,
         lowerQuery,
@@ -147,48 +151,15 @@ export class SearchNestedCollection<T extends CollectionItem> {
     const ngramMap = this.storage.ngramIndexes.get(fieldPath);
     if (!ngramMap) return [];
 
-    const postingLists: Set<number>[] = [];
+    const normalizedValues =
+      this.storage.normalizedFieldValues.get(fieldPath) ?? [];
 
-    for (const queryGram of uniqueQueryGrams) {
-      const postingList = ngramMap.get(queryGram);
-      if (!postingList) return [];
-      postingLists.push(postingList);
-    }
-
-    // O4: find smallest posting list and swap to front — avoids allocating a sort comparator.
-    let minIdx = 0;
-    for (let i = 1; i < postingLists.length; i++) {
-      if (postingLists[i].size < postingLists[minIdx].size) minIdx = i;
-    }
-    if (minIdx !== 0) {
-      const tmp = postingLists[0];
-      postingLists[0] = postingLists[minIdx];
-      postingLists[minIdx] = tmp;
-    }
-
-    const smallestPostingList = postingLists[0];
-    const totalPostingLists = postingLists.length;
-    const matchedIndices: number[] = [];
-    const normalizedValues = this.storage.normalizedFieldValues.get(fieldPath);
-
-    for (const candidateIndex of smallestPostingList) {
-      let isCandidate = true;
-
-      for (let listIndex = 1; listIndex < totalPostingLists; listIndex++) {
-        if (postingLists[listIndex].has(candidateIndex)) continue;
-        isCandidate = false;
-        break;
-      }
-
-      if (!isCandidate) continue;
-
-      const normalizedValue = normalizedValues?.[candidateIndex];
-      if (!normalizedValue?.includes(lowerQuery)) continue;
-
-      matchedIndices.push(candidateIndex);
-    }
-
-    return matchedIndices;
+    return intersectPostingLists(
+      ngramMap,
+      uniqueQueryGrams,
+      normalizedValues,
+      lowerQuery,
+    );
   }
 
   searchFieldLinear(data: T[], fieldPath: string, lowerQuery: string): T[] {
@@ -267,6 +238,15 @@ export class SearchNestedCollection<T extends CollectionItem> {
     };
   }
 
+  private getNormalizedValues(fieldPath: string): string[] {
+    const existing = this.storage.normalizedFieldValues.get(fieldPath);
+    if (existing) return existing;
+
+    const created: string[] = [];
+    this.storage.normalizedFieldValues.set(fieldPath, created);
+    return created;
+  }
+
   private buildIndex(data: T[], fieldPath: string): void {
     const descriptor = this.fieldDescriptors.get(fieldPath);
     if (!descriptor) return;
@@ -294,14 +274,14 @@ export class SearchNestedCollection<T extends CollectionItem> {
         const rawValue = collection[nestedIndex][nestedKey];
         if (typeof rawValue !== "string") continue;
 
-        const lowerValue = rawValue.toLowerCase();
-        normalizedNestedValues.push(lowerValue);
-        indexLowerValue(ngramMap, lowerValue, itemIndex);
+        normalizedNestedValues.push(rawValue.toLowerCase());
       }
 
       if (normalizedNestedValues.length === 0) continue;
 
-      normalizedFieldValues[itemIndex] = normalizedNestedValues.join("\n");
+      const joinedValue = normalizedNestedValues.join("\n");
+      normalizedFieldValues[itemIndex] = joinedValue;
+      indexLowerValue(ngramMap, joinedValue, itemIndex);
     }
 
     this.storage.ngramIndexes.set(fieldPath, ngramMap);
@@ -320,8 +300,7 @@ export class SearchNestedCollection<T extends CollectionItem> {
       return;
     }
 
-    const normalizedFieldValues =
-      this.storage.normalizedFieldValues.get(fieldPath) ?? [];
+    const normalizedFieldValues = this.getNormalizedValues(fieldPath);
     const { collectionKey, nestedKey } = descriptor;
 
     for (let itemOffset = 0; itemOffset < items.length; itemOffset++) {
@@ -344,19 +323,17 @@ export class SearchNestedCollection<T extends CollectionItem> {
           continue;
         }
 
-        const lowerValue = rawValue.toLowerCase();
-        normalizedNestedValues.push(lowerValue);
-        indexLowerValue(ngramMap, lowerValue, datasetIndex);
+        normalizedNestedValues.push(rawValue.toLowerCase());
       }
 
       if (normalizedNestedValues.length === 0) {
         continue;
       }
 
-      normalizedFieldValues[datasetIndex] = normalizedNestedValues.join("\n");
+      const joinedValue = normalizedNestedValues.join("\n");
+      normalizedFieldValues[datasetIndex] = joinedValue;
+      indexLowerValue(ngramMap, joinedValue, datasetIndex);
     }
-
-    this.storage.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
   }
 
   private updateItemInField(
@@ -366,12 +343,9 @@ export class SearchNestedCollection<T extends CollectionItem> {
     itemIndex: number,
   ): void {
     const ngramMap = this.storage.ngramIndexes.get(fieldPath);
-    const normalizedFieldValues =
-      this.storage.normalizedFieldValues.get(fieldPath) ?? [];
+    if (!ngramMap) return;
 
-    if (!ngramMap) {
-      return;
-    }
+    const normalizedFieldValues = this.getNormalizedValues(fieldPath);
 
     const previousNormalizedValue = this.getNormalizedItemValue(
       fieldPath,
@@ -386,13 +360,11 @@ export class SearchNestedCollection<T extends CollectionItem> {
 
     if (!nextNormalizedValue) {
       delete normalizedFieldValues[itemIndex];
-      this.storage.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
       return;
     }
 
     normalizedFieldValues[itemIndex] = nextNormalizedValue;
     indexLowerValue(ngramMap, nextNormalizedValue, itemIndex);
-    this.storage.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
   }
 
   private removeItemFromField(
@@ -401,21 +373,19 @@ export class SearchNestedCollection<T extends CollectionItem> {
     itemIndex: number,
   ): void {
     const ngramMap = this.storage.ngramIndexes.get(fieldPath);
-    const normalizedFieldValues =
-      this.storage.normalizedFieldValues.get(fieldPath) ?? [];
+    if (!ngramMap) return;
 
-    if (!ngramMap) {
-      return;
-    }
+    const normalizedFieldValues = this.getNormalizedValues(fieldPath);
 
-    const normalizedValue = this.getNormalizedItemValue(fieldPath, item);
+    const normalizedValue =
+      normalizedFieldValues[itemIndex] ??
+      this.getNormalizedItemValue(fieldPath, item);
 
     if (normalizedValue) {
       removeLowerValue(ngramMap, normalizedValue, itemIndex);
     }
 
     delete normalizedFieldValues[itemIndex];
-    this.storage.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
   }
 
   private moveItemForField(
@@ -425,12 +395,9 @@ export class SearchNestedCollection<T extends CollectionItem> {
     toIndex: number,
   ): void {
     const ngramMap = this.storage.ngramIndexes.get(fieldPath);
-    const normalizedFieldValues =
-      this.storage.normalizedFieldValues.get(fieldPath) ?? [];
+    if (!ngramMap) return;
 
-    if (!ngramMap) {
-      return;
-    }
+    const normalizedFieldValues = this.getNormalizedValues(fieldPath);
 
     const normalizedValue =
       normalizedFieldValues[fromIndex] ??
@@ -438,7 +405,6 @@ export class SearchNestedCollection<T extends CollectionItem> {
 
     if (!normalizedValue) {
       delete normalizedFieldValues[fromIndex];
-      this.storage.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
       return;
     }
 
@@ -446,7 +412,6 @@ export class SearchNestedCollection<T extends CollectionItem> {
     indexLowerValue(ngramMap, normalizedValue, toIndex);
     normalizedFieldValues[toIndex] = normalizedValue;
     delete normalizedFieldValues[fromIndex];
-    this.storage.normalizedFieldValues.set(fieldPath, normalizedFieldValues);
   }
 
   private getNormalizedItemValue(fieldPath: string, item: T): string | null {

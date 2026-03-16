@@ -18,6 +18,7 @@ import {
   buildIntersectionQueryGrams,
   MINIMUM_INDEXED_QUERY_LENGTH,
   indexLowerValue,
+  intersectPostingLists,
   removeLowerValue,
 } from "./ngram";
 import { SearchNestedCollection } from "./nested";
@@ -426,45 +427,13 @@ export class TextSearchEngine<T extends CollectionItem> {
     if (!index) return [];
 
     const { ngramMap, normalizedValues } = index;
-    const postingLists: Set<number>[] = [];
 
-    for (const queryGram of uniqueQueryGrams) {
-      const postingList = ngramMap.get(queryGram);
-      if (!postingList) return [];
-      postingLists.push(postingList);
-    }
-
-    // O4: find smallest posting list and swap to front — avoids allocating a sort comparator.
-    let minIdx = 0;
-    for (let i = 1; i < postingLists.length; i++) {
-      if (postingLists[i].size < postingLists[minIdx].size) minIdx = i;
-    }
-    if (minIdx !== 0) {
-      const tmp = postingLists[0];
-      postingLists[0] = postingLists[minIdx];
-      postingLists[minIdx] = tmp;
-    }
-
-    const smallestPostingList = postingLists[0];
-    const totalPostingLists = postingLists.length;
-    const matchedIndices: number[] = [];
-
-    for (const candidateIndex of smallestPostingList) {
-      let isCandidate = true;
-      for (let listIndex = 1; listIndex < totalPostingLists; listIndex++) {
-        if (!postingLists[listIndex].has(candidateIndex)) {
-          isCandidate = false;
-          break;
-        }
-      }
-      if (!isCandidate) continue;
-
-      if (normalizedValues[candidateIndex]?.includes(lowerQuery)) {
-        matchedIndices.push(candidateIndex);
-      }
-    }
-
-    return matchedIndices;
+    return intersectPostingLists(
+      ngramMap,
+      uniqueQueryGrams,
+      normalizedValues,
+      lowerQuery,
+    );
   }
 
   /**
