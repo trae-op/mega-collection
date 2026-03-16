@@ -18,7 +18,7 @@
  *   - Long queries: more trigrams → tighter intersection → fewer candidates to verify.
  *   - Previous-result narrowing: searches a small subset instead of the full dataset.
  *
- * Metrics    : min_ms · p50_ms (median) · max_ms  across 5 measurement runs
+ * Metrics    : min_ms · p50_ms · p95_ms · p99_ms · max_ms across 15 measurement runs
  * Warm-up    : 3 un-timed runs per scenario to saturate V8 JIT before measuring
  * Thresholds : p50 <= 200 ms · memory <= 30 MB
  *
@@ -31,6 +31,9 @@
 
 import { TextSearchEngine } from "../src/search/text-search";
 import { CLR, MEASURE_RUNS, N, printBenchHeader, WARMUP_RUNS } from "./utils";
+
+const SEARCH_WARMUP_RUNS = WARMUP_RUNS;
+const SEARCH_MEASURE_RUNS = 15;
 
 interface Item {
   id: number;
@@ -76,6 +79,8 @@ interface ScenarioResult {
   result_count: number;
   min_ms: number;
   p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
   max_ms: number;
   memory_mb: number;
   status: "PASS" | "FAIL";
@@ -107,6 +112,14 @@ interface TableRow {
   speedup: string;
 }
 
+interface LatencyTableRow {
+  scenario: string;
+  p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
+  max_ms: number;
+}
+
 function generateDataset(): Item[] {
   const data: Item[] = new Array(N);
   for (let i = 0; i < N; i++) {
@@ -127,6 +140,16 @@ function heapMB(): number {
   return process.memoryUsage().heapUsed / 1_048_576;
 }
 
+function percentile(sortedValues: number[], value: number): number {
+  if (sortedValues.length === 0) {
+    return 0;
+  }
+
+  const rank = Math.ceil((value / 100) * sortedValues.length) - 1;
+  const index = Math.min(sortedValues.length - 1, Math.max(0, rank));
+  return sortedValues[index];
+}
+
 function run<T>(
   scenario: string,
   query: string,
@@ -134,7 +157,7 @@ function run<T>(
 ): ScenarioResult {
   const round = (v: number) => Math.round(v * 10) / 10;
 
-  for (let w = 0; w < WARMUP_RUNS; w++) fn();
+  for (let w = 0; w < SEARCH_WARMUP_RUNS; w++) fn();
   globalThis.gc?.();
 
   const memBefore = heapMB();
@@ -145,7 +168,7 @@ function run<T>(
   globalThis.gc?.();
 
   const times: number[] = [];
-  for (let r = 0; r < MEASURE_RUNS; r++) {
+  for (let r = 0; r < SEARCH_MEASURE_RUNS; r++) {
     const t0 = performance.now();
     fn();
     times.push(performance.now() - t0);
@@ -153,8 +176,10 @@ function run<T>(
   times.sort((a, b) => a - b);
 
   const min_ms = round(times[0]);
-  const p50_ms = round(times[Math.floor(MEASURE_RUNS / 2)]);
-  const max_ms = round(times[MEASURE_RUNS - 1]);
+  const p50_ms = round(percentile(times, 50));
+  const p95_ms = round(percentile(times, 95));
+  const p99_ms = round(percentile(times, 99));
+  const max_ms = round(times[SEARCH_MEASURE_RUNS - 1]);
 
   const failed: string[] = [];
   if (p50_ms > THRESHOLDS.time_ms) failed.push("p50_ms");
@@ -166,6 +191,8 @@ function run<T>(
     result_count,
     min_ms,
     p50_ms,
+    p95_ms,
+    p99_ms,
     max_ms,
     memory_mb,
     status: failed.length === 0 ? "PASS" : "FAIL",
@@ -236,8 +263,49 @@ function printComparisonTable(title: string, rows: TableRow[]): void {
   console.log(h(bar));
 }
 
+function printLatencyTable(title: string, rows: LatencyTableRow[]): void {
+  const pad = (s: string, n: number) => s.padEnd(n);
+  const trunc = (s: string, n: number) =>
+    s.length > n ? s.slice(0, n - 1) + "…" : s;
+
+  const colScenario = Math.max(
+    44,
+    ...rows.map((row) => row.scenario.length + 2),
+  );
+  const colValue = 10;
+  const total = colScenario + colValue * 4 + 4;
+  const bar = "═".repeat(total);
+  const sep = "─".repeat(total);
+  const h = (s: string) => `${CLR.bold}${CLR.cyan}${s}${CLR.reset}`;
+
+  console.log(`\n${h(bar)}`);
+  console.log(h(`  ${title}`));
+  console.log(h(bar));
+  console.log(
+    `${CLR.bold}  ${pad("Scenario", colScenario)}${pad("p50", colValue)}${pad("p95", colValue)}${pad("p99", colValue)}Max${CLR.reset}`,
+  );
+  console.log(sep);
+
+  for (const row of rows) {
+    console.log(
+      `  ${pad(trunc(row.scenario, colScenario), colScenario)}` +
+        `${pad(row.p50_ms + " ms", colValue)}` +
+        `${pad(row.p95_ms + " ms", colValue)}` +
+        `${pad(row.p99_ms + " ms", colValue)}` +
+        `${row.max_ms} ms`,
+    );
+  }
+
+  console.log(h(bar));
+}
+
 async function main(): Promise<void> {
-  printBenchHeader("search-bench");
+  printBenchHeader("search-bench", {
+    warmupRuns: SEARCH_WARMUP_RUNS,
+    measureRuns: SEARCH_MEASURE_RUNS,
+    metricsLabel:
+      "p50 / p95 / p99 latency across all iterations (lower is better)",
+  });
   const dataset = generateDataset();
 
   const indexedEngine = new TextSearchEngine<Item>({
@@ -324,6 +392,18 @@ async function main(): Promise<void> {
       "john",
       () => nativeAllFields(dataset, "john"),
     ),
+
+    run(
+      "G1. TextSearchEngine - indexed all-fields worst-case absent long query",
+      "supercalifragilisticexpialidocious-absent",
+      () => indexedEngine.search("supercalifragilisticexpialidocious-absent"),
+    ),
+    run(
+      "G2. Native Array.filter - all-fields worst-case absent long query",
+      "supercalifragilisticexpialidocious-absent",
+      () =>
+        nativeAllFields(dataset, "supercalifragilisticexpialidocious-absent"),
+    ),
   ];
 
   function p50(label: string): number {
@@ -380,6 +460,13 @@ async function main(): Promise<void> {
       native_p50_ms: p50("F2"),
       speedup: speedup(p50("F2"), p50("F1")),
     },
+    {
+      group: "G",
+      description: "Worst-case absent long query across all fields",
+      engine_p50_ms: p50("G1"),
+      native_p50_ms: p50("G2"),
+      speedup: speedup(p50("G2"), p50("G1")),
+    },
   ];
 
   const failedScenarios = results
@@ -388,8 +475,8 @@ async function main(): Promise<void> {
 
   const report: BenchReport = {
     dataset_size: N,
-    warmup_runs: WARMUP_RUNS,
-    measure_runs: MEASURE_RUNS,
+    warmup_runs: SEARCH_WARMUP_RUNS,
+    measure_runs: SEARCH_MEASURE_RUNS,
     results,
     comparison_summary,
     failed_scenarios: failedScenarios,
@@ -403,6 +490,17 @@ async function main(): Promise<void> {
       engineMs: g.engine_p50_ms,
       nativeMs: g.native_p50_ms,
       speedup: g.speedup,
+    })),
+  );
+
+  printLatencyTable(
+    "Per-scenario tail latency",
+    results.map((result) => ({
+      scenario: result.scenario,
+      p50_ms: result.p50_ms,
+      p95_ms: result.p95_ms,
+      p99_ms: result.p99_ms,
+      max_ms: result.max_ms,
     })),
   );
 

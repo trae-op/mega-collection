@@ -743,10 +743,10 @@ describe("TextSearchEngine — O2: searchAllFieldsLinear uses indexed fields", (
   });
 });
 
-describe("TextSearchEngine — O1: trigram-only index", () => {
+describe("TextSearchEngine — short-query indexing", () => {
   type NameItem = { id: number; name: string };
 
-  it("T4: 2-char query falls back to linear scan and returns correct results", () => {
+  it("T4: 2-char query uses the short-query index and returns correct results", () => {
     const items: NameItem[] = [
       { id: 1, name: "Kyiv" },
       { id: 2, name: "Dnipro" },
@@ -757,12 +757,11 @@ describe("TextSearchEngine — O1: trigram-only index", () => {
       minQueryLength: 1,
     });
 
-    // 2-char query → shorter than trigram length → linear fallback
     expect(engine.search("name", "ky").map((i) => i.id)).toEqual([1]);
     expect(engine.search("ky").map((i) => i.id)).toEqual([1]);
   });
 
-  it("T6: index contains only trigram keys — no 1-gram or 2-gram keys for strings of length ≥ 3", () => {
+  it("T6: index contains only 2-gram and 3-gram keys for strings of length ≥ 3", () => {
     const items: NameItem[] = [{ id: 1, name: "hello" }];
     const engine = new TextSearchEngine<NameItem>({
       data: items,
@@ -774,21 +773,23 @@ describe("TextSearchEngine — O1: trigram-only index", () => {
       engine as any
     ).runtime.flatIndexes.get("name").ngramMap;
 
-    // All keys must be exactly 3 characters (trigrams for "hello")
+    // Keys must be either 2-grams or 3-grams.
     for (const key of ngramMap.keys()) {
-      expect(key).toHaveLength(3);
+      expect([2, 3]).toContain(key.length);
     }
 
-    // Exact trigrams of "hello": hel, ell, llo
+    // Exact bigrams and trigrams of "hello"
+    expect(ngramMap.has("he")).toBe(true);
+    expect(ngramMap.has("el")).toBe(true);
+    expect(ngramMap.has("ll")).toBe(true);
+    expect(ngramMap.has("lo")).toBe(true);
     expect(ngramMap.has("hel")).toBe(true);
     expect(ngramMap.has("ell")).toBe(true);
     expect(ngramMap.has("llo")).toBe(true);
-    expect(ngramMap.size).toBe(3);
+    expect(ngramMap.size).toBe(7);
 
-    // No 1-gram or 2-gram keys
+    // No 1-gram keys
     expect(ngramMap.has("h")).toBe(false);
-    expect(ngramMap.has("he")).toBe(false);
-    expect(ngramMap.has("lo")).toBe(false);
     expect(ngramMap.has("o")).toBe(false);
   });
 
@@ -806,6 +807,37 @@ describe("TextSearchEngine — O1: trigram-only index", () => {
     expect(engine.search("name", "London").map((i) => i.id)).toEqual([1]);
     expect(engine.search("name", "Berlin").map((i) => i.id)).toEqual([2]);
     expect(engine.search("name", "Paris")).toEqual([]);
+  });
+});
+
+describe("TextSearchEngine — search options", () => {
+  type Person = { id: number; name: string; city: string };
+
+  const people: Person[] = [
+    { id: 1, name: "John", city: "Boston" },
+    { id: 2, name: "Johnny", city: "Chicago" },
+    { id: 3, name: "Jordan", city: "Denver" },
+    { id: 4, name: "Alice", city: "Austin" },
+  ];
+
+  it("supports limit and offset for all-fields search", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name", "city"],
+    });
+
+    const result = engine.search("jo", { offset: 1, limit: 1 });
+    expect(result.map((item) => item.id)).toEqual([2]);
+  });
+
+  it("supports limit and offset for field-specific search", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name"],
+    });
+
+    const result = engine.search("name", "jo", { limit: 2 });
+    expect(result.map((item) => item.id)).toEqual([1, 2]);
   });
 });
 

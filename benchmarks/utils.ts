@@ -14,6 +14,12 @@ export const N = 100_000;
 export const WARMUP_RUNS = 3;
 export const MEASURE_RUNS = 5;
 
+type BenchHeaderOptions = {
+  warmupRuns?: number;
+  measureRuns?: number;
+  metricsLabel?: string;
+};
+
 function getOsLabel(): string {
   const platform = os.platform();
 
@@ -67,7 +73,15 @@ function getCpuModel(): string {
   return model.trim().replace(/\s+/g, " ");
 }
 
-export function printBenchHeader(runCmd: string): void {
+export function printBenchHeader(
+  runCmd: string,
+  options: BenchHeaderOptions = {},
+): void {
+  const warmupRuns = options.warmupRuns ?? WARMUP_RUNS;
+  const measureRuns = options.measureRuns ?? MEASURE_RUNS;
+  const metricsLabel =
+    options.metricsLabel ??
+    "p50 = median latency across all iterations (lower is better)";
   const osLabel = getOsLabel();
   const cpuModel = getCpuModel();
   const ramGB = Math.round(os.totalmem() / 1_073_741_824);
@@ -80,10 +94,10 @@ export function printBenchHeader(runCmd: string): void {
     `${CLR.bold}${CLR.cyan}  Environment${CLR.reset}  Node.js ${process.version} · ${osLabel} · ${cpuModel} · ${ramGB} GB RAM`,
   );
   console.log(
-    `${CLR.bold}${CLR.cyan}  Benchmark  ${CLR.reset}  Warmup: ${WARMUP_RUNS} un-timed runs · Measured: ${MEASURE_RUNS} timed runs per scenario`,
+    `${CLR.bold}${CLR.cyan}  Benchmark  ${CLR.reset}  Warmup: ${warmupRuns} un-timed runs · Measured: ${measureRuns} timed runs per scenario`,
   );
   console.log(
-    `${CLR.bold}${CLR.cyan}  Metrics    ${CLR.reset}  p50 = median latency across all iterations ${CLR.dim}(lower is better)${CLR.reset}`,
+    `${CLR.bold}${CLR.cyan}  Metrics    ${CLR.reset}  ${metricsLabel.replace("(lower is better)", `${CLR.dim}(lower is better)${CLR.reset}`)}`,
   );
   console.log(
     `${CLR.bold}${CLR.cyan}  Reproduce  ${CLR.reset}  ${CLR.dim}npm run ${runCmd}${CLR.reset}`,

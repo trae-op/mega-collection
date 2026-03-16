@@ -30,6 +30,11 @@ export interface TextSearchEngineOptions<
   filterByPreviousResult?: boolean;
 }
 
+export interface SearchQueryOptions {
+  limit?: number;
+  offset?: number;
+}
+
 export type NestedFieldDescriptor = {
   collectionKey: string;
   nestedKey: string;
@@ -53,5 +58,6 @@ export type SearchRuntime<T extends CollectionItem> = {
   filterByPreviousResult: boolean;
   previousResult: T[] | null;
   previousResultIndices: number[] | null;
+  previousResultLookup: Uint8Array | null;
   previousQuery: string | null;
 };

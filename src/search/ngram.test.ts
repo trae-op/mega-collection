@@ -3,6 +3,21 @@ import { describe, expect, it } from "vitest";
 import { indexLowerValue, intersectPostingLists } from "./ngram";
 
 describe("intersectPostingLists", () => {
+  it("returns matching indices for a short 2-gram query", () => {
+    const ngramMap = new Map<string, Set<number>>();
+    indexLowerValue(ngramMap, "john", 0);
+    indexLowerValue(ngramMap, "alice", 1);
+
+    const result = intersectPostingLists(
+      ngramMap,
+      new Set(["jo"]),
+      ["john", "alice"],
+      "jo",
+    );
+
+    expect(result).toEqual([0]);
+  });
+
   it("returns matching indices for a single gram", () => {
     const ngramMap = new Map<string, Set<number>>();
     indexLowerValue(ngramMap, "hello", 0);
