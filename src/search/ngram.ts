@@ -1,4 +1,10 @@
 const MAXIMUM_NGRAM_LENGTH = 3;
+
+/**
+ * Minimum query length required to use the n-gram index directly.
+ * Queries shorter than this fall back to a linear scan.
+ */
+export const MINIMUM_INDEXED_QUERY_LENGTH = MAXIMUM_NGRAM_LENGTH;
 const MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION = 12;
 
 function extractQueryGrams(input: string): string[] {
@@ -51,18 +57,16 @@ export function indexLowerValue(
   lowerValue: string,
   itemIndex: number,
 ): void {
-  for (
-    let startIndex = 0, lowerLength = lowerValue.length;
-    startIndex < lowerLength;
-    startIndex++
-  ) {
-    const remainingLength = lowerLength - startIndex;
-    const maxLengthAtPosition = Math.min(MAXIMUM_NGRAM_LENGTH, remainingLength);
-
-    for (let gramLength = 1; gramLength <= maxLengthAtPosition; gramLength++) {
-      const ngram = lowerValue.substring(startIndex, startIndex + gramLength);
-      getOrCreatePostingList(ngramMap, ngram).add(itemIndex);
-    }
+  // O1: only store full-length (trigram) grams. Positions where fewer than
+  // MAXIMUM_NGRAM_LENGTH characters remain are skipped; short queries use the
+  // linear fallback instead of the index.
+  const lastStart = lowerValue.length - MAXIMUM_NGRAM_LENGTH;
+  for (let startIndex = 0; startIndex <= lastStart; startIndex++) {
+    const ngram = lowerValue.substring(
+      startIndex,
+      startIndex + MAXIMUM_NGRAM_LENGTH,
+    );
+    getOrCreatePostingList(ngramMap, ngram).add(itemIndex);
   }
 }
 
@@ -71,27 +75,23 @@ export function removeLowerValue(
   lowerValue: string,
   itemIndex: number,
 ): void {
-  for (
-    let startIndex = 0, lowerLength = lowerValue.length;
-    startIndex < lowerLength;
-    startIndex++
-  ) {
-    const remainingLength = lowerLength - startIndex;
-    const maxLengthAtPosition = Math.min(MAXIMUM_NGRAM_LENGTH, remainingLength);
+  // O1: mirrors indexLowerValue — only full-length grams were stored.
+  const lastStart = lowerValue.length - MAXIMUM_NGRAM_LENGTH;
+  for (let startIndex = 0; startIndex <= lastStart; startIndex++) {
+    const ngram = lowerValue.substring(
+      startIndex,
+      startIndex + MAXIMUM_NGRAM_LENGTH,
+    );
+    const postingList = ngramMap.get(ngram);
 
-    for (let gramLength = 1; gramLength <= maxLengthAtPosition; gramLength++) {
-      const ngram = lowerValue.substring(startIndex, startIndex + gramLength);
-      const postingList = ngramMap.get(ngram);
+    if (!postingList) {
+      continue;
+    }
 
-      if (!postingList) {
-        continue;
-      }
+    postingList.delete(itemIndex);
 
-      postingList.delete(itemIndex);
-
-      if (postingList.size === 0) {
-        ngramMap.delete(ngram);
-      }
+    if (postingList.size === 0) {
+      ngramMap.delete(ngram);
     }
   }
 }

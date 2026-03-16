@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { TextSearchEngineError } from "./errors";
 import { TextSearchEngine } from "./text-search";
 
 type CardItem = {
@@ -255,17 +254,6 @@ describe("TextSearchEngine", () => {
 
     engine.clearIndexes().clearData();
     expect(engine.search("Kyiv")).toEqual([]);
-  });
-
-  it("returns module-specific errors when build-backed calls have no dataset", () => {
-    const engine = new TextSearchEngine<CardItem>();
-
-    expect(() =>
-      (engine as TextSearchEngine<CardItem>).search("Kyiv"),
-    ).not.toThrow();
-    expect(() => (engine as any).buildIndex("city")).toThrowError(
-      TextSearchEngineError,
-    );
   });
 
   it("search(query) searches all fields and deduplicates matches", () => {
@@ -572,5 +560,355 @@ describe("TextSearchEngine — nestedFields", () => {
       "1",
       "2",
     ]);
+  });
+});
+
+describe("TextSearchEngine — filterByPreviousResult", () => {
+  type Person = { id: number; name: string; city: string };
+
+  const people: Person[] = [
+    { id: 1, name: "John", city: "New York" },
+    { id: 2, name: "Johnny", city: "Boston" },
+    { id: 3, name: "Joseph", city: "Chicago" },
+    { id: 4, name: "Tim", city: "Denver" },
+    { id: 5, name: "Timothy", city: "Seattle" },
+  ];
+
+  it("narrows subsequent search to previous result when query includes prior query", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    const first = engine.search("name", "jo");
+    expect(first.map((p) => p.id)).toEqual([1, 2, 3]);
+
+    const second = engine.search("name", "joh");
+    expect(second.map((p) => p.id)).toEqual([1, 2]);
+    expect(first.length).toBeGreaterThan(second.length);
+  });
+
+  it("resets to full dataset when query does not narrow previous", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    engine.search("name", "jo");
+    const result = engine.search("name", "tim");
+    expect(result.map((p) => p.id)).toEqual([4, 5]);
+  });
+
+  it("clears previousResult on add()", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people.map((p) => ({ ...p })),
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    engine.search("name", "jo");
+
+    engine.add([{ id: 6, name: "Jordan", city: "Miami" }]);
+
+    const result = engine.search("name", "joh");
+    expect(result.map((p) => p.id)).toEqual([1, 2]);
+  });
+
+  it("clears previousResult on update()", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people.map((p) => ({ ...p })),
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    engine.search("name", "jo");
+
+    engine.update({
+      field: "id",
+      data: { id: 3, name: "Thomas", city: "Chicago" },
+    });
+
+    const result = engine.search("name", "joh");
+    expect(result.map((p) => p.id)).toEqual([1, 2]);
+  });
+
+  it("clears previousResult on data()", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    engine.search("name", "jo");
+
+    const newData: Person[] = [
+      { id: 10, name: "Jennifer", city: "Austin" },
+      { id: 11, name: "Tim", city: "Houston" },
+    ];
+    engine.data(newData);
+
+    const result = engine.search("name", "jen");
+    expect(result.map((p) => p.id)).toEqual([10]);
+  });
+
+  it("resetSearchState() clears previous result manually", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    engine.search("name", "jo");
+    engine.resetSearchState();
+
+    const result = engine.search("name", "joh");
+    expect(result.map((p) => p.id)).toEqual([1, 2]);
+  });
+
+  it("resetSearchState() is chainable", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    expect(engine.resetSearchState()).toBe(engine);
+  });
+
+  it("filterByPreviousResult: false (default) always searches full dataset", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name"],
+    });
+
+    engine.search("name", "jo");
+    const result = engine.search("name", "joh");
+    expect(result.map((p) => p.id)).toEqual([1, 2]);
+    expect(engine.getOriginData()).toHaveLength(people.length);
+  });
+
+  it("all-fields search narrows using previousResult on subsequent queries", () => {
+    const engine = new TextSearchEngine<Person>({
+      data: people,
+      fields: ["name", "city"],
+      filterByPreviousResult: true,
+    });
+
+    const first = engine.search("jo");
+    expect(first.length).toBeGreaterThan(0);
+
+    const second = engine.search("joh");
+    for (const item of second) {
+      expect(first).toContain(item);
+    }
+  });
+});
+
+// ─── Tests added per PLAN.md §4 ───────────────────────────────────────────────
+
+describe("TextSearchEngine — O2: searchAllFieldsLinear uses indexed fields", () => {
+  type ItemWithSecret = { id: number; name: string; secret: string };
+
+  it("T1: linear scan checks only indexed fields, not all object keys", () => {
+    const items: ItemWithSecret[] = [
+      { id: 1, name: "Alice", secret: "hidden" },
+      { id: 2, name: "Bob", secret: "also-hidden" },
+    ];
+    const engine = new TextSearchEngine<ItemWithSecret>({
+      data: items,
+      fields: ["name"],
+    });
+    // clearIndexes forces the all-fields linear path
+    engine.clearIndexes();
+
+    // "hidden" only exists in the non-indexed "secret" field → must not match
+    expect(engine.search("hidden")).toEqual([]);
+    // "Alice" is in the indexed "name" field → must match
+    expect(engine.search("Alice")).toHaveLength(1);
+  });
+
+  it("T9: no-index linear scan skips non-string fields without throwing", () => {
+    type MixedItem = { id: number; name: string; count: number; flag: boolean };
+    const items: MixedItem[] = [
+      { id: 1, name: "Alice", count: 5, flag: true },
+      { id: 2, name: "Bob", count: 10, flag: false },
+    ];
+    const engine = new TextSearchEngine<MixedItem>({ data: items });
+
+    expect(() => engine.search("Alice")).not.toThrow();
+    expect(engine.search("Alice")).toHaveLength(1);
+    expect(engine.search("Alice")[0].id).toBe(1);
+  });
+});
+
+describe("TextSearchEngine — O1: trigram-only index", () => {
+  type NameItem = { id: number; name: string };
+
+  it("T4: 2-char query falls back to linear scan and returns correct results", () => {
+    const items: NameItem[] = [
+      { id: 1, name: "Kyiv" },
+      { id: 2, name: "Dnipro" },
+    ];
+    const engine = new TextSearchEngine<NameItem>({
+      data: items,
+      fields: ["name"],
+      minQueryLength: 1,
+    });
+
+    // 2-char query → shorter than trigram length → linear fallback
+    expect(engine.search("name", "ky").map((i) => i.id)).toEqual([1]);
+    expect(engine.search("ky").map((i) => i.id)).toEqual([1]);
+  });
+
+  it("T6: index contains only trigram keys — no 1-gram or 2-gram keys for strings of length ≥ 3", () => {
+    const items: NameItem[] = [{ id: 1, name: "hello" }];
+    const engine = new TextSearchEngine<NameItem>({
+      data: items,
+      fields: ["name"],
+    });
+
+    // Access internal index via type cast
+    const ngramMap: Map<string, Set<number>> = (
+      engine as any
+    ).runtime.flatIndexes.get("name").ngramMap;
+
+    // All keys must be exactly 3 characters (trigrams for "hello")
+    for (const key of ngramMap.keys()) {
+      expect(key).toHaveLength(3);
+    }
+
+    // Exact trigrams of "hello": hel, ell, llo
+    expect(ngramMap.has("hel")).toBe(true);
+    expect(ngramMap.has("ell")).toBe(true);
+    expect(ngramMap.has("llo")).toBe(true);
+    expect(ngramMap.size).toBe(3);
+
+    // No 1-gram or 2-gram keys
+    expect(ngramMap.has("h")).toBe(false);
+    expect(ngramMap.has("he")).toBe(false);
+    expect(ngramMap.has("lo")).toBe(false);
+    expect(ngramMap.has("o")).toBe(false);
+  });
+
+  it("T8: clearIndexes() + search(field, query) falls back to linear correctly", () => {
+    const items: NameItem[] = [
+      { id: 1, name: "London" },
+      { id: 2, name: "Berlin" },
+    ];
+    const engine = new TextSearchEngine<NameItem>({
+      data: items,
+      fields: ["name"],
+    });
+    engine.clearIndexes();
+
+    expect(engine.search("name", "London").map((i) => i.id)).toEqual([1]);
+    expect(engine.search("name", "Berlin").map((i) => i.id)).toEqual([2]);
+    expect(engine.search("name", "Paris")).toEqual([]);
+  });
+});
+
+describe("TextSearchEngine — O3: Uint8Array dedup in searchAllFields", () => {
+  it("T5: item matching multiple indexed fields appears exactly once in results", () => {
+    type StatusItem = { id: number; title: string; status: string };
+    const items: StatusItem[] = [
+      { id: 1, title: "pending review", status: "pending" },
+      { id: 2, title: "done", status: "done" },
+    ];
+    const engine = new TextSearchEngine<StatusItem>({
+      data: items,
+      fields: ["title", "status"],
+    });
+
+    // "pending" matches both "title" and "status" of item 1
+    const result = engine.search("pending");
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe(1);
+  });
+
+  it("T2: filterByPreviousResult two-step matches direct indexed search results", () => {
+    type Person = {
+      id: number;
+      name: string;
+      city: string;
+      tag: string;
+      desc: string;
+    };
+    const data: Person[] = [
+      { id: 1, name: "John", city: "New York", tag: "vip", desc: "manager" },
+      {
+        id: 2,
+        name: "Johnny",
+        city: "Boston",
+        tag: "regular",
+        desc: "engineer",
+      },
+      { id: 3, name: "Alice", city: "Chicago", tag: "vip", desc: "director" },
+    ];
+
+    const twoStepEngine = new TextSearchEngine<Person>({
+      data,
+      fields: ["name", "city", "tag", "desc"],
+      filterByPreviousResult: true,
+    });
+    twoStepEngine.search("jo"); // prime previousResult
+    const twoStep = twoStepEngine.search("joh");
+
+    const directEngine = new TextSearchEngine<Person>({
+      data,
+      fields: ["name", "city", "tag", "desc"],
+    });
+    const direct = directEngine.search("joh");
+
+    expect(twoStep.map((p) => p.id).sort()).toEqual(
+      direct.map((p) => p.id).sort(),
+    );
+  });
+
+  it("T3: resetSearchState() forces next search to scan full dataset", () => {
+    type Person = { id: number; name: string };
+    const data: Person[] = [
+      { id: 1, name: "John" },
+      { id: 2, name: "Johnny" },
+      { id: 3, name: "Alice" },
+    ];
+    const engine = new TextSearchEngine<Person>({
+      data,
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    engine.search("name", "jo"); // previousResult = [id:1, id:2]
+    engine.resetSearchState();
+
+    // After reset, "alice" must match from full dataset, not narrow from [id:1, id:2]
+    const result = engine.search("name", "alice");
+    expect(result.map((p) => p.id)).toEqual([3]);
+  });
+
+  it("T7: data() replacement clears previousResult; next search uses new full dataset", () => {
+    type Person = { id: number; name: string };
+    const data: Person[] = [
+      { id: 1, name: "John" },
+      { id: 2, name: "Johnny" },
+    ];
+    const engine = new TextSearchEngine<Person>({
+      data,
+      fields: ["name"],
+      filterByPreviousResult: true,
+    });
+
+    engine.search("name", "jo"); // save previousResult
+
+    const newData: Person[] = [
+      { id: 10, name: "Alice" },
+      { id: 11, name: "Bob" },
+    ];
+    engine.data(newData);
+
+    // previousResult must have been cleared; searching should use newData
+    const result = engine.search("name", "alice");
+    expect(result.map((p) => p.id)).toEqual([10]);
   });
 });

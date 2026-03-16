@@ -26,7 +26,7 @@ function createAddAdapter<T extends CollectionItem>(
 ): (items: T[], appendToDataset?: boolean) => unknown {
   return (items, appendToDataset = true) => {
     if (typeof engine.applyAddedItems === "function") {
-      return engine.applyAddedItems(items, appendToDataset);
+      return engine.applyAddedItems(items);
     }
 
     if (appendToDataset) {

@@ -53,6 +53,7 @@
     "test:watch": "vitest",
     "sort-bench": "npx tsx src/sort/sorter.bench.ts",
     "filter-bench": "npx tsx src/filter/filter.bench.ts",
+    "search-bench": "npx tsx src/search/search.bench.ts",
     "test:coverage": "vitest run --coverage",
     "test:ci": "vitest run --coverage --reporter=verbose --reporter=json",
     "clean": "rm -rf dist",

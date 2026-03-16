@@ -628,16 +628,24 @@ Text search engine.
 It supports `nestedFields` if you need to search inside nested collections such as `["orders.status"]`.
 Search methods return plain arrays.
 
-| Method                    | Description                                                |
-| ------------------------- | ---------------------------------------------------------- |
-| `search(query)`           | Search all indexed fields (including nested), deduplicated |
-| `search(field, query)`    | Search a specific indexed field or nested field path       |
-| `getOriginData()`         | Get the original stored dataset                            |
-| `add(items)`              | Append multiple items to the stored dataset                |
-| `update({ field, data })` | Replace one stored item by a unique field                  |
-| `data(data)`              | Replace stored dataset and rebuild configured indexes      |
-| `clearIndexes()`          | Clear n-gram indexes (including nested)                    |
-| `clearData()`             | Clear stored data                                          |
+Main constructor options:
+
+| Option                   | Type       | Description                                                                                                                                                                     |
+| ------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `filterByPreviousResult` | `boolean`  | When `true`, a query that narrows the previous one (new query includes old query) searches only the previous result instead of the full dataset. Any mutation resets the state. |
+| `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                                                                            |
+
+| Method                    | Description                                                 |
+| ------------------------- | ----------------------------------------------------------- |
+| `search(query)`           | Search all indexed fields (including nested), deduplicated  |
+| `search(field, query)`    | Search a specific indexed field or nested field path        |
+| `resetSearchState()`      | Reset previous-result state for sequential narrowing search |
+| `getOriginData()`         | Get the original stored dataset                             |
+| `add(items)`              | Append multiple items to the stored dataset                 |
+| `update({ field, data })` | Replace one stored item by a unique field                   |
+| `data(data)`              | Replace stored dataset and rebuild configured indexes       |
+| `clearIndexes()`          | Clear n-gram indexes (including nested)                     |
+| `clearData()`             | Clear stored data                                           |
 
 ### `FilterEngine<T>` (filter module)
 

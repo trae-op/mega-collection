@@ -92,29 +92,30 @@ export class SearchNestedCollection<T extends CollectionItem> {
     }
   }
 
-  searchAllIndexedFields(
-    data: T[],
+  /**
+   * Returns dataset indices of items matching the query across all registered
+   * nested fields. Deduplicates indices that appear in multiple nested fields.
+   */
+  searchAllIndexedFieldIndices(
     lowerQuery: string,
     uniqueQueryGrams: ReadonlySet<string>,
-  ): T[] {
-    const seenItems = new Set<T>();
-    const matchedItems: T[] = [];
+  ): number[] {
+    const seenIndices = new Set<number>();
+    const matchedIndices: number[] = [];
 
     for (const fieldPath of this.registeredFields) {
-      for (const item of this.searchIndexedField(
-        data,
+      for (const idx of this.searchIndexedFieldIndices(
         fieldPath,
         lowerQuery,
         uniqueQueryGrams,
       )) {
-        if (seenItems.has(item)) continue;
-
-        seenItems.add(item);
-        matchedItems.push(item);
+        if (seenIndices.has(idx)) continue;
+        seenIndices.add(idx);
+        matchedIndices.push(idx);
       }
     }
 
-    return matchedItems;
+    return matchedIndices;
   }
 
   searchIndexedField(
@@ -123,6 +124,28 @@ export class SearchNestedCollection<T extends CollectionItem> {
     lowerQuery: string,
     uniqueQueryGrams: ReadonlySet<string>,
   ): T[] {
+    const indices = this.searchIndexedFieldIndices(
+      fieldPath,
+      lowerQuery,
+      uniqueQueryGrams,
+    );
+    const matchedItems: T[] = [];
+    for (let i = 0; i < indices.length; i++) {
+      const item = data[indices[i]];
+      if (item) matchedItems.push(item);
+    }
+    return matchedItems;
+  }
+
+  /**
+   * Core indexed search for a nested field: returns dataset indices of items
+   * whose nested values match the query.
+   */
+  private searchIndexedFieldIndices(
+    fieldPath: string,
+    lowerQuery: string,
+    uniqueQueryGrams: ReadonlySet<string>,
+  ): number[] {
     const ngramMap = this.storage.ngramIndexes.get(fieldPath);
     if (!ngramMap) return [];
 
@@ -131,18 +154,23 @@ export class SearchNestedCollection<T extends CollectionItem> {
     for (const queryGram of uniqueQueryGrams) {
       const postingList = ngramMap.get(queryGram);
       if (!postingList) return [];
-
       postingLists.push(postingList);
     }
 
-    postingLists.sort(
-      (leftPostingList, rightPostingList) =>
-        leftPostingList.size - rightPostingList.size,
-    );
+    // O4: find smallest posting list and swap to front — avoids allocating a sort comparator.
+    let minIdx = 0;
+    for (let i = 1; i < postingLists.length; i++) {
+      if (postingLists[i].size < postingLists[minIdx].size) minIdx = i;
+    }
+    if (minIdx !== 0) {
+      const tmp = postingLists[0];
+      postingLists[0] = postingLists[minIdx];
+      postingLists[minIdx] = tmp;
+    }
 
     const smallestPostingList = postingLists[0];
     const totalPostingLists = postingLists.length;
-    const matchedItems: T[] = [];
+    const matchedIndices: number[] = [];
     const normalizedValues = this.storage.normalizedFieldValues.get(fieldPath);
 
     for (const candidateIndex of smallestPostingList) {
@@ -150,23 +178,19 @@ export class SearchNestedCollection<T extends CollectionItem> {
 
       for (let listIndex = 1; listIndex < totalPostingLists; listIndex++) {
         if (postingLists[listIndex].has(candidateIndex)) continue;
-
         isCandidate = false;
         break;
       }
 
       if (!isCandidate) continue;
 
-      const candidateItem = data[candidateIndex];
-      if (!candidateItem) continue;
-
       const normalizedValue = normalizedValues?.[candidateIndex];
       if (!normalizedValue?.includes(lowerQuery)) continue;
 
-      matchedItems.push(candidateItem);
+      matchedIndices.push(candidateIndex);
     }
 
-    return matchedItems;
+    return matchedIndices;
   }
 
   searchFieldLinear(data: T[], fieldPath: string, lowerQuery: string): T[] {

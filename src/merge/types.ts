@@ -16,6 +16,8 @@ export interface MergeSearchOptions<T extends CollectionItem = CollectionItem> {
   nestedFields?: string[];
 
   minQueryLength?: number;
+
+  filterByPreviousResult?: boolean;
 }
 
 export interface MergeSortOptions<T extends CollectionItem = CollectionItem> {
@@ -162,7 +164,7 @@ export interface MergeBaseEngine<T extends CollectionItem> {
 export interface MergeAppendableEngine<
   T extends CollectionItem,
 > extends MergeBaseEngine<T> {
-  applyAddedItems?: (items: T[], appendToDataset: boolean) => unknown;
+  applyAddedItems?: (items: T[]) => unknown;
 }
 
 export interface MergeSearchEngine<
