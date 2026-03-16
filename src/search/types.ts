@@ -1,5 +1,4 @@
 import type { CollectionItem } from "../types";
-import type { SearchNestedCollectionStorage } from "./nested";
 
 export interface TextSearchEngineOptions<
   T extends CollectionItem = CollectionItem,
@@ -41,6 +40,11 @@ export type SearchIndex = {
   normalizedValues: string[];
   version: number;
 };
+
+export interface SearchNestedCollectionStorage {
+  ngramIndexes: Map<string, Map<string, Set<number>>>;
+  normalizedFieldValues: Map<string, string[]>;
+}
 
 export type SearchRuntime<T extends CollectionItem> = {
   indexedFields: Set<keyof T & string>;

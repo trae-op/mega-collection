@@ -1,11 +1,9 @@
 import { CollectionItem } from "../types";
 import { indexLowerValue, removeLowerValue } from "./ngram";
-import type { NestedFieldDescriptor } from "./types";
-
-export interface SearchNestedCollectionStorage {
-  ngramIndexes: Map<string, Map<string, Set<number>>>;
-  normalizedFieldValues: Map<string, string[]>;
-}
+import type {
+  NestedFieldDescriptor,
+  SearchNestedCollectionStorage,
+} from "./types";
 
 export class SearchNestedCollection<T extends CollectionItem> {
   private readonly registeredFields = new Set<string>();
