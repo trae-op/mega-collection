@@ -102,7 +102,7 @@ describe("SortEngine", () => {
     expect(engine.getOriginData()).toEqual([]);
   });
 
-  it("add() updates cached single-field sorting incrementally without rebuild", () => {
+  it("add() invalidates cached sorting and rebuilds lazily on next sort()", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
     const buildIndexSpy = vi.spyOn(
@@ -115,10 +115,10 @@ describe("SortEngine", () => {
     expect(
       engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
     ).toEqual([5, 2, 3, 1, 4]);
-    expect(buildIndexSpy).not.toHaveBeenCalled();
+    expect(buildIndexSpy).toHaveBeenCalledOnce();
   });
 
-  it("internal add path updates cached sorting for shared State", async () => {
+  it("internal add path invalidates cached sorting for shared State", async () => {
     const State = (await import("../State")).State;
     const dataset = users.map((user) => ({ ...user }));
     const state = new State<User>(dataset);
@@ -136,7 +136,7 @@ describe("SortEngine", () => {
     expect(
       engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
     ).toEqual([5, 2, 3, 1, 4]);
-    expect(buildIndexSpy).not.toHaveBeenCalled();
+    expect(buildIndexSpy).toHaveBeenCalledOnce();
   });
 
   it("add() treats an empty batch as a no-op", () => {

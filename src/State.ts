@@ -160,7 +160,9 @@ export class State<T extends CollectionItem> {
     }
 
     const startIndex = this.originData.length;
-    this.originData.push(...items);
+    for (let i = 0; i < items.length; i++) {
+      this.originData.push(items[i]);
+    }
     this.bumpMutationVersion();
 
     for (const [field, indexMap] of this.indexMaps) {

@@ -202,19 +202,8 @@ export class SortEngine<T extends CollectionItem> {
     return this;
   }
 
-  private applyAddedItems(items: T[]): this {
-    if (items.length === 0) return this;
-
-    const startIndex = this.dataset.length - items.length;
-
-    for (const field of this.indexedFields) {
-      const cachedIndex = this.cache.get(field as string);
-
-      if (!cachedIndex) continue;
-
-      this.updateCachedIndexForAddedItems(field, startIndex, items.length);
-    }
-
+  private applyAddedItems(): this {
+    this.cache.clear();
     return this;
   }
 
@@ -225,7 +214,7 @@ export class SortEngine<T extends CollectionItem> {
   private handleStateMutation(mutation: StateMutation<T>): void {
     switch (mutation.type) {
       case "add":
-        this.applyAddedItems(mutation.items);
+        this.applyAddedItems();
         return;
       case "update":
         this.applyUpdatedItem(
@@ -413,89 +402,6 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     return result;
-  }
-
-  private updateCachedIndexForAddedItems(
-    field: keyof T & string,
-    startIndex: number,
-    addedItemCount: number,
-  ): void {
-    const cachedIndex = this.cache.get(field as string);
-    if (!cachedIndex) return;
-
-    const appendedIndexes = this.buildSortedIndexesForRange(
-      field,
-      startIndex,
-      addedItemCount,
-    );
-
-    const mergedIndexes = this.mergeSortedIndexes(
-      field,
-      cachedIndex.indexes,
-      appendedIndexes,
-    );
-
-    const mergedLength = mergedIndexes.length;
-    const reverseIndex = new Uint32Array(mergedLength);
-    for (let i = 0; i < mergedLength; i++) {
-      reverseIndex[mergedIndexes[i]] = i;
-    }
-
-    this.cache.set(field as string, {
-      indexes: mergedIndexes,
-      reverseIndex,
-      version: this.state.getMutationVersion(),
-    });
-  }
-
-  private buildSortedIndexesForRange(
-    field: keyof T & string,
-    startIndex: number,
-    itemCount: number,
-  ): Uint32Array {
-    const indexes = new Uint32Array(itemCount);
-
-    for (let i = 0; i < itemCount; i++) {
-      indexes[i] = startIndex + i;
-    }
-
-    indexes.sort((l, r) => this.compareIndexesByField(field, l, r));
-    return indexes;
-  }
-
-  private mergeSortedIndexes(
-    field: keyof T & string,
-    existingIndexes: Uint32Array,
-    appendedIndexes: Uint32Array,
-  ): Uint32Array {
-    const mergedIndexes = new Uint32Array(
-      existingIndexes.length + appendedIndexes.length,
-    );
-
-    let ei = 0;
-    let ai = 0;
-    let wi = 0;
-
-    while (ei < existingIndexes.length && ai < appendedIndexes.length) {
-      if (
-        this.compareIndexesByField(
-          field,
-          existingIndexes[ei],
-          appendedIndexes[ai],
-        ) <= 0
-      ) {
-        mergedIndexes[wi++] = existingIndexes[ei++];
-      } else {
-        mergedIndexes[wi++] = appendedIndexes[ai++];
-      }
-    }
-
-    while (ei < existingIndexes.length)
-      mergedIndexes[wi++] = existingIndexes[ei++];
-    while (ai < appendedIndexes.length)
-      mergedIndexes[wi++] = appendedIndexes[ai++];
-
-    return mergedIndexes;
   }
 
   private compareIndexesByField(

@@ -218,17 +218,10 @@ export class FilterEngine<T extends CollectionItem> {
     return this;
   }
 
-  private applyAddedItems(items: T[], shouldAppendToDataset: boolean): this {
+  private applyAddedItems(items: T[], startIndex: number): this {
     if (items.length === 0) {
       return this;
     }
-
-    if (shouldAppendToDataset) {
-      this.state.add(items);
-      return this;
-    }
-
-    const startIndex = this.dataset.length - items.length;
 
     this.updateMutableExcludeStateForAddedItems(items, startIndex);
     this.resetFilterState();
@@ -492,7 +485,7 @@ export class FilterEngine<T extends CollectionItem> {
   private handleStateMutation(mutation: StateMutation<T>): void {
     switch (mutation.type) {
       case "add":
-        this.applyAddedItems(mutation.items, false);
+        this.applyAddedItems(mutation.items, mutation.startIndex);
         return;
       case "update":
         this.applyUpdatedItem(

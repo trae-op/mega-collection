@@ -198,7 +198,12 @@ This is different from `data(...)`:
 - `data(...)` replaces the whole stored dataset.
 - `add([])` appends new items to the existing stored dataset.
 
-If indexes are already built, the engine updates only the new items instead of rebuilding the whole dataset.
+If indexes are already built, `add()` updates them incrementally for the new items only:
+
+- **TextSearchEngine / FilterEngine**: O(k) — only the new items are written into the n-gram or hash-map index (existing index entries are untouched).
+- **SortEngine**: the sort cache for each configured field is invalidated on `add()` and rebuilt lazily on the next `sort()` call. This avoids O(N) work per add and is optimal when multiple adds happen between sorts.
+
+If indexes have not been built yet (first `sort()` has not been called), `add()` appends the items without touching any index.
 If you cleared indexes with `clearIndexes()`, `add([])` does not rebuild them automatically.
 
 ```ts

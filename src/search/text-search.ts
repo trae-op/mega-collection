@@ -712,12 +712,10 @@ export class TextSearchEngine<T extends CollectionItem> {
     return this;
   }
 
-  private applyAddedItems(items: T[]): this {
+  private applyAddedItems(items: T[], startIndex: number): this {
     if (items.length === 0) {
       return this;
     }
-
-    const startIndex = this.dataset.length - items.length;
 
     for (const field of this.indexedFields) {
       this.addItemsToField(field, items, startIndex);
@@ -735,8 +733,14 @@ export class TextSearchEngine<T extends CollectionItem> {
   private handleStateMutation(mutation: StateMutation<T>): void {
     switch (mutation.type) {
       case "add":
-        this.applyAddedItems(mutation.items);
-        this.normalizedValuesCache.clear();
+        this.applyAddedItems(mutation.items, mutation.startIndex);
+        for (const [field, cachedValues] of this.normalizedValuesCache) {
+          for (let offset = 0; offset < mutation.items.length; offset++) {
+            const rawValue = mutation.items[offset][field as keyof T];
+            cachedValues[mutation.startIndex + offset] =
+              typeof rawValue === "string" ? rawValue.toLowerCase() : "";
+          }
+        }
         this.clearPreviousSearchState();
         return;
       case "update":
