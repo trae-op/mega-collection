@@ -451,8 +451,6 @@ async function main(): Promise<void> {
     overall_status: failedScenarios.length === 0 ? "PASS" : "FAIL",
   };
 
-  console.log(JSON.stringify(report, null, 2));
-
   printComparisonTable(
     "TextSearchEngine vs Native — Performance Comparison (100k items)",
     comparison_summary.map((g) => ({
