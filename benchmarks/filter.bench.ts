@@ -48,8 +48,8 @@
 /// <reference types="node" />
 import os from "os";
 import { execSync } from "child_process";
-import { FilterEngine } from "./filter";
-import type { FilterCriterion } from "../types";
+import { FilterEngine } from "../src/filter/filter";
+import type { FilterCriterion } from "../src/types";
 
 interface Item {
   id: number;

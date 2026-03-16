@@ -30,7 +30,7 @@
 /// <reference types="node" />
 import os from "os";
 import { execSync } from "child_process";
-import { TextSearchEngine } from "./text-search";
+import { TextSearchEngine } from "../src/search/text-search";
 
 interface Item {
   id: number;

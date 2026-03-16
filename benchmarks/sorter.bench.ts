@@ -22,8 +22,8 @@
 /// <reference types="node" />
 import os from "os";
 import { execSync } from "child_process";
-import { SortEngine } from "./sorter";
-import type { SortDescriptor } from "../types";
+import { SortEngine } from "../src/sort/sorter";
+import type { SortDescriptor } from "../src/types";
 
 interface Item {
   id: number;
