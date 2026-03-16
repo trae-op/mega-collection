@@ -209,13 +209,69 @@ function nativeAllFields(data: Item[], query: string): Item[] {
   );
 }
 
+/* ── Pretty comparison table ─────────────────────────────────────────────── */
+
+const CLR = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  cyan: "\x1b[36m",
+};
+
+interface TableRow {
+  label: string;
+  engineMs: number;
+  nativeMs: number;
+  speedup: string;
+}
+
+function printComparisonTable(title: string, rows: TableRow[]): void {
+  const pad = (s: string, n: number) => s.padEnd(n);
+  const trunc = (s: string, n: number) =>
+    s.length > n ? s.slice(0, n - 1) + "…" : s;
+
+  const colLabel = Math.min(
+    48,
+    Math.max(44, ...rows.map((r) => r.label.length + 2)),
+  );
+  const colMs = 12;
+  const colSpeedup = 18;
+  const total = colLabel + colMs * 2 + colSpeedup + 4;
+
+  const bar = "═".repeat(total);
+  const sep = "─".repeat(total);
+  const h = (s: string) => `${CLR.bold}${CLR.cyan}${s}${CLR.reset}`;
+
+  console.log(`${h(bar)}`);
+  console.log(h(`  ${title}`));
+  console.log(h(bar));
+  console.log(
+    `${CLR.bold}  ${pad("Group / Scenario", colLabel)}${pad("Engine p50", colMs)}${pad("Native p50", colMs)}Speedup${CLR.reset}`,
+  );
+  console.log(sep);
+
+  for (const row of rows) {
+    const faster = row.engineMs <= row.nativeMs;
+    const eColor = faster ? CLR.green : CLR.red;
+    const nColor = faster ? CLR.dim : CLR.green;
+    const sColor = faster ? CLR.green : CLR.red;
+    const lbl = trunc(row.label, colLabel);
+
+    console.log(
+      `  ${pad(lbl, colLabel)}` +
+        `${eColor}${pad(row.engineMs + " ms", colMs)}${CLR.reset}` +
+        `${nColor}${pad(row.nativeMs + " ms", colMs)}${CLR.reset}` +
+        `${sColor}${row.speedup}${CLR.reset}`,
+    );
+  }
+
+  console.log(h(bar));
+}
+
 /* -- Main ----------------------------------------------------------------------- */
 async function main(): Promise<void> {
-  console.log(`\n=== TextSearchEngine Benchmark  n=${N.toLocaleString()} ===`);
-  console.log(
-    `Thresholds: time <= ${THRESHOLDS.time_ms} ms | memory <= ${THRESHOLDS.memory_mb} MB\n`,
-  );
-
   const dataset = generateDataset();
 
   /*
@@ -397,16 +453,15 @@ async function main(): Promise<void> {
 
   console.log(JSON.stringify(report, null, 2));
 
-  console.log(
-    "\n── Speedup summary (TextSearchEngine vs Native) ──────────────",
+  printComparisonTable(
+    "TextSearchEngine vs Native — Performance Comparison (100k items)",
+    comparison_summary.map((g) => ({
+      label: `Group ${g.group}: ${g.description}`,
+      engineMs: g.engine_p50_ms,
+      nativeMs: g.native_p50_ms,
+      speedup: g.speedup,
+    })),
   );
-  for (const g of comparison_summary) {
-    const arrow = g.speedup.includes("faster") ? "✅" : "⚠️ ";
-    console.log(
-      `  ${arrow} Group ${g.group}: engine ${g.engine_p50_ms} ms  native ${g.native_p50_ms} ms  → ${g.speedup}`,
-    );
-    console.log(`     ${g.description}`);
-  }
 
   if (report.overall_status === "PASS") {
     console.log("\n✅  All scenarios passed all thresholds.");

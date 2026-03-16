@@ -192,13 +192,69 @@ function speedupStr(nativeP50: number, engineP50: number): string {
     : `${(1 / ratio).toFixed(1)}x slower`;
 }
 
+/* ── Pretty comparison table ─────────────────────────────────────────────── */
+
+const CLR = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  cyan: "\x1b[36m",
+};
+
+interface TableRow {
+  label: string;
+  engineMs: number;
+  nativeMs: number;
+  speedup: string;
+}
+
+function printComparisonTable(title: string, rows: TableRow[]): void {
+  const pad = (s: string, n: number) => s.padEnd(n);
+  const trunc = (s: string, n: number) =>
+    s.length > n ? s.slice(0, n - 1) + "…" : s;
+
+  const colLabel = Math.min(
+    48,
+    Math.max(44, ...rows.map((r) => r.label.length + 2)),
+  );
+  const colMs = 12;
+  const colSpeedup = 18;
+  const total = colLabel + colMs * 2 + colSpeedup + 4;
+
+  const bar = "═".repeat(total);
+  const sep = "─".repeat(total);
+  const h = (s: string) => `${CLR.bold}${CLR.cyan}${s}${CLR.reset}`;
+
+  console.log(`${h(bar)}`);
+  console.log(h(`  ${title}`));
+  console.log(h(bar));
+  console.log(
+    `${CLR.bold}  ${pad("Group / Scenario", colLabel)}${pad("Engine p50", colMs)}${pad("Native p50", colMs)}Speedup${CLR.reset}`,
+  );
+  console.log(sep);
+
+  for (const row of rows) {
+    const faster = row.engineMs <= row.nativeMs;
+    const eColor = faster ? CLR.green : CLR.red;
+    const nColor = faster ? CLR.dim : CLR.green;
+    const sColor = faster ? CLR.green : CLR.red;
+    const lbl = trunc(row.label, colLabel);
+
+    console.log(
+      `  ${pad(lbl, colLabel)}` +
+        `${eColor}${pad(row.engineMs + " ms", colMs)}${CLR.reset}` +
+        `${nColor}${pad(row.nativeMs + " ms", colMs)}${CLR.reset}` +
+        `${sColor}${row.speedup}${CLR.reset}`,
+    );
+  }
+
+  console.log(h(bar));
+}
+
 /* -- Main ----------------------------------------------------------------------- */
 async function main(): Promise<void> {
-  console.log(`\n=== FilterEngine Benchmark  n=${N.toLocaleString()} ===`);
-  console.log(
-    `Thresholds: time <= ${THRESHOLDS.time_ms} ms | memory <= ${THRESHOLDS.memory_mb} MB\n`,
-  );
-
   const dataset = generateDataset();
 
   /*
@@ -377,7 +433,15 @@ async function main(): Promise<void> {
     overall_status: failedScenarios.length === 0 ? "PASS" : "FAIL",
   };
 
-  console.log(JSON.stringify(report, null, 2));
+  printComparisonTable(
+    "FilterEngine vs Native — Performance Comparison (100k items)",
+    comparison_summary.map((r) => ({
+      label: r.group,
+      engineMs: r.engine_p50_ms,
+      nativeMs: r.native_p50_ms,
+      speedup: r.speedup,
+    })),
+  );
 
   if (report.overall_status === "PASS") {
     console.log("\n✅  All FilterEngine scenarios passed all thresholds.");
