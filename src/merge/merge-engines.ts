@@ -13,6 +13,7 @@ import type {
 import { MergeEnginesChain, MergeEnginesChainBuilder } from "./chain";
 import {
   createMergeModuleAdapter,
+  isRecord,
   resolveMergeModuleName,
 } from "./module-adapters";
 import type {
@@ -20,7 +21,8 @@ import type {
   FilterModuleAdapter,
   MergeEnginesOptions,
   MergeModuleName,
-  MergeRuntime,
+  MergeSearchCache,
+  MergeSortCache,
   SearchModuleAdapter,
   SortModuleAdapter,
 } from "./types";
@@ -29,7 +31,9 @@ import { MergeEnginesError } from "./errors";
 export class MergeEngines<T extends CollectionItem> {
   private readonly state: State<T>;
 
-  private readonly namespace: string;
+  private previousSearchState: MergeSearchCache<T> | null = null;
+
+  private previousSortState: MergeSortCache<T> | null = null;
 
   private readonly searchModule: SearchModuleAdapter<T> | null;
 
@@ -37,44 +41,7 @@ export class MergeEngines<T extends CollectionItem> {
 
   private readonly filterModule: FilterModuleAdapter<T> | null;
 
-  private readonly clearIndexMethods: Partial<
-    Record<MergeModuleName, () => unknown>
-  >;
-
-  private readonly importedModules = new Set<MergeModuleName>();
-
-  private readonly chainBuilder = new MergeEnginesChainBuilder<T>({
-    search: (fieldOrQuery, maybeQuery) => {
-      if (maybeQuery === undefined) {
-        return this.search(fieldOrQuery);
-      }
-
-      return this.search(
-        fieldOrQuery as (keyof T & string) | (string & {}),
-        maybeQuery,
-      );
-    },
-    sort: (dataOrDescriptors, descriptors, inPlace) => {
-      if (descriptors === undefined) {
-        return this.sort(dataOrDescriptors as SortDescriptor<T>[]);
-      }
-
-      return this.sort(dataOrDescriptors as T[], descriptors, inPlace);
-    },
-    filter: (dataOrCriteria, criteria) => {
-      if (criteria === undefined) {
-        return this.filter(dataOrCriteria as FilterCriterion<T>[]);
-      }
-
-      return this.filter(dataOrCriteria as T[], criteria);
-    },
-    getOriginData: () => this.getOriginData(),
-    add: (items) => this.add(items),
-    update: (descriptor) => this.update(descriptor),
-    data: (data) => this.data(data),
-    clearIndexes: (module) => this.clearIndexes(module),
-    clearData: (module) => this.clearData(module),
-  });
+  private readonly chainBuilder: MergeEnginesChainBuilder<T>;
 
   /**
    * Creates a new MergeEngines instance with the given options.
@@ -90,14 +57,11 @@ export class MergeEngines<T extends CollectionItem> {
 
     this.validateFilterByPreviousResultOptions(moduleOptions.filter);
     this.state = new State(data, { filterByPreviousResult });
-    this.namespace = this.state.createNamespace("merge");
 
     const importedEngines = new Set<EngineConstructor>(imports);
     let searchModule: SearchModuleAdapter<T> | null = null;
     let sortModule: SortModuleAdapter<T> | null = null;
     let filterModule: FilterModuleAdapter<T> | null = null;
-    const clearIndexMethods: Partial<Record<MergeModuleName, () => unknown>> =
-      {};
 
     for (const EngineModule of importedEngines) {
       const moduleName = resolveMergeModuleName(EngineModule);
@@ -134,27 +98,40 @@ export class MergeEngines<T extends CollectionItem> {
       if (configuredModuleAdapter.moduleName === "filter" && !filterModule) {
         filterModule = configuredModuleAdapter;
       }
-
-      this.importedModules.add(configuredModuleAdapter.moduleName);
-      clearIndexMethods[configuredModuleAdapter.moduleName] = () =>
-        configuredModuleAdapter.clearIndexes();
     }
 
     this.searchModule = searchModule;
     this.sortModule = sortModule;
     this.filterModule = filterModule;
-    this.clearIndexMethods = clearIndexMethods;
+
+    this.chainBuilder = new MergeEnginesChainBuilder<T>({
+      search: (fieldOrQuery, maybeQuery) => {
+        if (maybeQuery === undefined) {
+          return this.search(fieldOrQuery);
+        }
+
+        return this.search(
+          fieldOrQuery as (keyof T & string) | (string & {}),
+          maybeQuery,
+        );
+      },
+      sort: (dataOrDescriptors, descriptors, inPlace) =>
+        this.sort(dataOrDescriptors as T[], descriptors!, inPlace),
+      filter: (dataOrCriteria, criteria) =>
+        this.filter(dataOrCriteria as T[], criteria!),
+      getOriginData: () => this.getOriginData(),
+      add: (items) => this.add(items),
+      update: (descriptor) => this.update(descriptor),
+      data: (data) => this.data(data),
+      clearIndexes: (module) => this.clearIndexes(module),
+      clearData: (module) => this.clearData(module),
+    });
   }
 
-  private get runtime(): MergeRuntime<T> {
-    return this.state.getOrCreateScopedValue<MergeRuntime<T>>(
-      this.namespace,
-      "runtime",
-      () => ({
-        previousSearchState: null,
-        previousSortState: null,
-      }),
-    );
+  private getAdapter(module: MergeModuleName) {
+    if (module === "search") return this.searchModule;
+    if (module === "sort") return this.sortModule;
+    return this.filterModule;
   }
 
   /**
@@ -170,7 +147,7 @@ export class MergeEngines<T extends CollectionItem> {
     for (const optionKey of [moduleName, engineName]) {
       const namedOptions = options[optionKey];
 
-      if (!this.isRecord(namedOptions)) {
+      if (!isRecord(namedOptions)) {
         continue;
       }
 
@@ -180,13 +157,9 @@ export class MergeEngines<T extends CollectionItem> {
     return initOptions;
   }
 
-  private isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null;
-  }
-
   private validateFilterByPreviousResultOptions(filterOptions: unknown): void {
     if (
-      this.isRecord(filterOptions) &&
+      isRecord(filterOptions) &&
       Object.prototype.hasOwnProperty.call(
         filterOptions,
         "filterByPreviousResult",
@@ -218,11 +191,11 @@ export class MergeEngines<T extends CollectionItem> {
 
   private clearOperationState(module?: MergeModuleName): void {
     if (!module || module === "search") {
-      this.runtime.previousSearchState = null;
+      this.previousSearchState = null;
     }
 
     if (!module || module === "sort") {
-      this.runtime.previousSortState = null;
+      this.previousSortState = null;
     }
   }
 
@@ -256,7 +229,7 @@ export class MergeEngines<T extends CollectionItem> {
     const originData = this.state.getOriginData();
     const mutationVersion = this.state.getMutationVersion();
     const cacheKey = this.createSearchCacheKey(fieldOrQuery, maybeQuery);
-    const previousSearchState = this.runtime.previousSearchState;
+    const previousSearchState = this.previousSearchState;
 
     if (
       previousSearchState?.originData === originData &&
@@ -279,7 +252,7 @@ export class MergeEngines<T extends CollectionItem> {
       );
     }
 
-    this.runtime.previousSearchState = {
+    this.previousSearchState = {
       key: cacheKey,
       originData,
       result,
@@ -318,7 +291,7 @@ export class MergeEngines<T extends CollectionItem> {
     if (!inPlace) {
       const mutationVersion = this.state.getMutationVersion();
       const cacheKey = this.createSortCacheKey(resolvedDescriptors, inPlace);
-      const previousSortState = this.runtime.previousSortState;
+      const previousSortState = this.previousSortState;
 
       if (
         previousSortState?.sourceData === sourceData &&
@@ -339,7 +312,7 @@ export class MergeEngines<T extends CollectionItem> {
               inPlace,
             );
 
-      this.runtime.previousSortState = {
+      this.previousSortState = {
         key: cacheKey,
         sourceData,
         result,
@@ -397,7 +370,7 @@ export class MergeEngines<T extends CollectionItem> {
   }
 
   getOriginData(): T[] {
-    if (this.importedModules.size > 0) {
+    if (this.searchModule || this.sortModule || this.filterModule) {
       return this.state.getOriginData();
     }
 
@@ -422,10 +395,10 @@ export class MergeEngines<T extends CollectionItem> {
   }
 
   clearIndexes(module: MergeModuleName): this {
-    const clearMethod = this.clearIndexMethods[module];
+    const adapter = this.getAdapter(module);
 
-    if (clearMethod) {
-      clearMethod();
+    if (adapter) {
+      adapter.clearIndexes();
       this.clearOperationState(module);
       return this;
     }
@@ -441,9 +414,9 @@ export class MergeEngines<T extends CollectionItem> {
   }
 
   clearData(module: MergeModuleName): this {
-    if (this.importedModules.has(module)) {
+    if (this.getAdapter(module)) {
       this.state.clearData();
-      this.clearOperationState(module);
+      this.clearOperationState();
       return this;
     }
 

@@ -397,6 +397,26 @@ describe("MergeEngines", () => {
     );
   });
 
+  it("clearData() clears data for all modules regardless of the module argument", () => {
+    const merge = new MergeEngines<User>({
+      imports: [TextSearchEngine, SortEngine, FilterEngine],
+      data: users,
+      search: { fields: ["name", "city"], minQueryLength: 1 },
+      sort: { fields: ["age", "name"] },
+      filter: { fields: ["city", "age"] },
+    });
+
+    merge.clearData("search");
+
+    expect(merge.search("Alice")).toEqual([]);
+    expect(() => merge.sort([{ field: "age", direction: "asc" }])).toThrow(
+      "no dataset in memory",
+    );
+    expect(() => merge.filter([{ field: "city", values: ["Kyiv"] }])).toThrow(
+      "no dataset in memory",
+    );
+  });
+
   it("data() replaces dataset for all imported modules", () => {
     const merge = new MergeEngines<User>({
       imports: [TextSearchEngine, SortEngine, FilterEngine],

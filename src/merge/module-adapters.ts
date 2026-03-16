@@ -2,7 +2,6 @@ import type { State } from "../State";
 import type { CollectionItem } from "../types";
 import type {
   EngineConstructor,
-  MergeAppendableEngine,
   MergeModuleAdapter,
   MergeModuleName,
   MergeFilterEngine,
@@ -10,7 +9,7 @@ import type {
   MergeSortEngine,
 } from "./types";
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
@@ -19,22 +18,6 @@ function hasMethod<TName extends string>(
   methodName: TName,
 ): value is Record<TName, (...args: unknown[]) => unknown> {
   return isRecord(value) && typeof value[methodName] === "function";
-}
-
-function createAddAdapter<T extends CollectionItem>(
-  engine: MergeAppendableEngine<T>,
-): (items: T[], appendToDataset?: boolean) => unknown {
-  return (items, appendToDataset = true) => {
-    if (typeof engine.applyAddedItems === "function") {
-      return engine.applyAddedItems(items);
-    }
-
-    if (appendToDataset) {
-      return engine.add(items);
-    }
-
-    return engine.data(engine.getOriginData());
-  };
 }
 
 function isSearchEngine<T extends CollectionItem>(
@@ -90,12 +73,7 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
         criteria === undefined
           ? engine.rawFilter(dataOrCriteria as any)
           : engine.rawFilter(dataOrCriteria as T[], criteria),
-      add: createAddAdapter(engine),
       clearIndexes: () => engine.clearIndexes(),
-      clearData: () => engine.clearData(),
-      data: (nextData) => engine.data(nextData),
-      getOriginData: () => engine.getOriginData(),
-      update: (descriptor) => engine.update(descriptor),
     };
   }
 
@@ -106,12 +84,7 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
         descriptors === undefined
           ? engine.sort(dataOrDescriptors as any)
           : engine.sort(dataOrDescriptors as T[], descriptors, inPlace),
-      add: createAddAdapter(engine),
       clearIndexes: () => engine.clearIndexes(),
-      clearData: () => engine.clearData(),
-      data: (nextData) => engine.data(nextData),
-      getOriginData: () => engine.getOriginData(),
-      update: (descriptor) => engine.update(descriptor),
     };
   }
 
@@ -125,12 +98,7 @@ export const createMergeModuleAdapter = <T extends CollectionItem>(
               fieldOrQuery as (keyof T & string) | (string & {}),
               maybeQuery,
             ),
-      add: createAddAdapter(engine),
       clearIndexes: () => engine.clearIndexes(),
-      clearData: () => engine.clearData(),
-      data: (nextData) => engine.data(nextData),
-      getOriginData: () => engine.getOriginData(),
-      update: (descriptor) => engine.update(descriptor),
     };
   }
 

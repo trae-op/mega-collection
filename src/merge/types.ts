@@ -106,34 +106,28 @@ export type MergeEnginesChainCallbacks<T extends CollectionItem> = {
   clearData: (module: MergeModuleName) => MergeEngines<T>;
 };
 
-export type BaseModuleAdapter<T extends CollectionItem> = {
+export type BaseModuleAdapter = {
   moduleName: MergeModuleName;
-  add: (items: T[], appendToDataset?: boolean) => unknown;
   clearIndexes: () => unknown;
-  clearData: () => unknown;
-  data: (data: T[]) => unknown;
-  getOriginData: () => T[];
-  update: (descriptor: UpdateDescriptor<T>) => unknown;
 };
 
 export type SearchModuleAdapter<T extends CollectionItem> =
-  BaseModuleAdapter<T> & {
+  BaseModuleAdapter & {
     moduleName: "search";
     executeSearch: (fieldOrQuery: string, maybeQuery?: string) => T[];
   };
 
-export type SortModuleAdapter<T extends CollectionItem> =
-  BaseModuleAdapter<T> & {
-    moduleName: "sort";
-    executeSort: (
-      dataOrDescriptors: T[] | SortDescriptor<T>[],
-      descriptors?: SortDescriptor<T>[],
-      inPlace?: boolean,
-    ) => T[];
-  };
+export type SortModuleAdapter<T extends CollectionItem> = BaseModuleAdapter & {
+  moduleName: "sort";
+  executeSort: (
+    dataOrDescriptors: T[] | SortDescriptor<T>[],
+    descriptors?: SortDescriptor<T>[],
+    inPlace?: boolean,
+  ) => T[];
+};
 
 export type FilterModuleAdapter<T extends CollectionItem> =
-  BaseModuleAdapter<T> & {
+  BaseModuleAdapter & {
     moduleName: "filter";
     executeFilter: (
       dataOrCriteria: T[] | FilterCriterion<T>[],
@@ -152,38 +146,27 @@ export type MergeModuleAdapter<
   TModuleName extends MergeModuleName = MergeModuleName,
 > = MergeModuleAdapterMap<T>[TModuleName];
 
-export interface MergeBaseEngine<T extends CollectionItem> {
-  add(items: T[]): unknown;
+export interface MergeBaseEngine {
   clearIndexes(): unknown;
-  clearData(): unknown;
-  data(data: T[]): unknown;
-  getOriginData(): T[];
-  update(descriptor: UpdateDescriptor<T>): unknown;
-}
-
-export interface MergeAppendableEngine<
-  T extends CollectionItem,
-> extends MergeBaseEngine<T> {
-  applyAddedItems?: (items: T[]) => unknown;
 }
 
 export interface MergeSearchEngine<
   T extends CollectionItem,
-> extends MergeAppendableEngine<T> {
+> extends MergeBaseEngine {
   search(query: string): T[];
   search(field: (keyof T & string) | (string & {}), query: string): T[];
 }
 
 export interface MergeSortEngine<
   T extends CollectionItem,
-> extends MergeAppendableEngine<T> {
+> extends MergeBaseEngine {
   sort(descriptors: SortDescriptor<T>[]): T[];
   sort(data: T[], descriptors: SortDescriptor<T>[], inPlace?: boolean): T[];
 }
 
 export interface MergeFilterEngine<
   T extends CollectionItem,
-> extends MergeAppendableEngine<T> {
+> extends MergeBaseEngine {
   rawFilter(criteria: FilterCriterion<T>[]): T[];
   rawFilter(data: T[], criteria: FilterCriterion<T>[]): T[];
 }
@@ -200,9 +183,4 @@ export type MergeSortCache<T extends CollectionItem> = {
   sourceData: T[];
   result: T[];
   version: number;
-};
-
-export type MergeRuntime<T extends CollectionItem> = {
-  previousSearchState: MergeSearchCache<T> | null;
-  previousSortState: MergeSortCache<T> | null;
 };

@@ -12,12 +12,6 @@ export class MergeEnginesError extends Error {
     this.name = "MergeEnginesError";
   }
 
-  static unavailableMethod(methodName: string): MergeEnginesError {
-    return new MergeEnginesError(
-      `MergeEngines: Method "${methodName}" is not available.`,
-    );
-  }
-
   static unavailableEngine(module: MergeModuleName): MergeEnginesError {
     const engineName = MODULE_TO_ENGINE[module];
 
