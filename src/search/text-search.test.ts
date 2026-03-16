@@ -912,3 +912,109 @@ describe("TextSearchEngine — O3: Uint8Array dedup in searchAllFields", () => {
     expect(result.map((p) => p.id)).toEqual([10]);
   });
 });
+
+describe("TextSearchEngine — normalizedValues optimizations", () => {
+  type Person = {
+    id: number;
+    name: string;
+    email: string;
+    city: string;
+    tag: string;
+  };
+
+  const data: Person[] = [
+    {
+      id: 1,
+      name: "John",
+      email: "john@test.com",
+      city: "New York",
+      tag: "vip",
+    },
+    {
+      id: 2,
+      name: "Johnny",
+      email: "johnny@test.com",
+      city: "Boston",
+      tag: "regular",
+    },
+    {
+      id: 3,
+      name: "Alice",
+      email: "alice@test.com",
+      city: "Chicago",
+      tag: "vip",
+    },
+    {
+      id: 4,
+      name: "Joanna",
+      email: "joanna@test.com",
+      city: "Dallas",
+      tag: "regular",
+    },
+  ];
+
+  it("linear scan on indexed fields uses pre-normalized values (case-insensitive)", () => {
+    const engine = new TextSearchEngine<Person>({
+      data,
+      fields: ["name", "email", "city", "tag"],
+    });
+
+    // 2-char query uses linear scan (below trigram threshold); must still be case-insensitive
+    const upper = engine.search("JO");
+    const lower = engine.search("jo");
+    expect(upper.map((p) => p.id).sort()).toEqual(
+      lower.map((p) => p.id).sort(),
+    );
+    expect(upper.length).toBeGreaterThan(0);
+  });
+
+  it("filterByPreviousResult narrowing returns correct subset with index lookups", () => {
+    const engine = new TextSearchEngine<Person>({
+      data,
+      fields: ["name", "email", "city", "tag"],
+      filterByPreviousResult: true,
+    });
+
+    const step1 = engine.search("jo");
+    expect(step1.length).toBeGreaterThan(0);
+
+    const step2 = engine.search("john");
+    expect(step2.length).toBeGreaterThan(0);
+    expect(step2.length).toBeLessThanOrEqual(step1.length);
+
+    // Every item in step2 must also be in step1
+    const step1Ids = new Set(step1.map((p) => p.id));
+    for (const item of step2) {
+      expect(step1Ids.has(item.id)).toBe(true);
+    }
+
+    // Verify correctness vs a direct search
+    const directEngine = new TextSearchEngine<Person>({
+      data,
+      fields: ["name", "email", "city", "tag"],
+    });
+    const directResult = directEngine.search("john");
+    expect(step2.map((p) => p.id).sort()).toEqual(
+      directResult.map((p) => p.id).sort(),
+    );
+  });
+
+  it("non-indexed engine returns same results as native Array.filter", () => {
+    const engine = new TextSearchEngine<Person>({ data });
+    const engineResult = engine.search("john");
+
+    const nativeResult = data.filter((item) => {
+      const lq = "john";
+      return (
+        item.name.toLowerCase().includes(lq) ||
+        item.email.toLowerCase().includes(lq) ||
+        item.city.toLowerCase().includes(lq) ||
+        item.tag.toLowerCase().includes(lq)
+      );
+    });
+
+    expect(engineResult.map((p) => p.id).sort()).toEqual(
+      nativeResult.map((p) => p.id).sort(),
+    );
+  });
+});

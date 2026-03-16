@@ -1,8 +1,11 @@
 import type { IndexerStorage } from "../indexer";
 import type { CollectionItem, FilterCriterion } from "../types";
-import type { ResolvedFilterCriterion } from "./criterion";
 import type { FilterEngine } from "./filter";
-import type { FilterNestedCollectionStorage } from "./nested";
+
+export interface FilterNestedCollectionStorage<T extends CollectionItem> {
+  indexes: Map<string, Map<any, T[]>>;
+  itemPositions: Map<string, Map<any, WeakMap<T, number>>>;
+}
 
 export interface FilterEngineChain<T extends CollectionItem> {
   filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
@@ -33,6 +36,16 @@ export interface FilterEngineOptions<
 export type NestedFieldDescriptor = {
   collectionKey: string;
   nestedKey: string;
+};
+
+export type ResolvedFilterCriterion<T extends CollectionItem> = {
+  field: FilterCriterion<T>["field"];
+  values: any[];
+  exclude: any[];
+  hasValues: boolean;
+  hasExclude: boolean;
+  includedValues: Set<any> | null;
+  excludedValues: Set<any> | null;
 };
 
 export type FilterEngineChainCallbacks<T extends CollectionItem> = {

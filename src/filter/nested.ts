@@ -1,11 +1,10 @@
 import { CollectionItem, type FilterCriterion } from "../types";
-import { resolveCriteria, type ResolvedFilterCriterion } from "./criterion";
-import type { NestedFieldDescriptor } from "./types";
-
-export interface FilterNestedCollectionStorage<T extends CollectionItem> {
-  indexes: Map<string, Map<any, T[]>>;
-  itemPositions: Map<string, Map<any, WeakMap<T, number>>>;
-}
+import { resolveCriteria } from "./criterion";
+import type {
+  FilterNestedCollectionStorage,
+  NestedFieldDescriptor,
+  ResolvedFilterCriterion,
+} from "./types";
 
 export class FilterNestedCollection<T extends CollectionItem> {
   private readonly registeredFields = new Set<string>();
@@ -65,11 +64,7 @@ export class FilterNestedCollection<T extends CollectionItem> {
     }
   }
 
-  filter(
-    sourceData: T[],
-    criteria: FilterCriterion<T>[] | ResolvedFilterCriterion<T>[],
-    dataset: T[],
-  ): T[] {
+  filter(sourceData: T[], criteria: FilterCriterion<T>[], dataset: T[]): T[] {
     const resolvedCriteria = this.resolveCriteria(criteria);
 
     if (sourceData.length === 0 || resolvedCriteria.length === 0) {

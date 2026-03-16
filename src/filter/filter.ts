@@ -18,13 +18,13 @@ import type {
   FilterRuntime,
   FilterSequentialCache,
   MutableExcludeRuntime,
+  ResolvedFilterCriterion,
 } from "./types";
 import { FilterEngineError } from "./errors";
 import {
   isCriterionUnsatisfiable,
   matchesCriterionValue,
   resolveCriteria,
-  type ResolvedFilterCriterion,
 } from "./criterion";
 import { FilterNestedCollection } from "./nested";
 

@@ -31,6 +31,7 @@ const createSearchRuntime = <T extends CollectionItem>(): SearchRuntime<T> => ({
   },
   filterByPreviousResult: false,
   previousResult: null,
+  previousResultIndices: null,
   previousQuery: null,
 });
 
@@ -42,6 +43,14 @@ export class TextSearchEngine<T extends CollectionItem> {
   private readonly nestedCollection: SearchNestedCollection<T>;
 
   private readonly minQueryLength: number;
+
+  private cachedIndexedFieldsList: string[] | null = null;
+
+  /**
+   * Lightweight normalizedValues-only cache for fields without n-gram index.
+   * Built lazily on first full-dataset linear scan for non-indexed fields.
+   */
+  private normalizedValuesCache = new Map<string, string[]>();
 
   /**
    * Creates a new TextSearchEngine with optional data and fields to index.
@@ -97,6 +106,8 @@ export class TextSearchEngine<T extends CollectionItem> {
   private rebuildConfiguredIndexes(): void {
     this.flatIndexes.clear();
     this.nestedCollection.clearIndexes();
+    this.cachedIndexedFieldsList = null;
+    this.normalizedValuesCache.clear();
 
     for (const field of this.indexedFields) {
       this.buildIndexFromData(this.dataset, field);
@@ -151,33 +162,43 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   /**
    * Returns the data source for search based on filterByPreviousResult setting.
-   * When the new query narrows the previous one, returns previousResult.
+   * When the new query narrows the previous one, returns previousResult with indices.
    * Otherwise resets previous state and returns the full dataset.
    */
-  private getSearchSource(lowerQuery: string): T[] {
+  private getSearchSource(lowerQuery: string): {
+    data: T[];
+    indices: number[] | null;
+  } {
     const { runtime } = this;
-    if (!runtime.filterByPreviousResult) return this.dataset;
+    if (!runtime.filterByPreviousResult) {
+      return { data: this.dataset, indices: null };
+    }
 
     if (
       runtime.previousResult !== null &&
       runtime.previousQuery !== null &&
       lowerQuery.includes(runtime.previousQuery)
     ) {
-      return runtime.previousResult;
+      return {
+        data: runtime.previousResult,
+        indices: runtime.previousResultIndices,
+      };
     }
 
     runtime.previousResult = null;
+    runtime.previousResultIndices = null;
     runtime.previousQuery = null;
-    return this.dataset;
+    return { data: this.dataset, indices: null };
   }
 
   /**
    * Saves the search result for potential reuse on subsequent narrowing queries.
    */
-  private saveSearchResult(result: T[], query: string): void {
+  private saveSearchResult(items: T[], indices: number[], query: string): void {
     const { runtime } = this;
     if (!runtime.filterByPreviousResult) return;
-    runtime.previousResult = result;
+    runtime.previousResult = items;
+    runtime.previousResultIndices = indices;
     runtime.previousQuery = query;
   }
 
@@ -194,6 +215,7 @@ export class TextSearchEngine<T extends CollectionItem> {
   private clearPreviousSearchState(): void {
     const { runtime } = this;
     runtime.previousResult = null;
+    runtime.previousResultIndices = null;
     runtime.previousQuery = null;
   }
 
@@ -207,25 +229,32 @@ export class TextSearchEngine<T extends CollectionItem> {
       return this.dataset;
     }
 
-    const source = this.getSearchSource(lowerQuery);
+    const { data: source, indices: sourceIndices } =
+      this.getSearchSource(lowerQuery);
 
+    // Narrowing on previous result — use index-aware linear scan over stored indices.
     if (source !== this.dataset) {
-      const result = this.searchAllFieldsLinear(source, lowerQuery);
-      this.saveSearchResult(result, lowerQuery);
-      return result;
+      const result = this.searchLinearAllFields(
+        source,
+        lowerQuery,
+        sourceIndices,
+      );
+      this.saveSearchResult(result.items, result.indices, lowerQuery);
+      return result.items;
     }
 
+    // No flat or nested indexes — linear fallback on full dataset.
     if (!this.flatIndexes.size && !this.nestedCollection.hasIndexes()) {
-      const result = this.searchAllFieldsLinear(source, lowerQuery);
-      this.saveSearchResult(result, lowerQuery);
-      return result;
+      const result = this.searchLinearAllFields(source, lowerQuery, null);
+      this.saveSearchResult(result.items, result.indices, lowerQuery);
+      return result.items;
     }
 
-    // Only use the index when the query is long enough to produce a trigram.
+    // Query too short for trigram index — linear fallback on full dataset.
     if (lowerQuery.length < MINIMUM_INDEXED_QUERY_LENGTH) {
-      const result = this.searchAllFieldsLinear(source, lowerQuery);
-      this.saveSearchResult(result, lowerQuery);
-      return result;
+      const result = this.searchLinearAllFields(source, lowerQuery, null);
+      this.saveSearchResult(result.items, result.indices, lowerQuery);
+      return result.items;
     }
 
     const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
@@ -234,6 +263,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     // O3: Uint8Array dedup — avoids Set<T> heap allocation and hash overhead.
     const seen = new Uint8Array(this.dataset.length);
     const combined: T[] = [];
+    const combinedIndices: number[] = [];
 
     for (const field of this.flatIndexes.keys()) {
       for (const idx of this.searchFieldWithPreparedQueryIndices(
@@ -244,6 +274,7 @@ export class TextSearchEngine<T extends CollectionItem> {
         if (seen[idx]) continue;
         seen[idx] = 1;
         combined.push(this.dataset[idx]);
+        combinedIndices.push(idx);
       }
     }
 
@@ -254,9 +285,10 @@ export class TextSearchEngine<T extends CollectionItem> {
       if (seen[idx]) continue;
       seen[idx] = 1;
       combined.push(this.dataset[idx]);
+      combinedIndices.push(idx);
     }
 
-    this.saveSearchResult(combined, lowerQuery);
+    this.saveSearchResult(combined, combinedIndices, lowerQuery);
     return combined;
   }
 
@@ -269,18 +301,35 @@ export class TextSearchEngine<T extends CollectionItem> {
     if (!lowerQuery || lowerQuery.length < this.minQueryLength)
       return this.dataset;
 
-    const source = this.getSearchSource(lowerQuery);
+    const { data: source, indices: sourceIndices } =
+      this.getSearchSource(lowerQuery);
 
+    // Narrowing on previous result — linear scan with optional index lookups.
     if (source !== this.dataset) {
-      const result = this.nestedCollection.hasField(field)
-        ? this.nestedCollection.searchFieldLinear(source, field, lowerQuery)
-        : this.searchFieldLinear(source, field, lowerQuery);
-      this.saveSearchResult(result, lowerQuery);
-      return result;
+      const isNested = this.nestedCollection.hasField(field);
+
+      if (isNested) {
+        const result = this.nestedCollection.searchFieldLinear(
+          source,
+          field,
+          lowerQuery,
+        );
+        this.saveSearchResult(result, [], lowerQuery);
+        return result;
+      }
+
+      const result = this.searchLinearSingleField(
+        source,
+        field,
+        lowerQuery,
+        sourceIndices,
+      );
+      this.saveSearchResult(result.items, result.indices, lowerQuery);
+      return result.items;
     }
 
+    // Nested field — delegate to nested collection.
     if (this.nestedCollection.hasField(field)) {
-      // Only use the index for queries long enough to produce a trigram.
       if (
         lowerQuery.length >= MINIMUM_INDEXED_QUERY_LENGTH &&
         this.nestedCollection.hasIndexes()
@@ -294,7 +343,7 @@ export class TextSearchEngine<T extends CollectionItem> {
           lowerQuery,
           uniqueQueryGrams,
         );
-        this.saveSearchResult(result, lowerQuery);
+        this.saveSearchResult(result, [], lowerQuery);
         return result;
       }
 
@@ -303,51 +352,58 @@ export class TextSearchEngine<T extends CollectionItem> {
         field,
         lowerQuery,
       );
-      this.saveSearchResult(result, lowerQuery);
+      this.saveSearchResult(result, [], lowerQuery);
       return result;
     }
 
+    // Flat field — use index when possible.
     if (
-      !this.flatIndexes.size ||
-      lowerQuery.length < MINIMUM_INDEXED_QUERY_LENGTH
+      this.flatIndexes.size > 0 &&
+      lowerQuery.length >= MINIMUM_INDEXED_QUERY_LENGTH
     ) {
-      const result = this.searchFieldLinear(this.dataset, field, lowerQuery);
-      this.saveSearchResult(result, lowerQuery);
-      return result;
+      const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
+      if (!uniqueQueryGrams.size) return [];
+
+      const result = this.searchFieldWithPreparedQuery(
+        field,
+        lowerQuery,
+        uniqueQueryGrams,
+      );
+      this.saveSearchResult(result.items, result.indices, lowerQuery);
+      return result.items;
     }
 
-    const uniqueQueryGrams = buildIntersectionQueryGrams(lowerQuery);
-    if (!uniqueQueryGrams.size) return [];
-
-    const result = this.searchFieldWithPreparedQuery(
+    // Linear fallback for flat field.
+    const result = this.searchLinearSingleField(
+      this.dataset,
       field,
       lowerQuery,
-      uniqueQueryGrams,
+      null,
     );
-    this.saveSearchResult(result, lowerQuery);
-    return result;
+    this.saveSearchResult(result.items, result.indices, lowerQuery);
+    return result.items;
   }
 
   /**
-   * Searches a field using prepared query grams, returning matched items.
+   * Searches a field using prepared query grams, returning matched items and indices.
    * Delegates to searchFieldWithPreparedQueryIndices for the core intersection logic.
    */
   private searchFieldWithPreparedQuery(
     field: string,
     lowerQuery: string,
     uniqueQueryGrams: ReadonlySet<string>,
-  ): T[] {
+  ): { items: T[]; indices: number[] } {
     const indices = this.searchFieldWithPreparedQueryIndices(
       field,
       lowerQuery,
       uniqueQueryGrams,
     );
-    const result: T[] = [];
+    const items: T[] = [];
     for (let i = 0; i < indices.length; i++) {
       const item = this.dataset[indices[i]];
-      if (item) result.push(item);
+      if (item) items.push(item);
     }
-    return result;
+    return { items, indices };
   }
 
   /**
@@ -412,70 +468,247 @@ export class TextSearchEngine<T extends CollectionItem> {
   }
 
   /**
-   * Searches all fields linearly without index.
-   * Uses known indexed fields when available to avoid per-item allocations.
+   * Returns the cached list of indexed field names, rebuilding if stale.
    */
-  private searchAllFieldsLinear(data: T[], lowerQuery: string): T[] {
-    if (!data.length) return [];
+  private getIndexedFieldsList(): string[] {
+    if (this.cachedIndexedFieldsList === null) {
+      this.cachedIndexedFieldsList = Array.from(this.indexedFields);
+    }
+    return this.cachedIndexedFieldsList;
+  }
+
+  /**
+   * Eagerly builds normalizedValues for a field without n-gram overhead.
+   * Stores in a lightweight cache so subsequent linear scans reuse it.
+   */
+  private buildNormalizedValuesOnly(data: T[], field: string): string[] {
+    const normalizedValues = new Array<string>(data.length);
+    for (let i = 0, len = data.length; i < len; i++) {
+      const rawValue = data[i][field];
+      if (typeof rawValue === "string") {
+        normalizedValues[i] = rawValue.toLowerCase();
+      }
+    }
+
+    this.normalizedValuesCache.set(field, normalizedValues);
+    return normalizedValues;
+  }
+
+  /**
+   * Searches all fields linearly, using pre-normalized values when available.
+   * When `sourceIndices` is provided, iterates only those dataset positions
+   * (previousResult narrowing path) and resolves items via this.dataset[idx].
+   */
+  private searchLinearAllFields(
+    data: T[],
+    lowerQuery: string,
+    sourceIndices: number[] | null,
+  ): { items: T[]; indices: number[] } {
+    if (!data.length) return { items: [], indices: [] };
+
+    const indexedFieldsList = this.getIndexedFieldsList();
 
     // Use known indexed fields when available; fall back to first-item string keys.
     const fields: string[] =
-      this.indexedFields.size > 0
-        ? Array.from(this.indexedFields)
+      indexedFieldsList.length > 0
+        ? indexedFieldsList
         : Object.keys(data[0]).filter((k) => typeof data[0][k] === "string");
 
-    const matchedItems: T[] = [];
+    // Precompute flat index references to avoid Map.get per-item per-field.
+    // For full-dataset scans, eagerly build normalizedValues for unindexed fields.
+    const isFullDataset = data === this.dataset;
+    const fieldCount = fields.length;
+    const fieldNormValues: (string[] | null)[] = new Array(fieldCount);
+    for (let f = 0; f < fieldCount; f++) {
+      const fieldName = fields[f];
+      const flatIndex = this.flatIndexes.get(fieldName);
 
+      if (flatIndex) {
+        fieldNormValues[f] = flatIndex.normalizedValues;
+      } else {
+        const cached = this.normalizedValuesCache.get(fieldName);
+        if (cached) {
+          fieldNormValues[f] = cached;
+        } else if (isFullDataset) {
+          fieldNormValues[f] = this.buildNormalizedValuesOnly(data, fieldName);
+        } else {
+          fieldNormValues[f] = null;
+        }
+      }
+    }
+
+    const hasNestedFields = this.nestedCollection.hasRegisteredFields();
+    const matchedItems: T[] = [];
+    const matchedIndices: number[] = [];
+
+    // When we have sourceIndices, iterate the stored dataset positions to use
+    // normalizedValues lookups instead of toLowerCase() on each item.
+    if (sourceIndices !== null) {
+      const dataset = this.dataset;
+
+      for (let si = 0; si < sourceIndices.length; si++) {
+        const datasetIdx = sourceIndices[si];
+        const item = dataset[datasetIdx];
+        let hasMatch = false;
+
+        for (let f = 0; f < fieldCount; f++) {
+          const normValues = fieldNormValues[f];
+
+          if (normValues) {
+            const norm = normValues[datasetIdx];
+            if (norm && norm.includes(lowerQuery)) {
+              hasMatch = true;
+              break;
+            }
+          } else {
+            const value = item[fields[f]];
+            if (
+              typeof value === "string" &&
+              value.toLowerCase().includes(lowerQuery)
+            ) {
+              hasMatch = true;
+              break;
+            }
+          }
+        }
+
+        if (!hasMatch && hasNestedFields) {
+          hasMatch = this.nestedCollection.matchesAnyField(item, lowerQuery);
+        }
+
+        if (hasMatch) {
+          matchedItems.push(item);
+          matchedIndices.push(datasetIdx);
+        }
+      }
+
+      return { items: matchedItems, indices: matchedIndices };
+    }
+
+    // Full-dataset scan — use precomputed normalizedValues when available.
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
       const item = data[itemIndex];
       let hasMatch = false;
 
-      for (let f = 0; f < fields.length; f++) {
-        const value = item[fields[f]];
-        if (typeof value !== "string") continue;
-        if (!value.toLowerCase().includes(lowerQuery)) continue;
+      for (let f = 0; f < fieldCount; f++) {
+        const normValues = fieldNormValues[f];
 
-        hasMatch = true;
-        break;
+        if (normValues) {
+          const norm = normValues[itemIndex];
+          if (norm && norm.includes(lowerQuery)) {
+            hasMatch = true;
+            break;
+          }
+        } else {
+          const value = item[fields[f]];
+          if (
+            typeof value === "string" &&
+            value.toLowerCase().includes(lowerQuery)
+          ) {
+            hasMatch = true;
+            break;
+          }
+        }
       }
 
-      if (!hasMatch) {
+      if (!hasMatch && hasNestedFields) {
         hasMatch = this.nestedCollection.matchesAnyField(item, lowerQuery);
       }
 
       if (hasMatch) {
         matchedItems.push(item);
+        matchedIndices.push(itemIndex);
       }
     }
 
-    return matchedItems;
+    return { items: matchedItems, indices: matchedIndices };
   }
 
   /**
-   * Searches a specific field linearly without index.
+   * Searches a specific field linearly, using pre-normalized values when available.
+   * When `sourceIndices` is provided, resolves items via this.dataset[idx].
    */
-  private searchFieldLinear(data: T[], field: string, lowerQuery: string): T[] {
-    if (!data.length) return [];
+  private searchLinearSingleField(
+    data: T[],
+    field: string,
+    lowerQuery: string,
+    sourceIndices: number[] | null,
+  ): { items: T[]; indices: number[] } {
+    if (!data.length) return { items: [], indices: [] };
 
     if (this.nestedCollection.hasField(field)) {
-      return this.nestedCollection.searchFieldLinear(data, field, lowerQuery);
+      return {
+        items: this.nestedCollection.searchFieldLinear(data, field, lowerQuery),
+        indices: [],
+      };
     }
 
     const matchedItems: T[] = [];
+    const matchedIndices: number[] = [];
+    const existingIndex = this.flatIndexes.get(field);
+    const normValues = existingIndex
+      ? existingIndex.normalizedValues
+      : (this.normalizedValuesCache.get(field) ??
+        (data === this.dataset
+          ? this.buildNormalizedValuesOnly(data, field)
+          : null));
 
-    for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
-      const fieldValue = data[itemIndex][field];
-      if (typeof fieldValue !== "string") continue;
-      if (!fieldValue.toLowerCase().includes(lowerQuery)) continue;
-      matchedItems.push(data[itemIndex]);
+    // Iterate stored dataset positions when narrowing on previousResult.
+    if (sourceIndices !== null) {
+      const dataset = this.dataset;
+
+      for (let si = 0; si < sourceIndices.length; si++) {
+        const datasetIdx = sourceIndices[si];
+        const item = dataset[datasetIdx];
+
+        if (normValues) {
+          const norm = normValues[datasetIdx];
+          if (norm && norm.includes(lowerQuery)) {
+            matchedItems.push(item);
+            matchedIndices.push(datasetIdx);
+          }
+        } else {
+          const fieldValue = item[field];
+          if (
+            typeof fieldValue === "string" &&
+            fieldValue.toLowerCase().includes(lowerQuery)
+          ) {
+            matchedItems.push(item);
+            matchedIndices.push(datasetIdx);
+          }
+        }
+      }
+
+      return { items: matchedItems, indices: matchedIndices };
     }
 
-    return matchedItems;
+    // Full-dataset scan.
+    for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
+      if (normValues) {
+        const norm = normValues[itemIndex];
+        if (norm && norm.includes(lowerQuery)) {
+          matchedItems.push(data[itemIndex]);
+          matchedIndices.push(itemIndex);
+        }
+      } else {
+        const fieldValue = data[itemIndex][field];
+        if (
+          typeof fieldValue === "string" &&
+          fieldValue.toLowerCase().includes(lowerQuery)
+        ) {
+          matchedItems.push(data[itemIndex]);
+          matchedIndices.push(itemIndex);
+        }
+      }
+    }
+
+    return { items: matchedItems, indices: matchedIndices };
   }
 
   clearIndexes(): this {
     this.flatIndexes.clear();
     this.nestedCollection.clearIndexes();
+    this.normalizedValuesCache.clear();
     return this;
   }
 
@@ -522,6 +755,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     switch (mutation.type) {
       case "add":
         this.applyAddedItems(mutation.items);
+        this.normalizedValuesCache.clear();
         this.clearPreviousSearchState();
         return;
       case "update":
@@ -530,6 +764,7 @@ export class TextSearchEngine<T extends CollectionItem> {
           mutation.previousItem,
           mutation.nextItem,
         );
+        this.normalizedValuesCache.clear();
         this.clearPreviousSearchState();
         return;
       case "data":
@@ -539,6 +774,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       case "clearData":
         this.flatIndexes.clear();
         this.nestedCollection.clearIndexes();
+        this.normalizedValuesCache.clear();
         this.clearPreviousSearchState();
         return;
       case "remove":
@@ -548,6 +784,7 @@ export class TextSearchEngine<T extends CollectionItem> {
           mutation.movedItem,
           mutation.movedFromIndex,
         );
+        this.normalizedValuesCache.clear();
         this.clearPreviousSearchState();
         return;
     }

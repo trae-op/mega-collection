@@ -1,14 +1,5 @@
 import type { CollectionItem, FilterCriterion } from "../types";
-
-export type ResolvedFilterCriterion<T extends CollectionItem> = {
-  field: FilterCriterion<T>["field"];
-  values: any[];
-  exclude: any[];
-  hasValues: boolean;
-  hasExclude: boolean;
-  includedValues: Set<any> | null;
-  excludedValues: Set<any> | null;
-};
+import type { ResolvedFilterCriterion } from "./types";
 
 export function resolveCriteria<T extends CollectionItem>(
   criteria: FilterCriterion<T>[],

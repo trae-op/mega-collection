@@ -48,5 +48,6 @@ export type SearchRuntime<T extends CollectionItem> = {
   nestedStorage: SearchNestedCollectionStorage;
   filterByPreviousResult: boolean;
   previousResult: T[] | null;
+  previousResultIndices: number[] | null;
   previousQuery: string | null;
 };
