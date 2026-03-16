@@ -232,10 +232,7 @@ function printComparisonTable(title: string, rows: TableRow[]): void {
   const trunc = (s: string, n: number) =>
     s.length > n ? s.slice(0, n - 1) + "…" : s;
 
-  const colLabel = Math.min(
-    48,
-    Math.max(44, ...rows.map((r) => r.label.length + 2)),
-  );
+  const colLabel = Math.max(44, ...rows.map((r) => r.label.length + 2));
   const colMs = 12;
   const colSpeedup = 18;
   const total = colLabel + colMs * 2 + colSpeedup + 4;
