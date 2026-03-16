@@ -45,20 +45,21 @@
  * For GC isolation:  node --expose-gc -e "require('tsx').register()" src/filter/filter.bench.ts
  */
 
+/// <reference types="node" />
+import os from "os";
+import { execSync } from "child_process";
 import { FilterEngine } from "./filter";
 import type { FilterCriterion } from "../types";
 
-/* -- Dataset type ---------------------------------------------------------------- */
 interface Item {
   id: number;
-  status: string; // cycle 5: [pending, active, closed, archived, review]
-  category: string; // cycle 4: [A, B, C, D]
-  region: string; // cycle 3: [north, south, east]
-  score: number; // random 0–999
-  active: boolean; // i % 7 !== 0  (cycle 7, independent of above)
+  status: string;
+  category: string;
+  region: string;
+  score: number;
+  active: boolean;
 }
 
-/* -- Constants ------------------------------------------------------------------ */
 const N = 100_000;
 const WARMUP_RUNS = 3;
 const MEASURE_RUNS = 5;
@@ -68,28 +69,19 @@ const THRESHOLDS = {
   memory_mb: 25,
 } as const;
 
-/* -- Value pools ---------------------------------------------------------------- */
-const STATUSES = ["pending", "active", "closed", "archived", "review"]; // cycle 5
-const CATEGORIES = ["A", "B", "C", "D"]; // cycle 4
-const REGIONS = ["north", "south", "east"]; // cycle 3
+const STATUSES = ["pending", "active", "closed", "archived", "review"];
+const CATEGORIES = ["A", "B", "C", "D"];
+const REGIONS = ["north", "south", "east"];
 
-/* -- Dataset generator ---------------------------------------------------------- */
-function generateDataset(): Item[] {
-  const data: Item[] = new Array(N);
-  for (let i = 0; i < N; i++) {
-    data[i] = {
-      id: i,
-      status: STATUSES[i % 5],
-      category: CATEGORIES[i % 4],
-      region: REGIONS[i % 3],
-      score: (Math.random() * 1000) | 0,
-      active: i % 7 !== 0,
-    };
-  }
-  return data;
-}
+const CLR = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  cyan: "\x1b[36m",
+};
 
-/* -- Result types --------------------------------------------------------------- */
 interface ScenarioResult {
   scenario: string;
   result_count: number;
@@ -119,16 +111,85 @@ interface BenchReport {
   overall_status: "PASS" | "FAIL";
 }
 
-/* -- Measurement helpers -------------------------------------------------------- */
+interface TableRow {
+  label: string;
+  engineMs: number;
+  nativeMs: number;
+  speedup: string;
+}
+
+function generateDataset(): Item[] {
+  const data: Item[] = new Array(N);
+  for (let i = 0; i < N; i++) {
+    data[i] = {
+      id: i,
+      status: STATUSES[i % 5],
+      category: CATEGORIES[i % 4],
+      region: REGIONS[i % 3],
+      score: (Math.random() * 1000) | 0,
+      active: i % 7 !== 0,
+    };
+  }
+  return data;
+}
+
+function getOsLabel(): string {
+  const platform = os.platform();
+
+  if (platform === "win32") {
+    try {
+      const raw = execSync("ver", { encoding: "utf8" }).trim();
+      return raw.replace(/[\r\n]+/g, " ");
+    } catch {
+      return `Windows ${os.release()}`;
+    }
+  }
+
+  if (platform === "darwin") {
+    const DARWIN_TO_MACOS: Record<number, string> = {
+      20: "macOS 11 Big Sur",
+      21: "macOS 12 Monterey",
+      22: "macOS 13 Ventura",
+      23: "macOS 14 Sonoma",
+      24: "macOS 15 Sequoia",
+    };
+    const major = parseInt(os.release().split(".")[0], 10);
+    const name = DARWIN_TO_MACOS[major] ?? `macOS (Darwin ${os.release()})`;
+
+    try {
+      const version = execSync("sw_vers -productVersion", {
+        encoding: "utf8",
+      }).trim();
+      return `${name} ${version}`;
+    } catch {
+      return name;
+    }
+  }
+
+  if (platform === "linux") {
+    try {
+      const raw = execSync(
+        "cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'",
+        { encoding: "utf8" },
+      ).trim();
+      return raw || `Linux ${os.release()}`;
+    } catch {
+      return `Linux ${os.release()}`;
+    }
+  }
+
+  return `${platform} ${os.release()}`;
+}
+
+function getCpuModel(): string {
+  const model = os.cpus()[0]?.model ?? "unknown CPU";
+  return model.trim().replace(/\s+/g, " ");
+}
+
 function heapMB(): number {
   return process.memoryUsage().heapUsed / 1_048_576;
 }
 
-/**
- * Setup-isolated run: setup() is called before each fn() invocation
- * (warm-up and timed). Only fn() is measured. Use when engine state
- * must be reset before each timed call to isolate the desired path.
- */
 function runWithSetup<T>(
   scenario: string,
   setup: () => void,
@@ -179,7 +240,6 @@ function runWithSetup<T>(
   };
 }
 
-/** Standard run — no setup required; fn() is self-contained. */
 function run<T>(scenario: string, fn: () => T[]): ScenarioResult {
   return runWithSetup(scenario, () => {}, fn);
 }
@@ -190,24 +250,6 @@ function speedupStr(nativeP50: number, engineP50: number): string {
   return ratio >= 1
     ? `${ratio.toFixed(1)}x faster`
     : `${(1 / ratio).toFixed(1)}x slower`;
-}
-
-/* ── Pretty comparison table ─────────────────────────────────────────────── */
-
-const CLR = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  cyan: "\x1b[36m",
-};
-
-interface TableRow {
-  label: string;
-  engineMs: number;
-  nativeMs: number;
-  speedup: string;
 }
 
 function printComparisonTable(title: string, rows: TableRow[]): void {
@@ -253,29 +295,44 @@ function printComparisonTable(title: string, rows: TableRow[]): void {
   console.log(h(bar));
 }
 
-/* -- Main ----------------------------------------------------------------------- */
+function printBenchHeader(runCmd: string): void {
+  const osLabel = getOsLabel();
+  const cpuModel = getCpuModel();
+  const ramGB = Math.round(os.totalmem() / 1_073_741_824);
+
+  console.log();
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Measured on${CLR.reset}  @devisfuture/mega-collection v2.3.5`,
+  );
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Environment${CLR.reset}  Node.js ${process.version} · ${osLabel} · ${cpuModel} · ${ramGB} GB RAM`,
+  );
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Benchmark  ${CLR.reset}  Warmup: ${WARMUP_RUNS} un-timed runs · Measured: ${MEASURE_RUNS} timed runs per scenario`,
+  );
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Metrics    ${CLR.reset}  p50 = median latency across all iterations ${CLR.dim}(lower is better)${CLR.reset}`,
+  );
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Reproduce  ${CLR.reset}  ${CLR.dim}npm run ${runCmd}${CLR.reset}`,
+  );
+  console.log();
+}
+
 async function main(): Promise<void> {
+  printBenchHeader("filter-bench");
   const dataset = generateDataset();
 
-  /*
-   * Engine created once; index-build cost is excluded from all scenario
-   * measurements — we only benchmark the filter() call itself.
-   */
   const engine = new FilterEngine<Item>({
     data: dataset,
     fields: ["status", "category", "region"],
     filterByPreviousResult: true,
   });
 
-  /* ── Criteria ────────────────────────────────────────────────────────────── */
-
-  // GROUP A: single equality match — status="active" → 20k items  (i%5 === 1)
   const a_criteria: FilterCriterion<Item>[] = [
     { field: "status", values: ["active"] },
   ];
 
-  // GROUPS B/C: 2-field match — status in [active,pending] AND region="north"
-  //   → 13 333 items  (i%15 ∈ {0, 6})
   const bc_criteria: FilterCriterion<Item>[] = [
     { field: "status", values: ["active", "pending"] },
     { field: "region", values: ["north"] },
@@ -284,14 +341,6 @@ async function main(): Promise<void> {
     (item.status === "active" || item.status === "pending") &&
     item.region === "north";
 
-  // GROUP D criteria pair — broad / narrow (narrow is a subset of broad):
-  //   broad:  status in [active, pending, review] → 60 000 items  (i%5 ∈ {0,1,4})
-  //   narrow: status in [active, pending]         → 40 000 items  (i%5 ∈ {0,1})
-  //
-  // Narrow → broad triggers a hasCriteriaBacktrack (values expand → NOT a
-  // subset → engine recalculates from baseData).  After the recalc the broad
-  // results is stored in previousResultsByCriteria.  When we flip back to
-  // narrow the engine finds the stored result instantly (cache hit).
   const d_broad: FilterCriterion<Item>[] = [
     { field: "status", values: ["active", "pending", "review"] },
   ];
@@ -305,7 +354,6 @@ async function main(): Promise<void> {
   const d_narrowNative = (item: Item): boolean =>
     item.status === "active" || item.status === "pending";
 
-  /* ── GROUP A ─────────────────────────────────────────────────────────────── */
   const a1 = run(
     "[A1] Native Array.filter  — single-field equality (100k scanned, baseline)",
     () => dataset.filter((item) => item.status === "active"),
@@ -316,7 +364,6 @@ async function main(): Promise<void> {
     () => engine.filter(a_criteria),
   );
 
-  /* ── GROUP B: 5 repeated queries ─────────────────────────────────────────── */
   const b1 = run(
     "[B1] Native × 5           — 5 identical filters, no cache (5 × 100k scans)",
     () => {
@@ -333,7 +380,6 @@ async function main(): Promise<void> {
     },
   );
 
-  /* ── GROUP C: 20 repeated queries ────────────────────────────────────────── */
   const c1 = run(
     "[C1] Native × 20          — 20 identical filters, no cache (20 × 100k scans)",
     () => {
@@ -350,23 +396,11 @@ async function main(): Promise<void> {
     },
   );
 
-  /* ── GROUP D: realistic session — broad ↔ narrow × 10 each ──────────────── */
-  //
-  // Session layout (30 total queries, no resetFilterState between them):
-  //   Phase 1 — 10 × broad criteria:  first call computes, 9 are cache hits
-  //   Phase 2 — 10 × narrow criteria: first call computes (backtrack), 9 cache hits
-  //   Phase 3 — 10 × broad criteria:  ALL 10 are cache hits (map remembers Phase 1!)
-  //
-  // Engine total: 2 computes + 28 cache hits.
-  // Native total: 30 fresh full-dataset scans.
   const d1 = run(
     "[D1] Native session × 30  — 3 criteria phases × 10 queries each (30 × 100k)",
     () => {
-      // Phase 1
       for (let i = 0; i < 10; i++) dataset.filter(d_broadNative);
-      // Phase 2
       for (let i = 0; i < 10; i++) dataset.filter(d_narrowNative);
-      // Phase 3 — same as phase 1, native has no cache
       for (let i = 0; i < 9; i++) dataset.filter(d_broadNative);
       return dataset.filter(d_broadNative);
     },
@@ -375,17 +409,13 @@ async function main(): Promise<void> {
     "[D2] FilterEngine session × 30 — 2 computes + 28 cache hits (map persists)",
     () => engine.resetFilterState(),
     () => {
-      // Phase 1: computes broad on first call, then cache
       for (let i = 0; i < 10; i++) engine.filter(d_broad);
-      // Phase 2: backtrack → recalc narrow, then cache
       for (let i = 0; i < 10; i++) engine.filter(d_narrow);
-      // Phase 3: broad result still in previousResultsByCriteria map → all cache
       for (let i = 0; i < 9; i++) engine.filter(d_broad);
       return engine.filter(d_broad);
     },
   );
 
-  /* ── Report ──────────────────────────────────────────────────────────────── */
   const results = [a1, a2, b1, b2, c1, c2, d1, d2];
 
   const comparison_summary: ComparisonRow[] = [

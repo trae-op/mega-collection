@@ -93,6 +93,7 @@
     "url": "git+https://github.com/trae-op/mega-collection.git"
   },
   "devDependencies": {
+    "@types/node": "^25.5.0",
     "@vitest/coverage-v8": "^2.1.9",
     "tsup": "^8.0.0",
     "typescript": "^5.3.0",

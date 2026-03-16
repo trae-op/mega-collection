@@ -27,9 +27,11 @@
  *   node --expose-gc -e "require('tsx').register()" src/search/search.bench.ts
  */
 
+/// <reference types="node" />
+import os from "os";
+import { execSync } from "child_process";
 import { TextSearchEngine } from "./text-search";
 
-/* -- Dataset type --------------------------------------------------------------- */
 interface Item {
   id: number;
   name: string;
@@ -38,7 +40,6 @@ interface Item {
   tag: string;
 }
 
-/* -- Constants ------------------------------------------------------------------ */
 const N = 100_000;
 const WARMUP_RUNS = 3;
 const MEASURE_RUNS = 5;
@@ -48,7 +49,6 @@ const THRESHOLDS = {
   memory_mb: 30,
 } as const;
 
-/* -- Name pools for realistic substring queries --------------------------------- */
 const FIRST_NAMES = [
   "john",
   "jane",
@@ -74,24 +74,15 @@ const CITIES = [
   "san jose",
 ];
 
-/* -- Dataset generator --------------------------------------------------------- */
-function generateDataset(): Item[] {
-  const data: Item[] = new Array(N);
-  for (let i = 0; i < N; i++) {
-    const firstName = FIRST_NAMES[i % FIRST_NAMES.length];
-    const city = CITIES[i % CITIES.length];
-    data[i] = {
-      id: i,
-      name: `${firstName}-${i}`,
-      email: `${firstName}${i}@example.com`,
-      city,
-      tag: i % 2 === 0 ? "even" : "odd",
-    };
-  }
-  return data;
-}
+const CLR = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  cyan: "\x1b[36m",
+};
 
-/* -- Result types --------------------------------------------------------------- */
 interface ScenarioResult {
   scenario: string;
   query: string;
@@ -122,7 +113,82 @@ interface BenchReport {
   overall_status: "PASS" | "FAIL";
 }
 
-/* -- Measurement helpers -------------------------------------------------------- */
+interface TableRow {
+  label: string;
+  engineMs: number;
+  nativeMs: number;
+  speedup: string;
+}
+
+function generateDataset(): Item[] {
+  const data: Item[] = new Array(N);
+  for (let i = 0; i < N; i++) {
+    const firstName = FIRST_NAMES[i % FIRST_NAMES.length];
+    const city = CITIES[i % CITIES.length];
+    data[i] = {
+      id: i,
+      name: `${firstName}-${i}`,
+      email: `${firstName}${i}@example.com`,
+      city,
+      tag: i % 2 === 0 ? "even" : "odd",
+    };
+  }
+  return data;
+}
+
+function getOsLabel(): string {
+  const platform = os.platform();
+
+  if (platform === "win32") {
+    try {
+      const raw = execSync("ver", { encoding: "utf8" }).trim();
+      return raw.replace(/[\r\n]+/g, " ");
+    } catch {
+      return `Windows ${os.release()}`;
+    }
+  }
+
+  if (platform === "darwin") {
+    const DARWIN_TO_MACOS: Record<number, string> = {
+      20: "macOS 11 Big Sur",
+      21: "macOS 12 Monterey",
+      22: "macOS 13 Ventura",
+      23: "macOS 14 Sonoma",
+      24: "macOS 15 Sequoia",
+    };
+    const major = parseInt(os.release().split(".")[0], 10);
+    const name = DARWIN_TO_MACOS[major] ?? `macOS (Darwin ${os.release()})`;
+
+    try {
+      const version = execSync("sw_vers -productVersion", {
+        encoding: "utf8",
+      }).trim();
+      return `${name} ${version}`;
+    } catch {
+      return name;
+    }
+  }
+
+  if (platform === "linux") {
+    try {
+      const raw = execSync(
+        "cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'",
+        { encoding: "utf8" },
+      ).trim();
+      return raw || `Linux ${os.release()}`;
+    } catch {
+      return `Linux ${os.release()}`;
+    }
+  }
+
+  return `${platform} ${os.release()}`;
+}
+
+function getCpuModel(): string {
+  const model = os.cpus()[0]?.model ?? "unknown CPU";
+  return model.trim().replace(/\s+/g, " ");
+}
+
 function heapMB(): number {
   return process.memoryUsage().heapUsed / 1_048_576;
 }
@@ -134,11 +200,9 @@ function run<T>(
 ): ScenarioResult {
   const round = (v: number) => Math.round(v * 10) / 10;
 
-  // Warm-up: let V8 JIT compile hot paths before measuring
   for (let w = 0; w < WARMUP_RUNS; w++) fn();
   globalThis.gc?.();
 
-  // Isolated memory measurement (single run after warm-up)
   const memBefore = heapMB();
   const memResult = fn();
   const memAfter = heapMB();
@@ -146,7 +210,6 @@ function run<T>(
   const result_count = memResult.length;
   globalThis.gc?.();
 
-  // Timing: collect wall-clock samples across MEASURE_RUNS
   const times: number[] = [];
   for (let r = 0; r < MEASURE_RUNS; r++) {
     const t0 = performance.now();
@@ -176,12 +239,6 @@ function run<T>(
   };
 }
 
-/* -- Native multi-field search helpers ----------------------------------------- */
-
-/**
- * Case-insensitive native single-field substring filter.
- * Mirrors what TextSearchEngine does for a single field with an index.
- */
 function nativeSingleField(
   data: Item[],
   field: keyof Item & string,
@@ -194,10 +251,6 @@ function nativeSingleField(
   });
 }
 
-/**
- * Case-insensitive native all-fields substring filter (checks every string field).
- * Mirrors what TextSearchEngine does for all-fields search with an index.
- */
 function nativeAllFields(data: Item[], query: string): Item[] {
   const lq = query.toLowerCase();
   return data.filter(
@@ -207,24 +260,6 @@ function nativeAllFields(data: Item[], query: string): Item[] {
       item.city.toLowerCase().includes(lq) ||
       item.tag.toLowerCase().includes(lq),
   );
-}
-
-/* ── Pretty comparison table ─────────────────────────────────────────────── */
-
-const CLR = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  dim: "\x1b[2m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  cyan: "\x1b[36m",
-};
-
-interface TableRow {
-  label: string;
-  engineMs: number;
-  nativeMs: number;
-  speedup: string;
 }
 
 function printComparisonTable(title: string, rows: TableRow[]): void {
@@ -267,14 +302,34 @@ function printComparisonTable(title: string, rows: TableRow[]): void {
   console.log(h(bar));
 }
 
-/* -- Main ----------------------------------------------------------------------- */
+function printBenchHeader(runCmd: string): void {
+  const osLabel = getOsLabel();
+  const cpuModel = getCpuModel();
+  const ramGB = Math.round(os.totalmem() / 1_073_741_824);
+
+  console.log();
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Measured on${CLR.reset}  @devisfuture/mega-collection v2.3.5`,
+  );
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Environment${CLR.reset}  Node.js ${process.version} · ${osLabel} · ${cpuModel} · ${ramGB} GB RAM`,
+  );
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Benchmark  ${CLR.reset}  Warmup: ${WARMUP_RUNS} un-timed runs · Measured: ${MEASURE_RUNS} timed runs per scenario`,
+  );
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Metrics    ${CLR.reset}  p50 = median latency across all iterations ${CLR.dim}(lower is better)${CLR.reset}`,
+  );
+  console.log(
+    `${CLR.bold}${CLR.cyan}  Reproduce  ${CLR.reset}  ${CLR.dim}npm run ${runCmd}${CLR.reset}`,
+  );
+  console.log();
+}
+
 async function main(): Promise<void> {
+  printBenchHeader("search-bench");
   const dataset = generateDataset();
 
-  /*
-   * Engines created once — index-build cost is intentionally excluded from
-   * search-scenario measurements so we benchmark only the search() call itself.
-   */
   const indexedEngine = new TextSearchEngine<Item>({
     data: dataset,
     fields: ["name", "email", "city", "tag"],
@@ -289,8 +344,6 @@ async function main(): Promise<void> {
   });
 
   const results: ScenarioResult[] = [
-    // ── Group A: Single-field "john" (4-char, ~10 000 hits) ───────────────────────
-
     run(
       "A1. TextSearchEngine - indexed single-field (name, query: 'john')",
       "john",
@@ -301,8 +354,6 @@ async function main(): Promise<void> {
       "john",
       () => nativeSingleField(dataset, "name", "john"),
     ),
-
-    // ── Group B: Multi-field "john" (4-char, ~10 000 hits) ───────────────────────
 
     run(
       "B1. TextSearchEngine - indexed all-fields (query: 'john')",
@@ -315,8 +366,6 @@ async function main(): Promise<void> {
       () => nativeAllFields(dataset, "john"),
     ),
 
-    // ── Group C: Multi-field "jo" (2-char — fewer trigrams, larger posting lists) ─
-
     run("C1. TextSearchEngine - indexed all-fields (query: 'jo')", "jo", () =>
       indexedEngine.search("jo"),
     ),
@@ -325,8 +374,6 @@ async function main(): Promise<void> {
       "jo",
       () => nativeAllFields(dataset, "jo"),
     ),
-
-    // ── Group D: Multi-field "san antonio" (11-char — highly selective) ───────────
 
     run(
       "D1. TextSearchEngine - indexed all-fields (query: 'san antonio')",
@@ -339,18 +386,13 @@ async function main(): Promise<void> {
       () => nativeAllFields(dataset, "san antonio"),
     ),
 
-    // ── Group E: filterByPreviousResult narrowing vs native two-step ─────────────
-    // Both sides start from the full 100k dataset and perform a two-step search:
-    // first compute the "jo" result, then narrow it to "john".
-    // This mirrors realistic incremental search (user types "jo" then "john").
-
     run(
       "E1. TextSearchEngine - filterByPreviousResult two-step search ('jo' → 'john')",
       "john",
       () => {
         filterByPrevEngine.resetSearchState();
-        filterByPrevEngine.search("jo"); // primes previousResult (~indexed all-fields)
-        return filterByPrevEngine.search("john"); // narrows subset linearly
+        filterByPrevEngine.search("jo");
+        return filterByPrevEngine.search("john");
       },
     ),
     run(
@@ -361,9 +403,6 @@ async function main(): Promise<void> {
         return nativeAllFields(prev, "john");
       },
     ),
-
-    // ── Group F: Non-indexed linear vs native (parity / sanity check) ─────────────
-    // TextSearchEngine linear fallback should match native performance.
 
     run(
       "F1. TextSearchEngine - non-indexed linear fallback (query: 'john')",
@@ -377,7 +416,6 @@ async function main(): Promise<void> {
     ),
   ];
 
-  /* -- Speedup summary ---------------------------------------------------------- */
   function p50(label: string): number {
     return results.find((r) => r.scenario.startsWith(label))?.p50_ms ?? 0;
   }
