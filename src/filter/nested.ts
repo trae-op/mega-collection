@@ -64,6 +64,11 @@ export class FilterNestedCollection<T extends CollectionItem> {
     }
   }
 
+  updateItem(nextItem: T, previousItem: T): void {
+    this.removeItem(previousItem);
+    this.addItems([nextItem]);
+  }
+
   filter(sourceData: T[], criteria: FilterCriterion<T>[], dataset: T[]): T[] {
     const resolvedCriteria = this.resolveCriteria(criteria);
 

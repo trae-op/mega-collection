@@ -165,8 +165,14 @@ export class SortEngine<T extends CollectionItem> {
       });
     }
 
+    const reverseIndex = new Uint32Array(itemCount);
+    for (let i = 0; i < itemCount; i++) {
+      reverseIndex[indexes[i]] = i;
+    }
+
     this.cache.set(field as string, {
       indexes,
+      reverseIndex,
       version: this.state.getMutationVersion(),
     });
   }
@@ -423,12 +429,21 @@ export class SortEngine<T extends CollectionItem> {
       addedItemCount,
     );
 
+    const mergedIndexes = this.mergeSortedIndexes(
+      field,
+      cachedIndex.indexes,
+      appendedIndexes,
+    );
+
+    const mergedLength = mergedIndexes.length;
+    const reverseIndex = new Uint32Array(mergedLength);
+    for (let i = 0; i < mergedLength; i++) {
+      reverseIndex[mergedIndexes[i]] = i;
+    }
+
     this.cache.set(field as string, {
-      indexes: this.mergeSortedIndexes(
-        field,
-        cachedIndex.indexes,
-        appendedIndexes,
-      ),
+      indexes: mergedIndexes,
+      reverseIndex,
       version: this.state.getMutationVersion(),
     });
   }
@@ -520,50 +535,27 @@ export class SortEngine<T extends CollectionItem> {
     const cachedIndex = this.cache.get(field as string);
     if (!cachedIndex) return;
 
-    const { indexes } = cachedIndex;
+    const { indexes, reverseIndex } = cachedIndex;
     const itemCount = indexes.length;
 
-    let currentPosition = -1;
-    for (let i = 0; i < itemCount; i++) {
-      if (indexes[i] === targetIndex) {
-        currentPosition = i;
-        break;
-      }
-    }
+    // O(1) lookup via reverse index instead of O(n) linear scan
+    const currentPosition = reverseIndex[targetIndex];
 
-    if (currentPosition === -1) {
+    if (
+      currentPosition >= itemCount ||
+      indexes[currentPosition] !== targetIndex
+    ) {
       this.cache.delete(field as string);
       return;
     }
 
-    const reduced = new Uint32Array(itemCount - 1);
-    reduced.set(indexes.subarray(0, currentPosition));
-    reduced.set(indexes.subarray(currentPosition + 1), currentPosition);
+    // Remove from current position by shifting left in-place
+    indexes.copyWithin(currentPosition, currentPosition + 1);
 
-    const nextPosition = this.findUpdatedIndexPosition(
-      field,
-      reduced,
-      targetIndex,
-    );
-
-    const result = new Uint32Array(itemCount);
-    result.set(reduced.subarray(0, nextPosition));
-    result[nextPosition] = targetIndex;
-    result.set(reduced.subarray(nextPosition), nextPosition + 1);
-
-    this.cache.set(field as string, {
-      indexes: result,
-      version: this.state.getMutationVersion(),
-    });
-  }
-
-  private findUpdatedIndexPosition(
-    field: keyof T & string,
-    indexes: Uint32Array,
-    targetIndex: number,
-  ): number {
+    // Binary search for the new position in the reduced range [0, itemCount-1)
+    const reducedCount = itemCount - 1;
     let low = 0;
-    let high = indexes.length;
+    let high = reducedCount;
 
     while (low < high) {
       const middle = (low + high) >> 1;
@@ -577,7 +569,20 @@ export class SortEngine<T extends CollectionItem> {
       }
     }
 
-    return low;
+    const nextPosition = low;
+
+    // Insert at new position by shifting right in-place
+    indexes.copyWithin(nextPosition + 1, nextPosition, reducedCount);
+    indexes[nextPosition] = targetIndex;
+
+    // Rebuild reverseIndex for affected range
+    const minPos = Math.min(currentPosition, nextPosition);
+    const maxPos = Math.max(currentPosition, nextPosition);
+    for (let i = minPos; i <= maxPos; i++) {
+      reverseIndex[indexes[i]] = i;
+    }
+
+    cachedIndex.version = this.state.getMutationVersion();
   }
 
   private buildComparator(

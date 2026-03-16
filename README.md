@@ -273,6 +273,12 @@ Use `update(...)` when you need to replace one stored item by a unique field suc
 - `update(...)` replaces only the matched item in stored data.
 - configured indexes or caches refresh only the affected item instead of rebuilding the whole dataset.
 
+> **Notes on `update()`:**
+>
+> - The lookup field value in `data[field]` must already exist in the stored dataset. If it is `null`, `undefined`, or not found, `update()` is a silent no-op — no error is thrown and no data is changed.
+> - The lookup field value must not change between the old and new item. For example, calling `update({ field: 'id', data: { id: 99, ... } })` when no item has `id: 99` will do nothing. Always use the current value of the lookup field.
+> - When using `FilterEngine` with `filterByPreviousResult: true`, every `update()` resets the sequential criteria cache, so the next `filter()` will re-evaluate from the full dataset.
+
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";

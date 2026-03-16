@@ -293,6 +293,7 @@ export class State<T extends CollectionItem> {
     this.clearPreviousResult();
   }
 
+  // First call for a given field triggers O(n) index build; subsequent lookups are O(1).
   private getOrCreateIndexMap(
     field: IndexableKey<T> & string,
   ): Map<any, number> {

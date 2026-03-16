@@ -2,6 +2,7 @@ import type { CollectionItem } from "../types";
 
 export interface SortIndex {
   indexes: Uint32Array;
+  reverseIndex: Uint32Array;
   version: number;
 }
 

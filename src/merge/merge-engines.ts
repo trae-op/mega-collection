@@ -389,6 +389,8 @@ export class MergeEngines<T extends CollectionItem> {
   }
 
   update(descriptor: UpdateDescriptor<T>): this {
+    // Clear MergeEngines-level operation caches (previousSearchState, previousSortState)
+    // before State.update() clears its own State-level previous result via bumpMutationVersion().
     this.clearOperationState();
     this.state.update(descriptor);
     return this;

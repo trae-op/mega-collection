@@ -605,8 +605,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.resetFilterState();
     this.indexer.removeItem(previousItem);
     this.indexer.addItem(nextItem);
-    this.nestedCollection.removeItem(previousItem);
-    this.nestedCollection.addItems([nextItem]);
+    this.nestedCollection.updateItem(nextItem, previousItem);
   }
 
   private applyRemovedItem(

@@ -464,6 +464,18 @@ export class TextSearchEngine<T extends CollectionItem> {
   }
 
   /**
+   * Updates only the entry at `index` in every cached normalizedValues array,
+   * avoiding a full O(n) rebuild when a single item is updated.
+   */
+  private invalidateNormalizedValuesCacheEntry(index: number, item: T): void {
+    for (const [field, values] of this.normalizedValuesCache) {
+      const rawValue = item[field];
+      values[index] =
+        typeof rawValue === "string" ? rawValue.toLowerCase() : "";
+    }
+  }
+
+  /**
    * Searches all fields linearly, using pre-normalized values when available.
    * When `sourceIndices` is provided, iterates only those dataset positions
    * (previousResult narrowing path) and resolves items via this.dataset[idx].
@@ -733,7 +745,10 @@ export class TextSearchEngine<T extends CollectionItem> {
           mutation.previousItem,
           mutation.nextItem,
         );
-        this.normalizedValuesCache.clear();
+        this.invalidateNormalizedValuesCacheEntry(
+          mutation.index,
+          mutation.nextItem,
+        );
         this.clearPreviousSearchState();
         return;
       case "data":
