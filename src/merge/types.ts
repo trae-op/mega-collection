@@ -187,3 +187,22 @@ export interface MergeFilterEngine<
   rawFilter(criteria: FilterCriterion<T>[]): T[];
   rawFilter(data: T[], criteria: FilterCriterion<T>[]): T[];
 }
+
+export type MergeSearchCache<T extends CollectionItem> = {
+  key: string;
+  originData: T[];
+  result: T[];
+  version: number;
+};
+
+export type MergeSortCache<T extends CollectionItem> = {
+  key: string;
+  sourceData: T[];
+  result: T[];
+  version: number;
+};
+
+export type MergeRuntime<T extends CollectionItem> = {
+  previousSearchState: MergeSearchCache<T> | null;
+  previousSortState: MergeSortCache<T> | null;
+};

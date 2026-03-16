@@ -20,29 +20,11 @@ import type {
   FilterModuleAdapter,
   MergeEnginesOptions,
   MergeModuleName,
+  MergeRuntime,
   SearchModuleAdapter,
   SortModuleAdapter,
 } from "./types";
 import { MergeEnginesError } from "./errors";
-
-type MergeSearchCache<T extends CollectionItem> = {
-  key: string;
-  originData: T[];
-  result: T[];
-  version: number;
-};
-
-type MergeSortCache<T extends CollectionItem> = {
-  key: string;
-  sourceData: T[];
-  result: T[];
-  version: number;
-};
-
-type MergeRuntime<T extends CollectionItem> = {
-  previousSearchState: MergeSearchCache<T> | null;
-  previousSortState: MergeSortCache<T> | null;
-};
 
 export class MergeEngines<T extends CollectionItem> {
   private readonly state: State<T>;
