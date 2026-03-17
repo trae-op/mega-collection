@@ -15,54 +15,21 @@ import type {
   SearchRuntime,
   TextSearchEngineStats,
   TextSearchEngineOptions,
+  SearchWindow,
+  SearchResult,
+  SearchSource,
 } from "./types";
 import {
   buildIntersectionQueryGrams,
   createIntersectionPlan,
-  MINIMUM_INDEXED_QUERY_LENGTH,
   indexLowerValue,
   intersectPostingListsInCandidates,
   intersectPostingLists,
   removeLowerValue,
 } from "./ngram";
 import { SearchNestedCollection } from "./nested";
-
-type SearchResult<T extends CollectionItem> = {
-  items: T[];
-  indices: number[];
-};
-
-type SearchWindow = {
-  offset: number;
-  limit: number;
-  take: number;
-  hasWindow: boolean;
-};
-
-type SearchSource = {
-  indices: number[] | null;
-  lookup: Uint8Array | null;
-};
-
-const createSearchRuntime = <T extends CollectionItem>(): SearchRuntime<T> => ({
-  indexedFields: new Set<keyof T & string>(),
-  flatIndexes: new Map<string, SearchIndex>(),
-  nestedStorage: {
-    ngramIndexes: new Map<string, Map<string, Set<number>>>(),
-    normalizedFieldValues: new Map<string, string[]>(),
-  },
-  deferredMutationVersion: null,
-  filterByPreviousResult: false,
-  previousResultIndices: null,
-  previousResultLookup: null,
-  previousQuery: null,
-  stats: {
-    totalQueries: 0,
-    indexedQueries: 0,
-    fallbackQueries: 0,
-    fallbackFields: new Map<string, number>(),
-  },
-});
+import { createSearchRuntime } from "./utils";
+import { MINIMUM_INDEXED_QUERY_LENGTH } from "./constants";
 
 const MERGE_SHARED_SCOPE = "__merge__";
 const DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY =

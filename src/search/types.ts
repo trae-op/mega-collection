@@ -81,3 +81,31 @@ export type SearchRuntime<T extends CollectionItem> = {
     fallbackFields: Map<string, number>;
   };
 };
+
+export type SearchResult<T extends CollectionItem> = {
+  items: T[];
+  indices: number[];
+};
+
+export type SearchWindow = {
+  offset: number;
+  limit: number;
+  take: number;
+  hasWindow: boolean;
+};
+
+export type SearchSource = {
+  indices: number[] | null;
+  lookup: Uint8Array | null;
+};
+
+export type IntersectPostingListsOptions = {
+  restrictionLookup?: Uint8Array | null;
+  take?: number;
+};
+
+export type IntersectPostingListsInCandidatesOptions = {
+  candidateIndices: readonly number[];
+  restrictionLookup?: Uint8Array | null;
+  take?: number;
+};

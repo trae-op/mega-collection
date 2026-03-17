@@ -1,23 +1,17 @@
-const MINIMUM_NGRAM_LENGTH = 2;
-const MAXIMUM_NGRAM_LENGTH = 3;
-
 /**
  * Minimum query length required to use the n-gram index directly.
  * Queries shorter than this fall back to a linear scan.
  */
-export const MINIMUM_INDEXED_QUERY_LENGTH = MINIMUM_NGRAM_LENGTH;
-const MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION = 12;
 
-type IntersectPostingListsOptions = {
-  restrictionLookup?: Uint8Array | null;
-  take?: number;
-};
-
-type IntersectPostingListsInCandidatesOptions = {
-  candidateIndices: readonly number[];
-  restrictionLookup?: Uint8Array | null;
-  take?: number;
-};
+import {
+  MAXIMUM_NGRAM_LENGTH,
+  MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION,
+  MINIMUM_NGRAM_LENGTH,
+} from "./constants";
+import type {
+  IntersectPostingListsInCandidatesOptions,
+  IntersectPostingListsOptions,
+} from "./types";
 
 export type IntersectionPlan = {
   smallestPostingList: ReadonlySet<number>;
