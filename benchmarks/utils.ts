@@ -63,9 +63,11 @@ export function printComparisonTable(title: string, rows: TableRow[]): void {
   const trunc = (s: string, n: number) =>
     s.length > n ? s.slice(0, n - 1) + "…" : s;
 
+  // Allow longer scenario descriptions to be rendered in full on wider terminals.
+  // The cap prevents runaway table width in narrow terminals.
   const colLabel = Math.min(
-    48,
-    Math.max(44, ...rows.map((r) => r.label.length + 2)),
+    160,
+    Math.max(60, ...rows.map((r) => r.label.length + 2)),
   );
   const colMs = 12;
   const colSpeedup = 18;
@@ -106,7 +108,12 @@ export function printLatencyTable(
   const trunc = (s: string, n: number) =>
     s.length > n ? s.slice(0, n - 1) + "…" : s;
 
-  const colScenario = Math.max(44, ...rows.map((r) => r.scenario.length + 2));
+  // Allow longer scenario descriptions to be rendered in full on wider terminals.
+  // The cap prevents runaway table width in narrow terminals.
+  const colScenario = Math.min(
+    160,
+    Math.max(60, ...rows.map((r) => r.scenario.length + 2)),
+  );
   const colValue = 10;
   const total = colScenario + colValue * 4 + 4;
   const bar = "═".repeat(total);
