@@ -519,6 +519,9 @@ export class FilterEngine<T extends CollectionItem> {
           mutation.movedItem,
         );
         return;
+      case "removeMany":
+        this.applyRemovedItems(mutation.field, mutation.entries);
+        return;
     }
   }
 
@@ -583,16 +586,10 @@ export class FilterEngine<T extends CollectionItem> {
       );
     }
 
-    for (
-      let valueIndex = 0;
-      valueIndex < criterion.exclude.length;
-      valueIndex++
-    ) {
-      this.state.removeByFieldValue(
-        this.mutableExcludeField as IndexableKey<T> & string,
-        criterion.exclude[valueIndex],
-      );
-    }
+    this.state.removeByFieldValues(
+      this.mutableExcludeField as IndexableKey<T> & string,
+      criterion.exclude,
+    );
 
     this.resetFilterState();
     return this.dataset;
@@ -632,6 +629,42 @@ export class FilterEngine<T extends CollectionItem> {
     this.resetFilterState();
     this.indexer.removeItem(removedItem);
     this.nestedCollection.removeItem(removedItem);
+  }
+
+  private applyRemovedItems(
+    field: IndexableKey<T> & string,
+    entries: Array<{
+      value: T[IndexableKey<T> & string];
+      removedItem: T;
+      removedIndex: number;
+      movedItem: T | null;
+      movedFromIndex: number | null;
+    }>,
+  ): void {
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+      const entry = entries[entryIndex];
+
+      if (field === this.mutableExcludeField) {
+        this.unregisterMutableExcludeValue(entry.value);
+        this.mutableExcludeState.datasetPositions.delete(entry.value);
+
+        if (entry.movedItem !== null && this.mutableExcludeField !== null) {
+          const movedValue = entry.movedItem[this.mutableExcludeField];
+
+          if (movedValue !== undefined && movedValue !== null) {
+            this.mutableExcludeState.datasetPositions.set(
+              movedValue,
+              entry.removedIndex,
+            );
+          }
+        }
+      }
+
+      this.indexer.removeItem(entry.removedItem);
+      this.nestedCollection.removeItem(entry.removedItem);
+    }
+
+    this.resetFilterState();
   }
 
   private updateMutableExcludeStateForUpdatedItem(

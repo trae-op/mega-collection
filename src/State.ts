@@ -2,6 +2,7 @@ import type {
   CollectionItem,
   IndexableKey,
   StateListener,
+  StateRemoveManyEntry,
   StateMutation,
   StateOptions,
   StatePreviousResult,
@@ -269,6 +270,66 @@ export class State<T extends CollectionItem> {
       removedIndex: itemIndex,
       movedItem,
       movedFromIndex: movedItem ? lastIndex : null,
+    });
+  }
+
+  removeByFieldValues(field: IndexableKey<T> & string, values: any[]): void {
+    if (values.length === 0) {
+      return;
+    }
+
+    const indexMap = this.getOrCreateIndexMap(field);
+    const entries: StateRemoveManyEntry<T>[] = [];
+
+    for (let valueIndex = 0; valueIndex < values.length; valueIndex++) {
+      const value = values[valueIndex];
+      const itemIndex = indexMap.get(value);
+
+      if (itemIndex === undefined) {
+        continue;
+      }
+
+      const lastIndex = this.originData.length - 1;
+      const removedItem = this.originData[itemIndex];
+      const movedItem =
+        itemIndex === lastIndex ? null : this.originData[lastIndex];
+
+      if (itemIndex !== lastIndex && movedItem) {
+        this.originData[itemIndex] = movedItem;
+      }
+
+      this.originData.pop();
+
+      for (const [indexedField, indexedFieldMap] of this.indexMaps) {
+        const removedFieldValue = removedItem[indexedField];
+
+        if (indexedFieldMap.get(removedFieldValue) === itemIndex) {
+          indexedFieldMap.delete(removedFieldValue);
+        }
+
+        if (movedItem) {
+          indexedFieldMap.set(movedItem[indexedField], itemIndex);
+        }
+      }
+
+      entries.push({
+        value,
+        removedItem,
+        removedIndex: itemIndex,
+        movedItem,
+        movedFromIndex: movedItem ? lastIndex : null,
+      });
+    }
+
+    if (entries.length === 0) {
+      return;
+    }
+
+    this.bumpMutationVersion();
+    this.emit({
+      type: "removeMany",
+      field,
+      entries,
     });
   }
 

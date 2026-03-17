@@ -511,7 +511,8 @@ function runScenario(
   setup: () => void,
   fn: () => OperationSummary,
 ): ScenarioResult {
-  const round = (value: number) => Math.round(value * 10) / 10;
+  const round = (value: number) => Math.round(value * 100) / 100;
+  const nowMs = (): number => Number(process.hrtime.bigint()) / 1_000_000;
 
   console.log(`Running ${scenario}...`);
 
@@ -532,9 +533,9 @@ function runScenario(
   const times: number[] = [];
   for (let run = 0; run < MEASURE_RUNS; run++) {
     setup();
-    const start = performance.now();
+    const start = nowMs();
     fn();
-    times.push(performance.now() - start);
+    times.push(nowMs() - start);
   }
 
   times.sort((left, right) => left - right);

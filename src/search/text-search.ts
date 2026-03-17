@@ -1584,6 +1584,25 @@ export class TextSearchEngine<T extends CollectionItem> {
         this.combinedNormalizedValuesCache = null;
         this.clearPreviousSearchState();
         return;
+      case "removeMany":
+        for (
+          let entryIndex = 0;
+          entryIndex < mutation.entries.length;
+          entryIndex++
+        ) {
+          const entry = mutation.entries[entryIndex];
+          this.applyRemovedItem(
+            entry.removedItem,
+            entry.removedIndex,
+            entry.movedItem,
+            entry.movedFromIndex,
+          );
+        }
+        this.cachedLinearSearchFieldsList = null;
+        this.normalizedValuesCache.clear();
+        this.combinedNormalizedValuesCache = null;
+        this.clearPreviousSearchState();
+        return;
     }
   }
 

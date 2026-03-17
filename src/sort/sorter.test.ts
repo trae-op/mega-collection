@@ -102,9 +102,10 @@ describe("SortEngine", () => {
     expect(engine.getOriginData()).toEqual([]);
   });
 
-  it("add() invalidates cached sorting and rebuilds lazily on next sort()", () => {
+  it("add() updates cached sorting incrementally without full rebuild", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
+    engine.sort([{ field: "age", direction: "asc" }]);
     const buildIndexSpy = vi.spyOn(
       engine as never,
       "buildIndexForDataset" as never,
@@ -115,10 +116,10 @@ describe("SortEngine", () => {
     expect(
       engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
     ).toEqual([5, 2, 3, 1, 4]);
-    expect(buildIndexSpy).toHaveBeenCalledOnce();
+    expect(buildIndexSpy).not.toHaveBeenCalled();
   });
 
-  it("internal add path invalidates cached sorting for shared State", async () => {
+  it("internal add path updates cached sorting for shared State", async () => {
     const State = (await import("../State")).State;
     const dataset = users.map((user) => ({ ...user }));
     const state = new State<User>(dataset);
@@ -126,6 +127,7 @@ describe("SortEngine", () => {
       state,
       fields: ["age"],
     });
+    engine.sort([{ field: "age", direction: "asc" }]);
     const buildIndexSpy = vi.spyOn(
       engine as never,
       "buildIndexForDataset" as never,
@@ -136,7 +138,7 @@ describe("SortEngine", () => {
     expect(
       engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
     ).toEqual([5, 2, 3, 1, 4]);
-    expect(buildIndexSpy).toHaveBeenCalledOnce();
+    expect(buildIndexSpy).not.toHaveBeenCalled();
   });
 
   it("add() treats an empty batch as a no-op", () => {
@@ -153,6 +155,7 @@ describe("SortEngine", () => {
   it("update() repositions cached sorting incrementally without full rebuild", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
+    engine.sort([{ field: "age", direction: "asc" }]);
     const buildIndexSpy = vi.spyOn(
       engine as never,
       "buildIndexForDataset" as never,
@@ -336,7 +339,7 @@ describe("SortEngine", () => {
       expect(buildIndexSpy).not.toHaveBeenCalled();
     });
 
-    it("remove via shared State clears cache; next sort rebuilds correctly", async () => {
+    it("remove via shared State updates cache incrementally", async () => {
       const { State } = await import("../State");
       const data: User[] = [
         { id: 1, name: "Mila", city: "Kyiv", age: 30 },
@@ -346,6 +349,11 @@ describe("SortEngine", () => {
       ];
       const state = new State<User>(data);
       const engine = new SortEngine<User>({ state, fields: ["age"] });
+      engine.sort([{ field: "age", direction: "asc" }]);
+      const buildIndexSpy = vi.spyOn(
+        engine as never,
+        "buildIndexForDataset" as never,
+      );
 
       state.removeByFieldValue("id", 1);
 
@@ -355,6 +363,31 @@ describe("SortEngine", () => {
       expect(ids).toContain(2);
       expect(ids).toContain(3);
       expect(ids).toContain(4);
+      expect(buildIndexSpy).not.toHaveBeenCalled();
+    });
+
+    it("batch remove via shared State updates cache incrementally", async () => {
+      const { State } = await import("../State");
+      const data: User[] = [
+        { id: 1, name: "Mila", city: "Kyiv", age: 30 },
+        { id: 2, name: "Alex", city: "Lviv", age: 25 },
+        { id: 3, name: "John", city: "Kyiv", age: 25 },
+        { id: 4, name: "Bella", city: "Odesa", age: 35 },
+      ];
+      const state = new State<User>(data);
+      const engine = new SortEngine<User>({ state, fields: ["id"] });
+      engine.sort([{ field: "id", direction: "asc" }]);
+      const buildIndexSpy = vi.spyOn(
+        engine as never,
+        "buildIndexForDataset" as never,
+      );
+
+      state.removeByFieldValues("id", [1, 4]);
+
+      expect(
+        engine.sort([{ field: "id", direction: "asc" }]).map((user) => user.id),
+      ).toEqual([2, 3]);
+      expect(buildIndexSpy).not.toHaveBeenCalled();
     });
 
     it("update() on large dataset produces correct result via Uint32Array path", () => {

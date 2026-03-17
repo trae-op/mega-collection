@@ -74,9 +74,24 @@ export type StateRemoveMutation<T extends CollectionItem> = {
   movedFromIndex: number | null;
 };
 
+export type StateRemoveManyEntry<T extends CollectionItem> = {
+  value: T[IndexableKey<T> & string];
+  removedItem: T;
+  removedIndex: number;
+  movedItem: T | null;
+  movedFromIndex: number | null;
+};
+
+export type StateRemoveManyMutation<T extends CollectionItem> = {
+  type: "removeMany";
+  field: IndexableKey<T> & string;
+  entries: StateRemoveManyEntry<T>[];
+};
+
 export type StateMutation<T extends CollectionItem> =
   | StateAddMutation<T>
   | StateUpdateMutation<T>
   | StateDataMutation<T>
   | StateClearMutation<T>
-  | StateRemoveMutation<T>;
+  | StateRemoveMutation<T>
+  | StateRemoveManyMutation<T>;

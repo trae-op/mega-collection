@@ -73,7 +73,7 @@ function radixSortUint32(
 
 const createSortRuntime = <T extends CollectionItem>(): SortRuntime<T> => ({
   indexedFields: new Set<keyof T & string>(),
-  cache: new Map<string, SortIndex>(),
+  cache: new Map<string, SortIndex<T>>(),
 });
 
 export class SortEngine<T extends CollectionItem> {
@@ -109,7 +109,7 @@ export class SortEngine<T extends CollectionItem> {
     );
   }
 
-  private get cache(): Map<string, SortIndex> {
+  private get cache(): Map<string, SortIndex<T>> {
     return this.runtime.cache;
   }
 
@@ -173,6 +173,13 @@ export class SortEngine<T extends CollectionItem> {
     this.cache.set(field as string, {
       indexes,
       reverseIndex,
+      ascItems: null,
+      descItems: null,
+      hasDuplicateValues: this.hasDuplicateValuesForIndexes(
+        data,
+        indexes,
+        field,
+      ),
       version: this.state.getMutationVersion(),
     });
   }
@@ -202,8 +209,26 @@ export class SortEngine<T extends CollectionItem> {
     return this;
   }
 
-  private applyAddedItems(): this {
-    this.cache.clear();
+  private applyAddedItems(startIndex: number, count: number): this {
+    if (count === 0) {
+      return this;
+    }
+
+    for (const field of this.indexedFields) {
+      const cachedIndex = this.cache.get(field as string);
+
+      if (!cachedIndex) {
+        continue;
+      }
+
+      if (!this.shouldMaintainIncrementally(cachedIndex)) {
+        this.cache.delete(field as string);
+        continue;
+      }
+
+      this.updateCachedIndexForAddedItems(field, startIndex, count);
+    }
+
     return this;
   }
 
@@ -214,7 +239,7 @@ export class SortEngine<T extends CollectionItem> {
   private handleStateMutation(mutation: StateMutation<T>): void {
     switch (mutation.type) {
       case "add":
-        this.applyAddedItems();
+        this.applyAddedItems(mutation.startIndex, mutation.items.length);
         return;
       case "update":
         this.applyUpdatedItem(
@@ -230,7 +255,10 @@ export class SortEngine<T extends CollectionItem> {
         this.cache.clear();
         return;
       case "remove":
-        this.cache.clear();
+        this.applyRemovedItem(mutation.removedIndex, mutation.movedFromIndex);
+        return;
+      case "removeMany":
+        this.applyRemovedItemsBatch(mutation.entries);
         return;
     }
   }
@@ -270,7 +298,7 @@ export class SortEngine<T extends CollectionItem> {
           cached = this.cache.get(field as string)!;
         }
 
-        return this.reconstructFromIndex(data, cached.indexes, direction);
+        return this.getCachedSortedItems(cached, direction);
       }
 
       return this.sortNumericFastPath(data, field, direction, inPlace);
@@ -335,11 +363,14 @@ export class SortEngine<T extends CollectionItem> {
         cached = this.cache.get(primary.field as string)!;
       }
 
-      const primarySorted = this.reconstructFromIndex(
-        data,
-        cached.indexes,
-        primary.direction,
-      );
+      const primarySorted = cached.hasDuplicateValues
+        ? this.getCachedSortedItems(cached, primary.direction).slice()
+        : this.getCachedSortedItems(cached, primary.direction);
+
+      if (!cached.hasDuplicateValues) {
+        return primarySorted;
+      }
+
       return this.sortTieGroups(primarySorted, primary.field, rest);
     }
 
@@ -391,17 +422,73 @@ export class SortEngine<T extends CollectionItem> {
     indexes: Uint32Array,
     direction: SortDirection,
   ): T[] {
-    const itemCount = data.length;
+    return this.materializeItemsFromIndexes(data, indexes, direction);
+  }
+
+  private materializeItemsFromIndexes(
+    data: T[],
+    indexes: Uint32Array,
+    direction: SortDirection,
+  ): T[] {
+    const itemCount = indexes.length;
     const result: T[] = new Array(itemCount);
 
     if (direction === "asc") {
-      for (let i = 0; i < itemCount; i++) result[i] = data[indexes[i]];
-    } else {
-      for (let i = 0; i < itemCount; i++)
-        result[i] = data[indexes[itemCount - 1 - i]];
+      for (let i = 0; i < itemCount; i++) {
+        result[i] = data[indexes[i]];
+      }
+
+      return result;
+    }
+
+    for (let i = 0; i < itemCount; i++) {
+      result[i] = data[indexes[itemCount - 1 - i]];
     }
 
     return result;
+  }
+
+  private getCachedSortedItems(
+    cachedIndex: SortIndex<T>,
+    direction: SortDirection,
+  ): T[] {
+    if (direction === "asc") {
+      if (cachedIndex.ascItems === null) {
+        cachedIndex.ascItems = this.materializeItemsFromIndexes(
+          this.dataset,
+          cachedIndex.indexes,
+          "asc",
+        );
+      }
+
+      return cachedIndex.ascItems;
+    }
+
+    if (cachedIndex.descItems !== null) {
+      return cachedIndex.descItems;
+    }
+
+    const ascItems = this.getCachedSortedItems(cachedIndex, "asc");
+    cachedIndex.descItems = ascItems.slice().reverse();
+    return cachedIndex.descItems;
+  }
+
+  private shouldMaintainIncrementally(cachedIndex: SortIndex<T>): boolean {
+    return cachedIndex.ascItems !== null || cachedIndex.descItems !== null;
+  }
+
+  private hasDuplicateValuesForIndexes(
+    data: T[],
+    indexes: ArrayLike<number>,
+    field: keyof T & string,
+  ): boolean {
+    for (let index = 1; index < indexes.length; index++) {
+      if (data[indexes[index - 1]][field] === data[indexes[index]][field]) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private compareIndexesByField(
@@ -429,6 +516,11 @@ export class SortEngine<T extends CollectionItem> {
 
       const cachedIndex = this.cache.get(field as string);
       if (!cachedIndex) continue;
+
+      if (!this.shouldMaintainIncrementally(cachedIndex)) {
+        this.cache.delete(field as string);
+        continue;
+      }
 
       this.updateCachedIndexForUpdatedItem(field, index);
     }
@@ -481,6 +573,16 @@ export class SortEngine<T extends CollectionItem> {
     indexes.copyWithin(nextPosition + 1, nextPosition, reducedCount);
     indexes[nextPosition] = targetIndex;
 
+    if (cachedIndex.ascItems !== null) {
+      cachedIndex.ascItems.copyWithin(currentPosition, currentPosition + 1);
+      cachedIndex.ascItems.copyWithin(
+        nextPosition + 1,
+        nextPosition,
+        reducedCount,
+      );
+      cachedIndex.ascItems[nextPosition] = this.dataset[targetIndex];
+    }
+
     // Rebuild reverseIndex for affected range
     const minPos = Math.min(currentPosition, nextPosition);
     const maxPos = Math.max(currentPosition, nextPosition);
@@ -488,7 +590,351 @@ export class SortEngine<T extends CollectionItem> {
       reverseIndex[indexes[i]] = i;
     }
 
+    cachedIndex.descItems = null;
+
+    if (!cachedIndex.hasDuplicateValues) {
+      const previousNeighbor =
+        nextPosition > 0 ? indexes[nextPosition - 1] : -1;
+      const nextNeighbor =
+        nextPosition + 1 < itemCount ? indexes[nextPosition + 1] : -1;
+
+      cachedIndex.hasDuplicateValues =
+        (previousNeighbor !== -1 &&
+          this.dataset[previousNeighbor][field] ===
+            this.dataset[targetIndex][field]) ||
+        (nextNeighbor !== -1 &&
+          this.dataset[nextNeighbor][field] ===
+            this.dataset[targetIndex][field]);
+    }
+
     cachedIndex.version = this.state.getMutationVersion();
+  }
+
+  private updateCachedIndexForAddedItems(
+    field: keyof T & string,
+    startIndex: number,
+    count: number,
+  ): void {
+    const cachedIndex = this.cache.get(field as string);
+    if (!cachedIndex) {
+      return;
+    }
+
+    const addedIndexes = new Array<number>(count);
+    for (let index = 0; index < count; index++) {
+      addedIndexes[index] = startIndex + index;
+    }
+    addedIndexes.sort((left, right) =>
+      this.compareIndexesByField(field, left, right),
+    );
+
+    const merged = new Uint32Array(cachedIndex.indexes.length + count);
+    let previousMergedIndex = -1;
+    let nextHasDuplicates = cachedIndex.hasDuplicateValues;
+
+    let leftIndex = 0;
+    let rightIndex = 0;
+    let writeIndex = 0;
+
+    while (
+      leftIndex < cachedIndex.indexes.length &&
+      rightIndex < addedIndexes.length
+    ) {
+      const nextIndex =
+        this.compareIndexesByField(
+          field,
+          cachedIndex.indexes[leftIndex],
+          addedIndexes[rightIndex],
+        ) <= 0
+          ? cachedIndex.indexes[leftIndex++]
+          : addedIndexes[rightIndex++];
+
+      merged[writeIndex] = nextIndex;
+      if (
+        !nextHasDuplicates &&
+        previousMergedIndex !== -1 &&
+        this.dataset[previousMergedIndex][field] ===
+          this.dataset[nextIndex][field]
+      ) {
+        nextHasDuplicates = true;
+      }
+
+      previousMergedIndex = nextIndex;
+      writeIndex += 1;
+    }
+
+    while (leftIndex < cachedIndex.indexes.length) {
+      const nextIndex = cachedIndex.indexes[leftIndex++];
+      merged[writeIndex] = nextIndex;
+      if (
+        !nextHasDuplicates &&
+        previousMergedIndex !== -1 &&
+        this.dataset[previousMergedIndex][field] ===
+          this.dataset[nextIndex][field]
+      ) {
+        nextHasDuplicates = true;
+      }
+
+      previousMergedIndex = nextIndex;
+      writeIndex += 1;
+    }
+
+    while (rightIndex < addedIndexes.length) {
+      const nextIndex = addedIndexes[rightIndex++];
+      merged[writeIndex] = nextIndex;
+      if (
+        !nextHasDuplicates &&
+        previousMergedIndex !== -1 &&
+        this.dataset[previousMergedIndex][field] ===
+          this.dataset[nextIndex][field]
+      ) {
+        nextHasDuplicates = true;
+      }
+
+      previousMergedIndex = nextIndex;
+      writeIndex += 1;
+    }
+
+    const reverseIndex = new Uint32Array(merged.length);
+    for (let index = 0; index < merged.length; index++) {
+      reverseIndex[merged[index]] = index;
+    }
+
+    cachedIndex.indexes = merged;
+    cachedIndex.reverseIndex = reverseIndex;
+    cachedIndex.ascItems = cachedIndex.ascItems
+      ? this.materializeItemsFromIndexes(this.dataset, merged, "asc")
+      : null;
+    cachedIndex.descItems = null;
+    cachedIndex.hasDuplicateValues = nextHasDuplicates;
+    cachedIndex.version = this.state.getMutationVersion();
+  }
+
+  private applyRemovedItem(
+    removedIndex: number,
+    movedFromIndex: number | null,
+  ): void {
+    for (const field of this.indexedFields) {
+      const cachedIndex = this.cache.get(field as string);
+
+      if (!cachedIndex) {
+        continue;
+      }
+
+      if (!this.shouldMaintainIncrementally(cachedIndex)) {
+        this.cache.delete(field as string);
+        continue;
+      }
+
+      this.updateCachedIndexForRemovedItem(field, removedIndex, movedFromIndex);
+    }
+  }
+
+  private applyRemovedItemsBatch(
+    entries: Array<{
+      removedIndex: number;
+      movedFromIndex: number | null;
+    }>,
+  ): void {
+    for (const field of this.indexedFields) {
+      const cachedIndex = this.cache.get(field as string);
+
+      if (!cachedIndex) {
+        continue;
+      }
+
+      if (!this.shouldMaintainIncrementally(cachedIndex)) {
+        this.cache.delete(field as string);
+        continue;
+      }
+
+      if (!cachedIndex.hasDuplicateValues) {
+        this.updateUniqueCachedIndexForRemovedItems(cachedIndex, entries);
+        cachedIndex.version = this.state.getMutationVersion();
+        continue;
+      }
+
+      this.cache.delete(field as string);
+    }
+  }
+
+  private updateCachedIndexForRemovedItem(
+    field: keyof T & string,
+    removedIndex: number,
+    movedFromIndex: number | null,
+  ): void {
+    const cachedIndex = this.cache.get(field as string);
+    if (!cachedIndex) {
+      return;
+    }
+
+    if (!cachedIndex.hasDuplicateValues) {
+      this.updateUniqueCachedIndexForRemovedItem(
+        cachedIndex,
+        removedIndex,
+        movedFromIndex,
+      );
+      cachedIndex.version = this.state.getMutationVersion();
+      return;
+    }
+
+    const nextIndexesList: number[] = [];
+
+    for (let index = 0; index < cachedIndex.indexes.length; index++) {
+      const datasetIndex = cachedIndex.indexes[index];
+
+      if (datasetIndex === removedIndex || datasetIndex === movedFromIndex) {
+        continue;
+      }
+
+      nextIndexesList.push(datasetIndex);
+    }
+
+    if (movedFromIndex !== null && movedFromIndex !== removedIndex) {
+      let low = 0;
+      let high = nextIndexesList.length;
+
+      while (low < high) {
+        const middle = (low + high) >> 1;
+
+        if (
+          this.compareIndexesByField(
+            field,
+            nextIndexesList[middle],
+            removedIndex,
+          ) <= 0
+        ) {
+          low = middle + 1;
+        } else {
+          high = middle;
+        }
+      }
+
+      nextIndexesList.splice(low, 0, removedIndex);
+    }
+
+    const nextIndexes = Uint32Array.from(nextIndexesList);
+    const nextReverseIndex = new Uint32Array(this.dataset.length);
+    for (let index = 0; index < nextIndexes.length; index++) {
+      const datasetIndex = nextIndexes[index];
+      nextReverseIndex[datasetIndex] = index;
+    }
+
+    cachedIndex.indexes = nextIndexes;
+    cachedIndex.reverseIndex = nextReverseIndex;
+    cachedIndex.ascItems = cachedIndex.ascItems
+      ? this.materializeItemsFromIndexes(this.dataset, nextIndexes, "asc")
+      : null;
+    cachedIndex.descItems = null;
+    cachedIndex.hasDuplicateValues = cachedIndex.hasDuplicateValues
+      ? this.hasDuplicateValuesForIndexes(this.dataset, nextIndexes, field)
+      : false;
+    cachedIndex.version = this.state.getMutationVersion();
+  }
+
+  private updateUniqueCachedIndexForRemovedItem(
+    cachedIndex: SortIndex<T>,
+    removedIndex: number,
+    movedFromIndex: number | null,
+  ): void {
+    const nextLength = cachedIndex.indexes.length - 1;
+    const nextIndexes = new Uint32Array(nextLength);
+    const nextReverseIndex = new Uint32Array(this.dataset.length);
+    const nextAscItems =
+      cachedIndex.ascItems !== null ? new Array<T>(nextLength) : null;
+
+    let writeIndex = 0;
+
+    for (let index = 0; index < cachedIndex.indexes.length; index++) {
+      const currentDatasetIndex = cachedIndex.indexes[index];
+
+      if (currentDatasetIndex === removedIndex) {
+        continue;
+      }
+
+      const nextDatasetIndex =
+        movedFromIndex !== null && currentDatasetIndex === movedFromIndex
+          ? removedIndex
+          : currentDatasetIndex;
+
+      nextIndexes[writeIndex] = nextDatasetIndex;
+      nextReverseIndex[nextDatasetIndex] = writeIndex;
+
+      if (nextAscItems !== null) {
+        nextAscItems[writeIndex] = this.dataset[nextDatasetIndex];
+      }
+
+      writeIndex += 1;
+    }
+
+    cachedIndex.indexes = nextIndexes;
+    cachedIndex.reverseIndex = nextReverseIndex;
+    cachedIndex.ascItems = nextAscItems;
+    cachedIndex.descItems = null;
+  }
+
+  private updateUniqueCachedIndexForRemovedItems(
+    cachedIndex: SortIndex<T>,
+    entries: Array<{
+      removedIndex: number;
+      movedFromIndex: number | null;
+    }>,
+  ): void {
+    const originalLength = cachedIndex.indexes.length;
+    const slotToOriginalIndex = new Uint32Array(originalLength);
+    const finalIndexByOriginalIndex = new Int32Array(originalLength);
+
+    for (let index = 0; index < originalLength; index++) {
+      slotToOriginalIndex[index] = index;
+      finalIndexByOriginalIndex[index] = -1;
+    }
+
+    let currentLength = originalLength;
+
+    for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+      const entry = entries[entryIndex];
+
+      if (entry.movedFromIndex !== null) {
+        slotToOriginalIndex[entry.removedIndex] =
+          slotToOriginalIndex[entry.movedFromIndex];
+      }
+
+      currentLength -= 1;
+    }
+
+    const nextIndexes = new Uint32Array(currentLength);
+    const nextReverseIndex = new Uint32Array(currentLength);
+    const nextAscItems =
+      cachedIndex.ascItems !== null ? new Array<T>(currentLength) : null;
+
+    for (let finalIndex = 0; finalIndex < currentLength; finalIndex++) {
+      finalIndexByOriginalIndex[slotToOriginalIndex[finalIndex]] = finalIndex;
+    }
+
+    let writeIndex = 0;
+
+    for (let index = 0; index < cachedIndex.indexes.length; index++) {
+      const originalIndex = cachedIndex.indexes[index];
+      const finalIndex = finalIndexByOriginalIndex[originalIndex];
+
+      if (finalIndex === -1) {
+        continue;
+      }
+
+      nextIndexes[writeIndex] = finalIndex;
+      nextReverseIndex[finalIndex] = writeIndex;
+
+      if (nextAscItems !== null) {
+        nextAscItems[writeIndex] = this.dataset[finalIndex];
+      }
+
+      writeIndex += 1;
+    }
+
+    cachedIndex.indexes = nextIndexes;
+    cachedIndex.reverseIndex = nextReverseIndex;
+    cachedIndex.ascItems = nextAscItems;
+    cachedIndex.descItems = null;
   }
 
   private buildComparator(
