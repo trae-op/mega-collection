@@ -4,19 +4,9 @@ import type {
   UpdateDescriptor,
 } from "../types";
 import type { FilterEngineChain, FilterEngineChainCallbacks } from "./types";
+import { createChainMethodDescriptor } from "./utils";
 
 export type { FilterEngineChain } from "./types";
-
-function createChainMethodDescriptor<TValue>(
-  value: TValue,
-): PropertyDescriptor {
-  return {
-    value,
-    enumerable: false,
-    configurable: true,
-    writable: true,
-  };
-}
 
 export class FilterEngineChainBuilder<T extends CollectionItem> {
   constructor(private readonly callbacks: FilterEngineChainCallbacks<T>) {}
