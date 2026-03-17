@@ -904,17 +904,19 @@ export class SortEngine<T extends CollectionItem> {
     descriptors: SortDescriptor<T>[],
   ): (a: T, b: T) => number {
     const fields = descriptors.map(({ field }) => field);
-    const multipliers = descriptors.map(({ direction }) =>
+    const directionMultipliers = descriptors.map(({ direction }) =>
       direction === "asc" ? 1 : -1,
     );
     const fieldCount = fields.length;
 
     return (a: T, b: T): number => {
-      for (let i = 0; i < fieldCount; i++) {
-        const lv = a[fields[i]];
-        const rv = b[fields[i]];
-        if (lv < rv) return -multipliers[i];
-        if (lv > rv) return multipliers[i];
+      for (let fieldIndex = 0; fieldIndex < fieldCount; fieldIndex++) {
+        const field = fields[fieldIndex];
+        const leftValue = a[field];
+        const rightValue = b[field];
+
+        if (leftValue < rightValue) return -directionMultipliers[fieldIndex];
+        if (leftValue > rightValue) return directionMultipliers[fieldIndex];
       }
       return 0;
     };
