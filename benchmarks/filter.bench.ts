@@ -1,55 +1,20 @@
-/**
- * FilterEngine Performance Benchmark — 100 000-element dataset
- *
- * Honestly shows WHERE FilterEngine wins and WHERE it doesn't.
- * Each scenario is a native/engine pair so the comparison is direct.
- *
- * GROUP A — Per-call overhead context  (native is fast; engine is comparable)
- *   A1. Native Array.filter   single equality scan       (100k items)
- *   A2. FilterEngine indexed  same single-field filter   (index lookup)
- *
- * GROUP B — 5 repeated queries of same criteria  (cache starts paying)
- *   B1. Native: 5 × same filter from scratch             (5 × 100k scans)
- *   B2. Engine: 5 × same filter, filterByPreviousResult  (1 compute + 4 cache hits)
- *
- * GROUP C — 20 repeated queries of same criteria  (cache clearly wins)
- *   C1. Native: 20 × same filter from scratch            (20 × 100k scans)
- *   C2. Engine: 20 × same filter                         (1 compute + 19 cache hits)
- *
- * GROUP D — Realistic session: 3 criteria × 10 queries each
- *   User alternates between two filter states (broad ↔ narrow), then returns to
- *   the first state. Engine's per-criteria cache map remembers all seen results,
- *   so returning to a previous criteria state is always an instant cache hit.
- *   D1. Native: 30 fresh full-dataset scans  (3 criteria × 10 queries × 100k)
- *   D2. Engine: 2 actual computes + 28 cache hits  (map persists across backtracks)
- *
- * ─────────────────────────────────────────────────────────────────────────────
- * Expected pattern from comparison_summary:
- *   A  ~1x  — per-call overhead is real; native and engine are roughly equal
- *   B  ~4x  — cache starts benefiting after the first "warm" query
- *   C  ~9x  — speedup grows linearly with the number of re-queries
- *   D  ~8x  — multi-criteria cache remembered across criteria changes
- * ─────────────────────────────────────────────────────────────────────────────
- *
- * Field independence: independent cycle lengths (5/4/3/7) give distinct distributions
- *   status   cycle-5  — 20k  items per value
- *   category cycle-4  — 25k  items per value
- *   region   cycle-3  — 33.3k items per value
- *   active   cycle-7  — 85.7k true / 14.3k false  (i % 7 !== 0)
- *
- * Metrics    : min_ms · p50_ms (median) · max_ms  across 5 measurement runs
- * Warm-up    : 3 un-timed runs per scenario to saturate V8 JIT
- * Thresholds : p50 <= 150 ms · memory <= 25 MB
- *
- * Run with:  npx tsx src/filter/filter.bench.ts
- * For GC isolation:  node --expose-gc -e "require('tsx').register()" src/filter/filter.bench.ts
- */
-
 /// <reference types="node" />
 
 import { FilterEngine } from "../src/filter/filter";
 import type { FilterCriterion } from "../src/types";
-import { CLR, MEASURE_RUNS, N, printBenchHeader, WARMUP_RUNS } from "./utils";
+import {
+  heapMB,
+  LatencyTableRow,
+  MEASURE_RUNS,
+  N,
+  percentile,
+  printBenchHeader,
+  printComparisonTable,
+  printLatencyTable,
+  speedupStr,
+  TableRow,
+  WARMUP_RUNS,
+} from "./utils";
 
 interface Item {
   id: number;
@@ -74,35 +39,12 @@ interface ScenarioResult {
   result_count: number;
   min_ms: number;
   p50_ms: number;
+  p95_ms: number;
+  p99_ms: number;
   max_ms: number;
   memory_mb: number;
   status: "PASS" | "FAIL";
   failed_metrics: string[];
-}
-
-interface ComparisonRow {
-  group: string;
-  engine_p50_ms: number;
-  native_p50_ms: number;
-  speedup: string;
-  note: string;
-}
-
-interface BenchReport {
-  dataset_size: number;
-  warmup_runs: number;
-  measure_runs: number;
-  results: ScenarioResult[];
-  comparison_summary: ComparisonRow[];
-  failed_scenarios: string[];
-  overall_status: "PASS" | "FAIL";
-}
-
-interface TableRow {
-  label: string;
-  engineMs: number;
-  nativeMs: number;
-  speedup: string;
 }
 
 function generateDataset(): Item[] {
@@ -118,10 +60,6 @@ function generateDataset(): Item[] {
     };
   }
   return data;
-}
-
-function heapMB(): number {
-  return process.memoryUsage().heapUsed / 1_048_576;
 }
 
 function runWithSetup<T>(
@@ -155,7 +93,9 @@ function runWithSetup<T>(
   times.sort((a, b) => a - b);
 
   const min_ms = round(times[0]);
-  const p50_ms = round(times[Math.floor(MEASURE_RUNS / 2)]);
+  const p50_ms = round(percentile(times, 50));
+  const p95_ms = round(percentile(times, 95));
+  const p99_ms = round(percentile(times, 99));
   const max_ms = round(times[MEASURE_RUNS - 1]);
 
   const failed: string[] = [];
@@ -167,6 +107,8 @@ function runWithSetup<T>(
     result_count,
     min_ms,
     p50_ms,
+    p95_ms,
+    p99_ms,
     max_ms,
     memory_mb,
     status: failed.length === 0 ? "PASS" : "FAIL",
@@ -178,59 +120,10 @@ function run<T>(scenario: string, fn: () => T[]): ScenarioResult {
   return runWithSetup(scenario, () => {}, fn);
 }
 
-function speedupStr(nativeP50: number, engineP50: number): string {
-  if (engineP50 <= 0) return "∞x (cache hit)";
-  const ratio = nativeP50 / engineP50;
-  return ratio >= 1
-    ? `${ratio.toFixed(1)}x faster`
-    : `${(1 / ratio).toFixed(1)}x slower`;
-}
-
-function printComparisonTable(title: string, rows: TableRow[]): void {
-  const pad = (s: string, n: number) => s.padEnd(n);
-  const trunc = (s: string, n: number) =>
-    s.length > n ? s.slice(0, n - 1) + "…" : s;
-
-  const colLabel = Math.min(
-    48,
-    Math.max(44, ...rows.map((r) => r.label.length + 2)),
-  );
-  const colMs = 12;
-  const colSpeedup = 18;
-  const total = colLabel + colMs * 2 + colSpeedup + 4;
-
-  const bar = "═".repeat(total);
-  const sep = "─".repeat(total);
-  const h = (s: string) => `${CLR.bold}${CLR.cyan}${s}${CLR.reset}`;
-
-  console.log(`${h(bar)}`);
-  console.log(h(`  ${title}`));
-  console.log(h(bar));
-  console.log(
-    `${CLR.bold}  ${pad("Group / Scenario", colLabel)}${pad("Engine p50", colMs)}${pad("Native p50", colMs)}Speedup${CLR.reset}`,
-  );
-  console.log(sep);
-
-  for (const row of rows) {
-    const faster = row.engineMs <= row.nativeMs;
-    const eColor = faster ? CLR.green : CLR.red;
-    const nColor = faster ? CLR.dim : CLR.green;
-    const sColor = faster ? CLR.green : CLR.red;
-    const lbl = trunc(row.label, colLabel);
-
-    console.log(
-      `  ${pad(lbl, colLabel)}` +
-        `${eColor}${pad(row.engineMs + " ms", colMs)}${CLR.reset}` +
-        `${nColor}${pad(row.nativeMs + " ms", colMs)}${CLR.reset}` +
-        `${sColor}${row.speedup}${CLR.reset}`,
-    );
-  }
-
-  console.log(h(bar));
-}
-
 async function main(): Promise<void> {
-  printBenchHeader("filter-bench");
+  printBenchHeader("filter-bench", {
+    metricsLabel: "p50 / p95 / p99 latency across all iterations (lower is better)",
+  });
   const dataset = generateDataset();
 
   const engine = new FilterEngine<Item>({
@@ -328,65 +221,55 @@ async function main(): Promise<void> {
 
   const results = [a1, a2, b1, b2, c1, c2, d1, d2];
 
-  const comparison_summary: ComparisonRow[] = [
+  const comparisonRows: TableRow[] = [
     {
-      group: "A — single-call overhead context",
-      engine_p50_ms: a2.p50_ms,
-      native_p50_ms: a1.p50_ms,
+      label: "A — single-call overhead",
+      engineMs: a2.p50_ms,
+      nativeMs: a1.p50_ms,
       speedup: speedupStr(a1.p50_ms, a2.p50_ms),
-      note: "Per-call cost is similar; engine index overhead disclosed honestly",
     },
     {
-      group: "B — 5 repeated queries",
-      engine_p50_ms: b2.p50_ms,
-      native_p50_ms: b1.p50_ms,
+      label: "B — 5 repeated queries",
+      engineMs: b2.p50_ms,
+      nativeMs: b1.p50_ms,
       speedup: speedupStr(b1.p50_ms, b2.p50_ms),
-      note: "Engine wins: 1 compute + 4 O(1) cache hits vs 5 full scans",
     },
     {
-      group: "C — 20 repeated queries",
-      engine_p50_ms: c2.p50_ms,
-      native_p50_ms: c1.p50_ms,
+      label: "C — 20 repeated queries",
+      engineMs: c2.p50_ms,
+      nativeMs: c1.p50_ms,
       speedup: speedupStr(c1.p50_ms, c2.p50_ms),
-      note: "Engine wins: speedup grows linearly with repeat-query count",
     },
     {
-      group: "D — 30-query session (2 criteria, 3 phases)",
-      engine_p50_ms: d2.p50_ms,
-      native_p50_ms: d1.p50_ms,
+      label: "D — 30-query session (2 criteria, 3 phases)",
+      engineMs: d2.p50_ms,
+      nativeMs: d1.p50_ms,
       speedup: speedupStr(d1.p50_ms, d2.p50_ms),
-      note: "Engine wins: per-criteria cache map survives criteria changes",
     },
   ];
 
-  const failedScenarios = results
-    .filter((r) => r.status === "FAIL")
-    .map((r) => r.scenario);
-
-  const report: BenchReport = {
-    dataset_size: N,
-    warmup_runs: WARMUP_RUNS,
-    measure_runs: MEASURE_RUNS,
-    results,
-    comparison_summary,
-    failed_scenarios: failedScenarios,
-    overall_status: failedScenarios.length === 0 ? "PASS" : "FAIL",
-  };
-
   printComparisonTable(
     "FilterEngine vs Native — Performance Comparison (100k items)",
-    comparison_summary.map((r) => ({
-      label: r.group,
-      engineMs: r.engine_p50_ms,
-      nativeMs: r.native_p50_ms,
-      speedup: r.speedup,
+    comparisonRows,
+  );
+
+  printLatencyTable(
+    "Per-scenario tail latency",
+    results.map((r): LatencyTableRow => ({
+      scenario: r.scenario,
+      p50_ms: r.p50_ms,
+      p95_ms: r.p95_ms,
+      p99_ms: r.p99_ms,
+      max_ms: r.max_ms,
     })),
   );
 
-  if (report.overall_status === "PASS") {
+  const failed = results.filter((r) => r.status === "FAIL").map((r) => r.scenario);
+  if (failed.length === 0) {
     console.log("\n✅  All FilterEngine scenarios passed all thresholds.");
   } else {
-    console.log(`\n❌  Failed: ${failedScenarios.join(" | ")}`);
+    console.log(`\n❌  Failed: ${failed.join(" | ")}`);
+    process.exitCode = 1;
   }
 }
 
