@@ -51,6 +51,7 @@ const createSearchRuntime = <T extends CollectionItem>(): SearchRuntime<T> => ({
     ngramIndexes: new Map<string, Map<string, Set<number>>>(),
     normalizedFieldValues: new Map<string, string[]>(),
   },
+  deferredMutationVersion: null,
   filterByPreviousResult: false,
   previousResultIndices: null,
   previousResultLookup: null,
@@ -62,6 +63,10 @@ const createSearchRuntime = <T extends CollectionItem>(): SearchRuntime<T> => ({
     fallbackFields: new Map<string, number>(),
   },
 });
+
+const MERGE_SHARED_SCOPE = "__merge__";
+const DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY =
+  "deferSearchMutationIndexUpdates";
 
 export class TextSearchEngine<T extends CollectionItem> {
   private readonly state: State<T>;
@@ -143,6 +148,42 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   private get indexedFields(): Set<keyof T & string> {
     return this.runtime.indexedFields;
+  }
+
+  private shouldDeferMutationIndexUpdates(): boolean {
+    return (
+      this.state.getScopedValue<boolean>(
+        MERGE_SHARED_SCOPE,
+        DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY,
+      ) === true
+    );
+  }
+
+  private markDeferredMutationState(): void {
+    this.runtime.deferredMutationVersion = this.state.getMutationVersion();
+    this.flatIndexes.clear();
+    this.nestedCollection.clearIndexes();
+    this.cachedIndexedFieldsList = null;
+    this.cachedLinearSearchFieldsList = null;
+    this.normalizedValuesCache.clear();
+    this.combinedNormalizedValuesCache = null;
+    this.clearPreviousSearchState();
+  }
+
+  private ensureConfiguredIndexesReady(): void {
+    if (this.runtime.deferredMutationVersion === null) {
+      return;
+    }
+
+    this.runtime.deferredMutationVersion = null;
+
+    if (
+      this.dataset.length > 0 &&
+      (this.indexedFields.size > 0 ||
+        this.nestedCollection.hasRegisteredFields())
+    ) {
+      this.rebuildConfiguredIndexes();
+    }
   }
 
   private rebuildConfiguredIndexes(): void {
@@ -473,6 +514,10 @@ export class TextSearchEngine<T extends CollectionItem> {
       return this.sliceItems(this.dataset, window);
     }
 
+    if (lowerQuery.length >= MINIMUM_INDEXED_QUERY_LENGTH) {
+      this.ensureConfiguredIndexesReady();
+    }
+
     const shouldTrack = this.shouldTrackPreviousResult(window);
     const { indices: sourceIndices, lookup: sourceLookup } =
       this.getSearchSource(lowerQuery);
@@ -731,6 +776,10 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     if (!lowerQuery || lowerQuery.length < this.minQueryLength) {
       return this.sliceItems(this.dataset, window);
+    }
+
+    if (lowerQuery.length >= MINIMUM_INDEXED_QUERY_LENGTH) {
+      this.ensureConfiguredIndexesReady();
     }
 
     const shouldTrack = this.shouldTrackPreviousResult(window);
@@ -1534,6 +1583,14 @@ export class TextSearchEngine<T extends CollectionItem> {
   }
 
   private handleStateMutation(mutation: StateMutation<T>): void {
+    if (
+      this.shouldDeferMutationIndexUpdates() &&
+      (mutation.type === "add" || mutation.type === "update")
+    ) {
+      this.markDeferredMutationState();
+      return;
+    }
+
     switch (mutation.type) {
       case "add":
         this.applyAddedItems(mutation.items, mutation.startIndex);
@@ -1560,11 +1617,13 @@ export class TextSearchEngine<T extends CollectionItem> {
         this.clearPreviousSearchState();
         return;
       case "data":
+        this.runtime.deferredMutationVersion = null;
         this.rebuildConfiguredIndexes();
         this.combinedNormalizedValuesCache = null;
         this.clearPreviousSearchState();
         return;
       case "clearData":
+        this.runtime.deferredMutationVersion = null;
         this.flatIndexes.clear();
         this.nestedCollection.clearIndexes();
         this.cachedLinearSearchFieldsList = null;
@@ -1673,6 +1732,11 @@ export class TextSearchEngine<T extends CollectionItem> {
   ): void {
     const index = this.flatIndexes.get(field as string);
     if (!index) return;
+
+    if (previousItem[field] === nextItem[field]) {
+      index.version = this.state.getMutationVersion();
+      return;
+    }
 
     const { ngramMap, normalizedValues } = index;
     const previousLowerValue = this.getNormalizedFieldValue(

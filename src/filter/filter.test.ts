@@ -288,6 +288,26 @@ describe("FilterEngine", () => {
     ).toEqual([2]);
   });
 
+  it("update() refreshes unchanged flat index buckets with the new item reference", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      fields: ["city"],
+    });
+
+    engine.update({
+      field: "id",
+      data: { id: 2, name: "Bob", city: "Lviv", age: 31, active: true },
+    });
+
+    const lvivUsers = engine.filter([{ field: "city", values: ["Lviv"] }]);
+    const updatedUser = lvivUsers.find((user) => user.id === 2);
+
+    expect(updatedUser?.active).toBe(true);
+    expect(updatedUser?.age).toBe(31);
+    expect(updatedUser).toBe(dataset[1]);
+  });
+
   it("internal raw execution returns plain arrays for merge integration", () => {
     const engine = new FilterEngine<User>({
       data: users,
@@ -737,6 +757,37 @@ describe("FilterEngine — nestedFields", () => {
         .filter([{ field: "orders.status", values: ["shipped"] }])
         .map((user) => user.id),
     ).toEqual(["10"]);
+  });
+
+  it("update() refreshes unchanged nested index buckets with the new item reference", () => {
+    const dataset = usersWithOrders.map((user) => ({
+      ...user,
+      orders: user.orders.map((order) => ({ ...order })),
+    }));
+    const engine = new FilterEngine<UserWithOrders>({
+      data: dataset,
+      nestedFields: ["orders.status"],
+    });
+
+    engine.update({
+      field: "id",
+      data: {
+        id: "2",
+        name: "Tom",
+        city: "Seattle",
+        age: 41,
+        orders: [{ id: "3", status: "pending" }],
+      },
+    });
+
+    const pendingUsers = engine.filter([
+      { field: "orders.status", values: ["pending"] },
+    ]);
+    const updatedUser = pendingUsers.find((user) => user.id === "2");
+
+    expect(updatedUser?.city).toBe("Seattle");
+    expect(updatedUser?.age).toBe(41);
+    expect(updatedUser).toBe(dataset[1]);
   });
 
   describe("filterByPreviousResult with nested criteria", () => {

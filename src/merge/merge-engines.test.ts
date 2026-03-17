@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { FilterEngine } from "../filter/filter";
+import type { FilterEngineOptions } from "../filter/types";
 import { TextSearchEngine } from "../search/text-search";
 import type { TextSearchEngineOptions } from "../search/types";
 import { SortEngine } from "../sort/sorter";
@@ -19,6 +20,56 @@ class CountingSearchEngine<
   constructor(options: TextSearchEngineOptions<T> = {}) {
     super(options);
     CountingSearchEngine.constructionCount += 1;
+  }
+}
+
+class CountingStoredSearchEngine<
+  T extends { id: number; name: string; city: string },
+> extends TextSearchEngine<T> {
+  static storedSearchCalls = 0;
+
+  override search(
+    query: string,
+    options?: import("../search/types").SearchQueryOptions,
+  ): T[];
+  override search(
+    field: (keyof T & string) | (string & {}),
+    query: string,
+    options?: import("../search/types").SearchQueryOptions,
+  ): T[];
+  override search(
+    fieldOrQuery: string,
+    queryOrOptions?: string | import("../search/types").SearchQueryOptions,
+    maybeOptions?: import("../search/types").SearchQueryOptions,
+  ): T[] {
+    CountingStoredSearchEngine.storedSearchCalls += 1;
+    return super.search(fieldOrQuery, queryOrOptions as never, maybeOptions);
+  }
+}
+
+class CountingStoredFilterEngine<
+  T extends { id: number; city: string; age: number },
+> extends FilterEngine<T> {
+  static storedFilterCalls = 0;
+
+  constructor(options: FilterEngineOptions<T> = {}) {
+    super(options);
+  }
+
+  override rawFilter(criteria: import("../types").FilterCriterion<T>[]): T[];
+  override rawFilter(
+    data: T[],
+    criteria: import("../types").FilterCriterion<T>[],
+  ): T[];
+  override rawFilter(
+    dataOrCriteria: T[] | import("../types").FilterCriterion<T>[],
+    criteria?: import("../types").FilterCriterion<T>[],
+  ): T[] {
+    if (criteria === undefined) {
+      CountingStoredFilterEngine.storedFilterCalls += 1;
+    }
+
+    return super.rawFilter(dataOrCriteria as never, criteria as never);
   }
 }
 
@@ -583,6 +634,62 @@ describe("MergeEngines", () => {
       merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
     ).toEqual([2, 1, 4, 3, 5]);
     expect(CountingSortEngine.storedSortCalls).toBe(1);
+  });
+
+  it("reuses patched stored-dataset search cache after add() and update()", () => {
+    CountingStoredSearchEngine.storedSearchCalls = 0;
+
+    const merge = new MergeEngines<User>({
+      imports: [CountingStoredSearchEngine],
+      data: users.map((user) => ({ ...user })),
+      search: { fields: ["name"], minQueryLength: 1 },
+    });
+
+    expect(merge.search("name", "tim")).toEqual([]);
+    expect(CountingStoredSearchEngine.storedSearchCalls).toBe(1);
+
+    merge.add([{ id: 10, name: "Tim", city: "Boston", age: 20 }]);
+
+    expect(merge.search("name", "tim").map((user) => user.id)).toEqual([10]);
+    expect(CountingStoredSearchEngine.storedSearchCalls).toBe(1);
+
+    merge.update({
+      field: "id",
+      data: { id: 2, name: "Timothy", city: "Lviv", age: 30 },
+    });
+
+    expect(merge.search("name", "tim").map((user) => user.id)).toEqual([2, 10]);
+    expect(CountingStoredSearchEngine.storedSearchCalls).toBe(1);
+  });
+
+  it("reuses patched stored-dataset filter cache after add() and update()", () => {
+    CountingStoredFilterEngine.storedFilterCalls = 0;
+
+    const merge = new MergeEngines<User>({
+      imports: [CountingStoredFilterEngine],
+      data: users.map((user) => ({ ...user })),
+      filter: { fields: ["city", "age"] },
+    });
+    const criteria = [
+      { field: "city", values: ["Paris"] },
+      { field: "age", values: [19] },
+    ] satisfies Array<import("../types").FilterCriterion<User>>;
+
+    expect(merge.filter(criteria)).toEqual([]);
+    expect(CountingStoredFilterEngine.storedFilterCalls).toBe(1);
+
+    merge.add([{ id: 10, name: "Tim", city: "Paris", age: 19 }]);
+
+    expect(merge.filter(criteria).map((user) => user.id)).toEqual([10]);
+    expect(CountingStoredFilterEngine.storedFilterCalls).toBe(1);
+
+    merge.update({
+      field: "id",
+      data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+    });
+
+    expect(merge.filter(criteria).map((user) => user.id)).toEqual([2, 10]);
+    expect(CountingStoredFilterEngine.storedFilterCalls).toBe(1);
   });
 
   it("getOriginData() returns shared origin dataset", () => {

@@ -118,6 +118,12 @@ export class Indexer<T extends CollectionItem> {
     }
   }
 
+  updateItem(previousItem: T, nextItem: T): void {
+    for (const field of this.storage.indexes.keys()) {
+      this.updateItemInField(field as keyof T & string, previousItem, nextItem);
+    }
+  }
+
   removeItem(item: T): void {
     for (const field of this.storage.indexes.keys()) {
       this.removeItemFromField(field as keyof T & string, item);
@@ -170,6 +176,53 @@ export class Indexer<T extends CollectionItem> {
       indexMap.delete(fieldValue);
       fieldItemPositions.delete(fieldValue);
     }
+  }
+
+  private updateItemInField(
+    field: keyof T & string,
+    previousItem: T,
+    nextItem: T,
+  ): void {
+    const previousFieldValue = previousItem[field];
+    const nextFieldValue = nextItem[field];
+
+    if (previousFieldValue === nextFieldValue) {
+      if (previousFieldValue === undefined || previousFieldValue === null) {
+        return;
+      }
+
+      this.replaceItemReferenceInField(
+        field,
+        previousFieldValue,
+        previousItem,
+        nextItem,
+      );
+      return;
+    }
+
+    this.removeItemFromField(field, previousItem);
+    this.addItemToField(field, nextItem);
+  }
+
+  private replaceItemReferenceInField(
+    field: keyof T & string,
+    fieldValue: T[keyof T & string],
+    previousItem: T,
+    nextItem: T,
+  ): void {
+    const indexMap = this.storage.indexes.get(field as string);
+    const fieldItemPositions = this.storage.itemPositions.get(field as string);
+    const bucket = indexMap?.get(fieldValue);
+    const bucketItemPositions = fieldItemPositions?.get(fieldValue);
+    const itemIndex = bucketItemPositions?.get(previousItem);
+
+    if (!bucket || !bucketItemPositions || itemIndex === undefined) {
+      return;
+    }
+
+    bucket[itemIndex] = nextItem;
+    bucketItemPositions.delete(previousItem);
+    bucketItemPositions.set(nextItem, itemIndex);
   }
 
   private addItemToField(field: keyof T & string, item: T): void {

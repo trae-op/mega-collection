@@ -69,6 +69,7 @@ export type SearchRuntime<T extends CollectionItem> = {
   indexedFields: Set<keyof T & string>;
   flatIndexes: Map<string, SearchIndex>;
   nestedStorage: SearchNestedCollectionStorage;
+  deferredMutationVersion: number | null;
   filterByPreviousResult: boolean;
   previousResultIndices: number[] | null;
   previousResultLookup: Uint8Array | null;

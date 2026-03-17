@@ -1,6 +1,7 @@
 import type {
   CollectionItem,
   FilterCriterion,
+  StateMutation,
   SortDescriptor,
   UpdateDescriptor,
 } from "../types";
@@ -176,6 +177,18 @@ export type MergeSearchCache<T extends CollectionItem> = {
   originData: T[];
   result: T[];
   version: number;
+  field: string | null;
+  lowerQuery: string;
+  pendingMutations: StateMutation<T>[];
+};
+
+export type MergeFilterCache<T extends CollectionItem> = {
+  key: string;
+  sourceData: T[];
+  result: T[];
+  version: number;
+  criteria: FilterCriterion<T>[];
+  pendingMutations: StateMutation<T>[];
 };
 
 export type MergeSortCache<T extends CollectionItem> = {
@@ -184,4 +197,5 @@ export type MergeSortCache<T extends CollectionItem> = {
   result: T[];
   version: number;
   descriptors: SortDescriptor<T>[];
+  pendingMutations: StateMutation<T>[];
 };

@@ -91,6 +91,7 @@ export type FilterRuntime<T extends CollectionItem> = {
   indexedFields: Set<keyof T & string>;
   indexerStorage: IndexerStorage<T>;
   nestedStorage: FilterNestedCollectionStorage<T>;
+  deferredMutationVersion: number | null;
   mutableExclude: MutableExcludeRuntime;
   sequentialCache: FilterSequentialCache<T>;
 };

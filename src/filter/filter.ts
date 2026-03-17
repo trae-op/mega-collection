@@ -39,6 +39,7 @@ const createFilterRuntime = <T extends CollectionItem>(): FilterRuntime<T> => ({
     indexes: new Map<string, Map<any, T[]>>(),
     itemPositions: new Map<string, Map<any, WeakMap<T, number>>>(),
   },
+  deferredMutationVersion: null,
   mutableExclude: {
     datasetPositions: new Map<any, number>(),
     valueCounts: new Map<any, number>(),
@@ -54,6 +55,10 @@ const createFilterRuntime = <T extends CollectionItem>(): FilterRuntime<T> => ({
     previousResultSet: null,
   },
 });
+
+const MERGE_SHARED_SCOPE = "__merge__";
+const DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY =
+  "deferFilterMutationIndexUpdates";
 
 export class FilterEngine<T extends CollectionItem> {
   private readonly indexer: Indexer<T>;
@@ -145,6 +150,40 @@ export class FilterEngine<T extends CollectionItem> {
 
   private get sequentialCache(): FilterSequentialCache<T> {
     return this.runtime.sequentialCache;
+  }
+
+  private shouldDeferMutationIndexUpdates(): boolean {
+    return (
+      this.state.getScopedValue<boolean>(
+        MERGE_SHARED_SCOPE,
+        DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY,
+      ) === true
+    );
+  }
+
+  private markDeferredMutationState(): void {
+    this.runtime.deferredMutationVersion = this.state.getMutationVersion();
+    this.indexer.clear();
+    this.nestedCollection.clearIndexes();
+    this.clearMutableExcludeState();
+    this.resetFilterState();
+  }
+
+  private ensureRuntimeReady(): void {
+    if (this.runtime.deferredMutationVersion === null) {
+      return;
+    }
+
+    this.runtime.deferredMutationVersion = null;
+    this.rebuildMutableExcludeState();
+
+    if (
+      this.dataset.length > 0 &&
+      (this.indexedFields.size > 0 ||
+        this.nestedCollection.hasRegisteredFields())
+    ) {
+      this.rebuildConfiguredIndexes();
+    }
   }
 
   private rebuildConfiguredIndexes(): void {
@@ -261,6 +300,8 @@ export class FilterEngine<T extends CollectionItem> {
     dataOrCriteria: T[] | FilterCriterion<T>[],
     criteria?: FilterCriterion<T>[],
   ): T[] {
+    this.ensureRuntimeReady();
+
     const isUsingStoredData = criteria === undefined;
 
     if (isUsingStoredData && !this.dataset.length) {
@@ -488,6 +529,14 @@ export class FilterEngine<T extends CollectionItem> {
   }
 
   private handleStateMutation(mutation: StateMutation<T>): void {
+    if (
+      this.shouldDeferMutationIndexUpdates() &&
+      (mutation.type === "add" || mutation.type === "update")
+    ) {
+      this.markDeferredMutationState();
+      return;
+    }
+
     switch (mutation.type) {
       case "add":
         this.applyAddedItems(mutation.items, mutation.startIndex);
@@ -500,11 +549,13 @@ export class FilterEngine<T extends CollectionItem> {
         );
         return;
       case "data":
+        this.runtime.deferredMutationVersion = null;
         this.rebuildMutableExcludeState();
         this.resetFilterState();
         this.rebuildConfiguredIndexes();
         return;
       case "clearData":
+        this.runtime.deferredMutationVersion = null;
         this.clearMutableExcludeState();
         this.indexer.clear();
         this.nestedCollection.clearIndexes();
@@ -598,8 +649,7 @@ export class FilterEngine<T extends CollectionItem> {
   private applyUpdatedItem(index: number, previousItem: T, nextItem: T): void {
     this.updateMutableExcludeStateForUpdatedItem(index, previousItem, nextItem);
     this.resetFilterState();
-    this.indexer.removeItem(previousItem);
-    this.indexer.addItem(nextItem);
+    this.indexer.updateItem(previousItem, nextItem);
     this.nestedCollection.updateItem(nextItem, previousItem);
   }
 

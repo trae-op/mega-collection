@@ -65,8 +65,9 @@ export class FilterNestedCollection<T extends CollectionItem> {
   }
 
   updateItem(nextItem: T, previousItem: T): void {
-    this.removeItem(previousItem);
-    this.addItems([nextItem]);
+    for (const fieldPath of this.storage.indexes.keys()) {
+      this.updateItemInIndex(fieldPath, nextItem, previousItem);
+    }
   }
 
   filter(sourceData: T[], criteria: FilterCriterion<T>[], dataset: T[]): T[] {
@@ -296,6 +297,82 @@ export class FilterNestedCollection<T extends CollectionItem> {
       nextBucketItemPositions.set(item, 0);
       fieldItemPositions.set(nestedValue, nextBucketItemPositions);
     }
+  }
+
+  private updateItemInIndex(
+    fieldPath: string,
+    nextItem: T,
+    previousItem: T,
+  ): void {
+    const descriptor = this.fieldDescriptors.get(fieldPath);
+    const indexMap = this.storage.indexes.get(fieldPath);
+    const fieldItemPositions = this.storage.itemPositions.get(fieldPath);
+
+    if (!descriptor || !indexMap || !fieldItemPositions) {
+      return;
+    }
+
+    const previousValues = this.collectUniqueValues(previousItem, descriptor);
+    const nextValues = this.collectUniqueValues(nextItem, descriptor);
+
+    if (this.areValueSetsEqual(previousValues, nextValues)) {
+      for (const value of previousValues) {
+        const bucket = indexMap.get(value);
+        const bucketItemPositions = fieldItemPositions.get(value);
+        const itemIndex = bucketItemPositions?.get(previousItem);
+
+        if (!bucket || !bucketItemPositions || itemIndex === undefined) {
+          continue;
+        }
+
+        bucket[itemIndex] = nextItem;
+        bucketItemPositions.delete(previousItem);
+        bucketItemPositions.set(nextItem, itemIndex);
+      }
+
+      return;
+    }
+
+    this.removeItemFromIndex(fieldPath, previousItem);
+    this.addItemToIndex(fieldPath, nextItem);
+  }
+
+  private collectUniqueValues(
+    item: T,
+    descriptor: NestedFieldDescriptor,
+  ): Set<any> {
+    const { collectionKey, nestedKey } = descriptor;
+    const collection = item[collectionKey];
+    const values = new Set<any>();
+
+    if (!Array.isArray(collection) || collection.length === 0) {
+      return values;
+    }
+
+    for (let nestedIndex = 0; nestedIndex < collection.length; nestedIndex++) {
+      const nestedValue = collection[nestedIndex][nestedKey];
+      if (nestedValue === undefined || nestedValue === null) {
+        continue;
+      }
+
+      values.add(nestedValue);
+    }
+
+    return values;
+  }
+
+  private areValueSetsEqual(left: Set<any>, right: Set<any>): boolean {
+    if (left.size !== right.size) {
+      return false;
+    }
+
+    for (const value of left) {
+      if (!right.has(value)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private filterByIndexes(

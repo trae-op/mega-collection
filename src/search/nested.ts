@@ -430,11 +430,15 @@ export class SearchNestedCollection<T extends CollectionItem> {
       previousItem,
     );
 
+    const nextNormalizedValue = this.getNormalizedItemValue(fieldPath, item);
+
+    if (previousNormalizedValue === nextNormalizedValue) {
+      return;
+    }
+
     if (previousNormalizedValue) {
       removeLowerValue(ngramMap, previousNormalizedValue, itemIndex);
     }
-
-    const nextNormalizedValue = this.getNormalizedItemValue(fieldPath, item);
 
     if (!nextNormalizedValue) {
       delete normalizedFieldValues[itemIndex];

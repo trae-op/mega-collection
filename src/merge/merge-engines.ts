@@ -19,6 +19,7 @@ import {
 } from "./module-adapters";
 import type {
   EngineConstructor,
+  MergeFilterCache,
   FilterModuleAdapter,
   MergeEnginesOptions,
   MergeModuleName,
@@ -31,11 +32,17 @@ import { MergeEnginesError } from "./errors";
 
 const MERGE_SHARED_SCOPE = "__merge__";
 const DEFER_SORT_MUTATION_CACHE_UPDATES_KEY = "deferSortMutationCacheUpdates";
+const DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY =
+  "deferSearchMutationIndexUpdates";
+const DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY =
+  "deferFilterMutationIndexUpdates";
 
 export class MergeEngines<T extends CollectionItem> {
   private readonly state: State<T>;
 
   private previousSearchState: MergeSearchCache<T> | null = null;
+
+  private previousFilterState: MergeFilterCache<T> | null = null;
 
   private previousSortState: MergeSortCache<T> | null = null;
 
@@ -112,6 +119,22 @@ export class MergeEngines<T extends CollectionItem> {
       this.state.setScopedValue(
         MERGE_SHARED_SCOPE,
         DEFER_SORT_MUTATION_CACHE_UPDATES_KEY,
+        true,
+      );
+    }
+
+    if (this.searchModule) {
+      this.state.setScopedValue(
+        MERGE_SHARED_SCOPE,
+        DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY,
+        true,
+      );
+    }
+
+    if (this.filterModule) {
+      this.state.setScopedValue(
+        MERGE_SHARED_SCOPE,
+        DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY,
         true,
       );
     }
@@ -208,6 +231,10 @@ export class MergeEngines<T extends CollectionItem> {
       this.previousSearchState = null;
     }
 
+    if (!module || module === "filter") {
+      this.previousFilterState = null;
+    }
+
     if (!module || module === "sort") {
       this.previousSortState = null;
     }
@@ -227,51 +254,280 @@ export class MergeEngines<T extends CollectionItem> {
     return JSON.stringify({ descriptors, inPlace: inPlace ?? false });
   }
 
-  private handleStateMutation(mutation: StateMutation<T>): void {
-    this.previousSearchState = null;
+  private createFilterCacheKey(criteria: FilterCriterion<T>[]): string {
+    return JSON.stringify(criteria);
+  }
 
+  private normalizeSearchQuery(query: string): string {
+    return query.trim().toLowerCase();
+  }
+
+  private handleStateMutation(mutation: StateMutation<T>): void {
     switch (mutation.type) {
       case "add":
-        this.previousSortState =
-          this.previousSortState === null
-            ? null
-            : this.patchSortCacheForAddedItems(
-                this.previousSortState,
-                mutation.items,
-              );
+        this.queueSearchCacheMutation(mutation);
+        this.queueFilterCacheMutation(mutation);
+        this.queueSortCacheMutation(mutation);
         return;
       case "update":
-        this.previousSortState =
-          this.previousSortState === null
-            ? null
-            : this.patchSortCacheForUpdatedItem(
-                this.previousSortState,
-                mutation.previousItem,
-                mutation.nextItem,
-              );
+        this.queueSearchCacheMutation(mutation);
+        this.queueFilterCacheMutation(mutation);
+        this.queueSortCacheMutation(mutation);
         return;
       case "remove":
-        this.previousSortState =
-          this.previousSortState === null
-            ? null
-            : this.patchSortCacheForRemovedItems(this.previousSortState, [
-                mutation.removedItem,
-              ]);
+        this.previousSearchState = null;
+        this.previousFilterState = null;
+        this.queueSortCacheMutation(mutation);
         return;
       case "removeMany":
-        this.previousSortState =
-          this.previousSortState === null
-            ? null
-            : this.patchSortCacheForRemovedItems(
-                this.previousSortState,
-                mutation.entries.map((entry) => entry.removedItem),
-              );
+        this.previousSearchState = null;
+        this.previousFilterState = null;
+        this.queueSortCacheMutation(mutation);
         return;
       case "data":
       case "clearData":
+        this.previousSearchState = null;
+        this.previousFilterState = null;
         this.previousSortState = null;
         return;
     }
+  }
+
+  private queueSearchCacheMutation(mutation: StateMutation<T>): void {
+    const previousSearchState = this.previousSearchState;
+
+    if (previousSearchState === null) {
+      return;
+    }
+
+    if (!this.canPatchStoredDatasetSearch(previousSearchState)) {
+      this.previousSearchState = null;
+      return;
+    }
+
+    this.previousSearchState = {
+      ...previousSearchState,
+      version: this.state.getMutationVersion(),
+      pendingMutations: previousSearchState.pendingMutations.concat(mutation),
+    };
+  }
+
+  private queueFilterCacheMutation(mutation: StateMutation<T>): void {
+    const previousFilterState = this.previousFilterState;
+
+    if (previousFilterState === null) {
+      return;
+    }
+
+    if (!this.canPatchStoredDatasetFilter(previousFilterState)) {
+      this.previousFilterState = null;
+      return;
+    }
+
+    this.previousFilterState = {
+      ...previousFilterState,
+      version: this.state.getMutationVersion(),
+      pendingMutations: previousFilterState.pendingMutations.concat(mutation),
+    };
+  }
+
+  private queueSortCacheMutation(mutation: StateMutation<T>): void {
+    const previousSortState = this.previousSortState;
+
+    if (previousSortState === null) {
+      return;
+    }
+
+    if (!this.canPatchStoredDatasetSort(previousSortState)) {
+      this.previousSortState = null;
+      return;
+    }
+
+    this.previousSortState = {
+      ...previousSortState,
+      version: this.state.getMutationVersion(),
+      pendingMutations: previousSortState.pendingMutations.concat(mutation),
+    };
+  }
+
+  private resolvePendingSortCache(
+    cache: MergeSortCache<T>,
+  ): MergeSortCache<T> | null {
+    if (cache.pendingMutations.length === 0) {
+      return cache;
+    }
+
+    let nextCache: MergeSortCache<T> | null = {
+      ...cache,
+      pendingMutations: [],
+    };
+
+    for (
+      let mutationIndex = 0;
+      mutationIndex < cache.pendingMutations.length;
+      mutationIndex++
+    ) {
+      nextCache = this.applySortCacheMutation(
+        nextCache,
+        cache.pendingMutations[mutationIndex],
+      );
+
+      if (nextCache === null) {
+        return null;
+      }
+    }
+
+    return nextCache;
+  }
+
+  private resolvePendingSearchCache(
+    cache: MergeSearchCache<T>,
+  ): MergeSearchCache<T> | null {
+    if (cache.pendingMutations.length === 0) {
+      return cache;
+    }
+
+    let nextCache: MergeSearchCache<T> | null = {
+      ...cache,
+      pendingMutations: [],
+    };
+
+    for (
+      let mutationIndex = 0;
+      mutationIndex < cache.pendingMutations.length;
+      mutationIndex++
+    ) {
+      nextCache = this.applySearchCacheMutation(
+        nextCache,
+        cache.pendingMutations[mutationIndex],
+      );
+
+      if (nextCache === null) {
+        return null;
+      }
+    }
+
+    return nextCache;
+  }
+
+  private resolvePendingFilterCache(
+    cache: MergeFilterCache<T>,
+  ): MergeFilterCache<T> | null {
+    if (cache.pendingMutations.length === 0) {
+      return cache;
+    }
+
+    let nextCache: MergeFilterCache<T> | null = {
+      ...cache,
+      pendingMutations: [],
+    };
+
+    for (
+      let mutationIndex = 0;
+      mutationIndex < cache.pendingMutations.length;
+      mutationIndex++
+    ) {
+      nextCache = this.applyFilterCacheMutation(
+        nextCache,
+        cache.pendingMutations[mutationIndex],
+      );
+
+      if (nextCache === null) {
+        return null;
+      }
+    }
+
+    return nextCache;
+  }
+
+  private applySortCacheMutation(
+    cache: MergeSortCache<T>,
+    mutation: StateMutation<T>,
+  ): MergeSortCache<T> | null {
+    switch (mutation.type) {
+      case "add":
+        return this.patchSortCacheForAddedItems(cache, mutation.items);
+      case "update":
+        return this.patchSortCacheForUpdatedItem(
+          cache,
+          mutation.previousItem,
+          mutation.nextItem,
+        );
+      case "remove":
+        return this.patchSortCacheForRemovedItems(cache, [
+          mutation.removedItem,
+        ]);
+      case "removeMany":
+        return this.patchSortCacheForRemovedItems(
+          cache,
+          mutation.entries.map((entry) => entry.removedItem),
+        );
+      case "data":
+      case "clearData":
+        return null;
+    }
+  }
+
+  private applySearchCacheMutation(
+    cache: MergeSearchCache<T>,
+    mutation: StateMutation<T>,
+  ): MergeSearchCache<T> | null {
+    switch (mutation.type) {
+      case "add":
+        return this.patchSearchCacheForAddedItems(cache, mutation.items);
+      case "update":
+        return this.patchSearchCacheForUpdatedItem(
+          cache,
+          mutation.previousItem,
+          mutation.nextItem,
+        );
+      case "remove":
+      case "removeMany":
+      case "data":
+      case "clearData":
+        return null;
+    }
+  }
+
+  private applyFilterCacheMutation(
+    cache: MergeFilterCache<T>,
+    mutation: StateMutation<T>,
+  ): MergeFilterCache<T> | null {
+    switch (mutation.type) {
+      case "add":
+        return this.patchFilterCacheForAddedItems(cache, mutation.items);
+      case "update":
+        return this.patchFilterCacheForUpdatedItem(
+          cache,
+          mutation.previousItem,
+          mutation.nextItem,
+        );
+      case "remove":
+      case "removeMany":
+      case "data":
+      case "clearData":
+        return null;
+    }
+  }
+
+  private canPatchStoredDatasetSearch(cache: MergeSearchCache<T>): boolean {
+    return (
+      cache.originData === this.state.getOriginData() && cache.field !== null
+    );
+  }
+
+  private canPatchStoredDatasetFilter(cache: MergeFilterCache<T>): boolean {
+    if (cache.sourceData !== this.state.getOriginData()) {
+      return false;
+    }
+
+    for (let index = 0; index < cache.criteria.length; index++) {
+      if (!this.isPatchableFilterCriterion(cache.criteria[index])) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private canPatchStoredDatasetSort(cache: MergeSortCache<T>): boolean {
@@ -329,6 +585,203 @@ export class MergeEngines<T extends CollectionItem> {
     return low;
   }
 
+  private findDatasetInsertPosition(items: T[], candidate: T): number {
+    const candidateIndex =
+      this.state.getItemIndex(candidate) ?? Number.MAX_SAFE_INTEGER;
+
+    for (let index = 0; index < items.length; index++) {
+      const itemIndex =
+        this.state.getItemIndex(items[index]) ?? Number.MAX_SAFE_INTEGER;
+
+      if (itemIndex > candidateIndex) {
+        return index;
+      }
+    }
+
+    return items.length;
+  }
+
+  private doesItemMatchSearchCache(
+    cache: MergeSearchCache<T>,
+    item: T,
+  ): boolean {
+    if (cache.field === null || cache.lowerQuery.length === 0) {
+      return false;
+    }
+
+    const value = item[cache.field as keyof T];
+    return (
+      typeof value === "string" &&
+      value.toLowerCase().includes(cache.lowerQuery)
+    );
+  }
+
+  private patchSearchCacheForAddedItems(
+    cache: MergeSearchCache<T>,
+    items: T[],
+  ): MergeSearchCache<T> | null {
+    if (!this.canPatchStoredDatasetSearch(cache)) {
+      return null;
+    }
+
+    const nextResult = cache.result.slice();
+
+    for (let index = 0; index < items.length; index++) {
+      const candidate = items[index];
+
+      if (this.doesItemMatchSearchCache(cache, candidate)) {
+        nextResult.push(candidate);
+      }
+    }
+
+    return {
+      ...cache,
+      result: nextResult,
+      pendingMutations: [],
+      version: this.state.getMutationVersion(),
+    };
+  }
+
+  private patchSearchCacheForUpdatedItem(
+    cache: MergeSearchCache<T>,
+    previousItem: T,
+    nextItem: T,
+  ): MergeSearchCache<T> | null {
+    if (!this.canPatchStoredDatasetSearch(cache)) {
+      return null;
+    }
+
+    const nextResult = cache.result.slice();
+    const previousPosition = nextResult.indexOf(previousItem);
+    const nextMatches = this.doesItemMatchSearchCache(cache, nextItem);
+
+    if (previousPosition !== -1) {
+      if (nextMatches) {
+        nextResult[previousPosition] = nextItem;
+      } else {
+        nextResult.splice(previousPosition, 1);
+      }
+    } else if (nextMatches) {
+      const insertPosition = this.findDatasetInsertPosition(
+        nextResult,
+        nextItem,
+      );
+      nextResult.splice(insertPosition, 0, nextItem);
+    }
+
+    return {
+      ...cache,
+      result: nextResult,
+      pendingMutations: [],
+      version: this.state.getMutationVersion(),
+    };
+  }
+
+  private isPatchableFilterCriterion(criterion: FilterCriterion<T>): boolean {
+    return !String(criterion.field).includes(".");
+  }
+
+  private getFilterCriterionValue(item: T, field: string): unknown {
+    return item[field as keyof T];
+  }
+
+  private doesItemMatchFilterCache(
+    cache: MergeFilterCache<T>,
+    item: T,
+  ): boolean {
+    for (let index = 0; index < cache.criteria.length; index++) {
+      const criterion = cache.criteria[index];
+
+      if (!this.isPatchableFilterCriterion(criterion)) {
+        return false;
+      }
+
+      const fieldValue = this.getFilterCriterionValue(
+        item,
+        String(criterion.field),
+      );
+
+      if (
+        criterion.values !== undefined &&
+        criterion.values.length > 0 &&
+        !criterion.values.includes(fieldValue)
+      ) {
+        return false;
+      }
+
+      if (
+        criterion.exclude !== undefined &&
+        criterion.exclude.length > 0 &&
+        criterion.exclude.includes(fieldValue)
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private patchFilterCacheForAddedItems(
+    cache: MergeFilterCache<T>,
+    items: T[],
+  ): MergeFilterCache<T> | null {
+    if (!this.canPatchStoredDatasetFilter(cache)) {
+      return null;
+    }
+
+    const nextResult = cache.result.slice();
+
+    for (let index = 0; index < items.length; index++) {
+      const candidate = items[index];
+
+      if (this.doesItemMatchFilterCache(cache, candidate)) {
+        nextResult.push(candidate);
+      }
+    }
+
+    return {
+      ...cache,
+      result: nextResult,
+      pendingMutations: [],
+      version: this.state.getMutationVersion(),
+    };
+  }
+
+  private patchFilterCacheForUpdatedItem(
+    cache: MergeFilterCache<T>,
+    previousItem: T,
+    nextItem: T,
+  ): MergeFilterCache<T> | null {
+    if (!this.canPatchStoredDatasetFilter(cache)) {
+      return null;
+    }
+
+    const nextResult = cache.result.slice();
+    const previousPosition = nextResult.indexOf(previousItem);
+    const nextMatches = this.doesItemMatchFilterCache(cache, nextItem);
+
+    if (previousPosition !== -1) {
+      if (nextMatches) {
+        nextResult[previousPosition] = nextItem;
+      } else {
+        nextResult.splice(previousPosition, 1);
+      }
+    } else if (nextMatches) {
+      const insertPosition = this.findDatasetInsertPosition(
+        nextResult,
+        nextItem,
+      );
+      nextResult.splice(insertPosition, 0, nextItem);
+    }
+
+    return {
+      ...cache,
+      result: nextResult,
+      pendingMutations: [],
+      version: this.state.getMutationVersion(),
+    };
+  }
+
   private patchSortCacheForAddedItems(
     cache: MergeSortCache<T>,
     items: T[],
@@ -352,6 +805,7 @@ export class MergeEngines<T extends CollectionItem> {
     return {
       ...cache,
       result: nextResult,
+      pendingMutations: [],
       version: this.state.getMutationVersion(),
     };
   }
@@ -372,6 +826,7 @@ export class MergeEngines<T extends CollectionItem> {
       if (cache.result.indexOf(nextItem) !== -1) {
         return {
           ...cache,
+          pendingMutations: [],
           version: this.state.getMutationVersion(),
         };
       }
@@ -389,6 +844,7 @@ export class MergeEngines<T extends CollectionItem> {
       return {
         ...cache,
         result: nextResult,
+        pendingMutations: [],
         version: this.state.getMutationVersion(),
       };
     }
@@ -405,6 +861,7 @@ export class MergeEngines<T extends CollectionItem> {
     return {
       ...cache,
       result: nextResult,
+      pendingMutations: [],
       version: this.state.getMutationVersion(),
     };
   }
@@ -425,6 +882,7 @@ export class MergeEngines<T extends CollectionItem> {
         cache.result,
         (item: T) => !removedItemsSet.has(item),
       ) as T[],
+      pendingMutations: [],
       version: this.state.getMutationVersion(),
     };
   }
@@ -452,27 +910,36 @@ export class MergeEngines<T extends CollectionItem> {
       previousSearchState.key === cacheKey &&
       previousSearchState.version === mutationVersion
     ) {
-      return this.withChain(
-        this.trackPreviousResult(previousSearchState.result, originData),
-      );
+      const resolvedSearchState =
+        this.resolvePendingSearchCache(previousSearchState);
+
+      if (resolvedSearchState !== null) {
+        this.previousSearchState = resolvedSearchState;
+
+        return this.withChain(
+          this.trackPreviousResult(resolvedSearchState.result, originData),
+        );
+      }
+
+      this.previousSearchState = null;
     }
 
-    let result: T[];
-
-    if (maybeQuery === undefined) {
-      result = this.searchModule.executeSearch(fieldOrQuery);
-    } else {
-      result = this.searchModule.executeSearch(
-        fieldOrQuery as (keyof T & string) | (string & {}),
-        maybeQuery,
-      );
-    }
+    const result =
+      maybeQuery === undefined
+        ? this.searchModule.executeSearch(fieldOrQuery)
+        : this.searchModule.executeSearch(
+            fieldOrQuery as (keyof T & string) | (string & {}),
+            maybeQuery,
+          );
 
     this.previousSearchState = {
       key: cacheKey,
       originData,
       result,
       version: mutationVersion,
+      field: maybeQuery === undefined ? null : fieldOrQuery,
+      lowerQuery: this.normalizeSearchQuery(maybeQuery ?? fieldOrQuery),
+      pendingMutations: [],
     };
 
     return this.withChain(this.trackPreviousResult(result, originData));
@@ -514,9 +981,18 @@ export class MergeEngines<T extends CollectionItem> {
         previousSortState.key === cacheKey &&
         previousSortState.version === mutationVersion
       ) {
-        return this.withChain(
-          this.trackPreviousResult(previousSortState.result, sourceData),
-        );
+        const resolvedSortState =
+          this.resolvePendingSortCache(previousSortState);
+
+        if (resolvedSortState !== null) {
+          this.previousSortState = resolvedSortState;
+
+          return this.withChain(
+            this.trackPreviousResult(resolvedSortState.result, sourceData),
+          );
+        }
+
+        this.previousSortState = null;
       }
 
       const result =
@@ -534,6 +1010,7 @@ export class MergeEngines<T extends CollectionItem> {
         result,
         version: mutationVersion,
         descriptors: resolvedDescriptors,
+        pendingMutations: [],
       };
 
       return this.withChain(this.trackPreviousResult(result, sourceData));
@@ -558,19 +1035,50 @@ export class MergeEngines<T extends CollectionItem> {
     }
 
     if (criteria === undefined) {
-      const sourceData = this.getPreviousResultInput();
+      const previousResultInput = this.getPreviousResultInput();
+      const sourceData = previousResultInput ?? this.state.getOriginData();
       const resolvedCriteria = dataOrCriteria as FilterCriterion<T>[];
-      const result =
-        sourceData === null
-          ? this.filterModule.executeFilter(resolvedCriteria)
-          : this.filterModule.executeFilter(sourceData, resolvedCriteria);
+      const mutationVersion = this.state.getMutationVersion();
+      const cacheKey = this.createFilterCacheKey(resolvedCriteria);
+      const previousFilterState = this.previousFilterState;
 
-      return this.withChain(
-        this.trackPreviousResult(
-          result,
-          sourceData ?? this.state.getOriginData(),
-        ),
-      );
+      if (
+        previousFilterState?.sourceData === sourceData &&
+        previousFilterState.key === cacheKey &&
+        previousFilterState.version === mutationVersion
+      ) {
+        const resolvedFilterState =
+          this.resolvePendingFilterCache(previousFilterState);
+
+        if (resolvedFilterState !== null) {
+          this.previousFilterState = resolvedFilterState;
+
+          return this.withChain(
+            this.trackPreviousResult(resolvedFilterState.result, sourceData),
+          );
+        }
+
+        this.previousFilterState = null;
+      }
+
+      const result =
+        previousResultInput === null
+          ? this.filterModule.executeFilter(resolvedCriteria)
+          : this.filterModule.executeFilter(
+              previousResultInput,
+              resolvedCriteria,
+            );
+
+      this.previousFilterState = {
+        key: cacheKey,
+        sourceData,
+        result,
+        version: mutationVersion,
+        criteria: resolvedCriteria,
+        pendingMutations: [],
+      };
+
+      return this.withChain(this.trackPreviousResult(result, sourceData));
     }
 
     const sourceData = dataOrCriteria as T[];
