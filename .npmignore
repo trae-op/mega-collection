@@ -37,3 +37,6 @@ illustration.png
 # Logs
 *.log
 npm-debug.log*
+
+# Performance Benchmarks
+benchmarks/
