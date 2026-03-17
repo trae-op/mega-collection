@@ -30,28 +30,6 @@ npm run typecheck
 npm run dev
 ```
 
-## Project Structure
-
-```
-src/
-  types.ts               — Shared type definitions
-  indexer.ts              — Hash-Map index engine (O(1) lookups)
-  search/
-    text-search.ts       — Trigram inverted index engine
-    index.ts             — Search module barrel export
-  filter/
-    filter.ts            — Multi-criteria filter engine
-    index.ts             — Filter module barrel export
-  sort/
-    sorter.ts            — Sort engine (TimSort + index-sort)
-    index.ts             — Sort module barrel export
-  merge/
-    merge-engines.ts     — Unified facade composing search, filter, sort
-    index.ts             — Merge module barrel export
-  mega-collection.ts     — Main API facade (re-exports MergeEngines)
-  index.ts               — Main barrel export
-```
-
 The package is organised into three independent modules (`search`, `filter`, `sort`) plus a lightweight `merge` wrapper that composes them around a shared dataset. Each engine can be imported individually for optimal tree‑shaking:
 
 ```ts

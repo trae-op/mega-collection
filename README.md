@@ -10,6 +10,7 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 
 - [What does this package solve](#what-does-this-package-solve) – what problem this package helps with
 - [Features](#features) – what the package can do
+- [How it works](#how-it-works) – plain-English explanation of how each engine works internally
 - [Benchmarks](#benchmarks) – performance numbers and how to run them
 - [React demo](#react-demo) – example project and live demo
 - [Install](#install) – how to install the package
@@ -40,11 +41,19 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 
 ## What does this package solve
 
-Sometimes the server returns a very large array, for example 100K+ items.
-Most often you then need to search, filter, or sort this data.
+When your API returns thousands of items, you usually need to let the user search, filter, or sort them on the client side.
 
-This package helps do these operations faster than plain JavaScript methods.
-Usually this happens before data is shown in the UI.
+The typical way to do this is with built-in array methods:
+
+```ts
+const results = users.filter((u) => u.city === "New York");
+const sorted = [...users].sort((a, b) => a.age - b.age);
+const found = users.filter((u) => u.name.toLowerCase().includes(query));
+```
+
+This works fine for small arrays. But with 10 000–100 000+ items, every call to `filter` or `sort` scans the whole array from scratch. If you run it on every keystroke, it adds up.
+
+This package solves this by building indexes ahead of time — special data structures that let you look up results without scanning the full array every time. You pay the cost once when the data arrives, and then each search, filter, or sort is much cheaper.
 
 The package has no dependencies.
 You can import only the parts you need.
@@ -55,14 +64,57 @@ Unused modules are not included.
 
 ## Features
 
-| Capability                   | Strategy                               | Complexity                         |
-| ---------------------------- | -------------------------------------- | ---------------------------------- |
-| **Indexed filter**           | Hash-Map index (`Map<value, T[]>`)     | **O(1)**                           |
-| **Multi-value filter**       | Index intersection + `Set` membership  | **O(k)** indexed / **O(n)** linear |
-| **Nested collection filter** | Pre-built nested index + `Set` lookup  | **O(k)** indexed / **O(n)** linear |
-| **Text search** (contains)   | Trigram inverted index + verify        | **O(candidates)**                  |
-| **Nested collection search** | Nested trigram index + verify          | **O(candidates)**                  |
-| **Sorting**                  | Pre-sorted index (cached) / V8 TimSort | **O(n)** cached / **O(n log n)**   |
+| Capability                   | Strategy                                   | Complexity                         |
+| ---------------------------- | ------------------------------------------ | ---------------------------------- |
+| **Indexed filter**           | Hash-Map index (`Map<value, T[]>`)         | **O(1)**                           |
+| **Multi-value filter**       | Index intersection + `Set` membership      | **O(k)** indexed / **O(n)** linear |
+| **Nested collection filter** | Pre-built nested index + `Set` lookup      | **O(k)** indexed / **O(n)** linear |
+| **Text search** (contains)   | N-gram (2–3 chars) inverted index + verify | **O(candidates)**                  |
+| **Nested collection search** | Nested n-gram index + verify               | **O(candidates)**                  |
+| **Sorting**                  | Pre-sorted index (cached) / radix sort     | **O(n)** cached / **O(n log n)**   |
+
+## How it works
+
+### Search
+
+Native `Array.prototype.filter` with `String.includes` checks every item in the array on each keystroke. For 50 000 items that's 50 000 string comparisons per call.
+
+`TextSearchEngine` avoids this by building an **n-gram inverted index** upfront:
+
+1. Each string value is split into overlapping 2- and 3-character pieces called n-grams. For example, `"hello"` produces `"he"`, `"hel"`, `"el"`, `"ell"`, `"ll"`, `"llo"`, `"lo"`.
+2. For every n-gram the engine keeps a set of item positions that contain it.
+3. When you search for `"john"`, the engine splits that query into the same n-gram pieces, then intersects the sets — only items that share all query n-grams survive. This candidate set is usually tiny even for 100 000 items.
+4. Each surviving candidate is checked with a fast `String.includes` to confirm the full substring match.
+
+For very short queries (fewer than 2 characters) the engine falls back to a linear scan — n-grams that short would match too many items to be useful.
+
+### Filter
+
+Native `Array.prototype.filter` with `===` still checks every item on every call.
+
+`FilterEngine` builds a **hash-map** for each indexed field:
+
+```
+field "city" → { "New York": [item0, item4, ...], "Miami": [item1, ...], ... }
+```
+
+A filter call becomes a map lookup: `index.get("New York")` returns the array of matches in O(1). Multiple values from the same field are concatenated. Multiple fields are intersected using a `Set`.
+
+When the `fields` option is not provided, the engine falls back to a linear scan — which works but is slower.
+
+### Sort
+
+Native `Array.prototype.sort` re-sorts the whole array from scratch every call.
+
+`SortEngine` pre-sorts and stores results in a `Uint32Array` of positions:
+
+```
+cache["age"] = [index of youngest item, index of next, ..., index of oldest]
+```
+
+The first sort call builds this index. Subsequent calls just read it in O(n). The cache is invalidated on mutations and rebuilt lazily on the next sort call.
+
+---
 
 ## Benchmarks
 
