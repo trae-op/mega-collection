@@ -10,6 +10,7 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 
 - [What does this package solve](#what-does-this-package-solve) – what problem this package helps with
 - [Features](#features) – what the package can do
+- [Benchmarks](#benchmarks) – performance numbers and how to run them
 - [React demo](#react-demo) – example project and live demo
 - [Install](#install) – how to install the package
 - [Quick Start](#quick-start) – basic usage examples
@@ -62,6 +63,16 @@ Unused modules are not included.
 | **Text search** (contains)   | Trigram inverted index + verify        | **O(candidates)**                  |
 | **Nested collection search** | Nested trigram index + verify          | **O(candidates)**                  |
 | **Sorting**                  | Pre-sorted index (cached) / V8 TimSort | **O(n)** cached / **O(n log n)**   |
+
+## Benchmarks
+
+Benchmarks for `TextSearchEngine`, `FilterEngine`, and `SortEngine` are collected in [`BENCHMARKS`](./BENCHMARKS.md).
+
+Run the benchmark scripts locally to regenerate the numbers:
+
+- `npm run search-bench`
+- `npm run filter-bench`
+- `npm run sort-bench`
 
 ## React demo
 
