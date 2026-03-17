@@ -13,6 +13,89 @@ type IntersectPostingListsOptions = {
   take?: number;
 };
 
+type IntersectPostingListsInCandidatesOptions = {
+  candidateIndices: readonly number[];
+  restrictionLookup?: Uint8Array | null;
+  take?: number;
+};
+
+export type IntersectionPlan = {
+  smallestPostingList: ReadonlySet<number>;
+  matches: (candidateIndex: number) => boolean;
+};
+
+function sortPostingListsBySize(postingLists: Set<number>[]): void {
+  for (let left = 0; left < postingLists.length - 1; left++) {
+    let minIndex = left;
+
+    for (let right = left + 1; right < postingLists.length; right++) {
+      if (postingLists[right].size < postingLists[minIndex].size) {
+        minIndex = right;
+      }
+    }
+
+    if (minIndex !== left) {
+      const next = postingLists[left];
+      postingLists[left] = postingLists[minIndex];
+      postingLists[minIndex] = next;
+    }
+  }
+}
+
+function collectPostingLists(
+  ngramMap: Map<string, Set<number>>,
+  uniqueQueryGrams: ReadonlySet<string>,
+): Set<number>[] | null {
+  const postingLists: Set<number>[] = [];
+
+  for (const queryGram of uniqueQueryGrams) {
+    const postingList = ngramMap.get(queryGram);
+    if (!postingList) {
+      return null;
+    }
+
+    postingLists.push(postingList);
+  }
+
+  sortPostingListsBySize(postingLists);
+  return postingLists;
+}
+
+function matchesPostingLists(
+  candidateIndex: number,
+  postingLists: readonly Set<number>[],
+): boolean {
+  for (let listIndex = 0; listIndex < postingLists.length; listIndex++) {
+    if (!postingLists[listIndex].has(candidateIndex)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function createIntersectionPlan(
+  ngramMap: Map<string, Set<number>>,
+  uniqueQueryGrams: ReadonlySet<string>,
+  normalizedValues: (string | undefined)[],
+  lowerQuery: string,
+): IntersectionPlan | null {
+  const postingLists = collectPostingLists(ngramMap, uniqueQueryGrams);
+  if (postingLists === null) {
+    return null;
+  }
+
+  const smallestPostingList = postingLists[0];
+
+  return {
+    smallestPostingList,
+    matches: (candidateIndex: number) =>
+      smallestPostingList.has(candidateIndex) &&
+      matchesPostingLists(candidateIndex, postingLists) &&
+      Boolean(normalizedValues[candidateIndex]?.includes(lowerQuery)),
+  };
+}
+
 function extractQueryGrams(lowerInput: string): string[] {
   const gramLength = Math.min(
     MAXIMUM_NGRAM_LENGTH,
@@ -83,6 +166,26 @@ export function indexLowerValue(
   }
 }
 
+export function estimateIntersectionCandidateCount(
+  ngramMap: Map<string, Set<number>>,
+  uniqueQueryGrams: ReadonlySet<string>,
+): number {
+  let smallestPostingListSize = Number.POSITIVE_INFINITY;
+
+  for (const queryGram of uniqueQueryGrams) {
+    const postingList = ngramMap.get(queryGram);
+    if (!postingList) {
+      return 0;
+    }
+
+    if (postingList.size < smallestPostingListSize) {
+      smallestPostingListSize = postingList.size;
+    }
+  }
+
+  return Number.isFinite(smallestPostingListSize) ? smallestPostingListSize : 0;
+}
+
 /**
  * Intersects posting lists for the given query grams and confirms each
  * candidate against the full normalizedValues string. Returns dataset indices
@@ -96,49 +199,102 @@ export function intersectPostingLists(
   options: IntersectPostingListsOptions = {},
 ): number[] {
   const { restrictionLookup = null, take = Number.POSITIVE_INFINITY } = options;
-  const postingLists: Set<number>[] = [];
-
-  for (const queryGram of uniqueQueryGrams) {
-    const postingList = ngramMap.get(queryGram);
-    if (!postingList) return [];
-    postingLists.push(postingList);
+  const plan = createIntersectionPlan(
+    ngramMap,
+    uniqueQueryGrams,
+    normalizedValues,
+    lowerQuery,
+  );
+  if (plan === null) {
+    return [];
   }
 
-  // O4: find smallest posting list and swap to front — avoids allocating a sort comparator.
-  let minIdx = 0;
-  for (let i = 1; i < postingLists.length; i++) {
-    if (postingLists[i].size < postingLists[minIdx].size) minIdx = i;
-  }
-  if (minIdx !== 0) {
-    const tmp = postingLists[0];
-    postingLists[0] = postingLists[minIdx];
-    postingLists[minIdx] = tmp;
-  }
-
-  const smallestPostingList = postingLists[0];
-  const totalPostingLists = postingLists.length;
   const matchedIndices: number[] = [];
 
-  for (const candidateIndex of smallestPostingList) {
+  for (const candidateIndex of plan.smallestPostingList) {
     if (restrictionLookup !== null && !restrictionLookup[candidateIndex]) {
       continue;
     }
 
-    let isCandidate = true;
-    for (let listIndex = 1; listIndex < totalPostingLists; listIndex++) {
-      if (!postingLists[listIndex].has(candidateIndex)) {
-        isCandidate = false;
-        break;
-      }
-    }
-    if (!isCandidate) continue;
+    if (!plan.matches(candidateIndex)) continue;
 
-    if (normalizedValues[candidateIndex]?.includes(lowerQuery)) {
+    matchedIndices.push(candidateIndex);
+
+    if (matchedIndices.length >= take) {
+      break;
+    }
+  }
+
+  return matchedIndices;
+}
+
+export function intersectPostingListsInCandidates(
+  ngramMap: Map<string, Set<number>>,
+  uniqueQueryGrams: ReadonlySet<string>,
+  normalizedValues: (string | undefined)[],
+  lowerQuery: string,
+  options: IntersectPostingListsInCandidatesOptions,
+): number[] {
+  const {
+    candidateIndices,
+    restrictionLookup = null,
+    take = Number.POSITIVE_INFINITY,
+  } = options;
+
+  if (candidateIndices.length === 0) {
+    return [];
+  }
+
+  const plan = createIntersectionPlan(
+    ngramMap,
+    uniqueQueryGrams,
+    normalizedValues,
+    lowerQuery,
+  );
+  if (plan === null) {
+    return [];
+  }
+
+  const matchedIndices: number[] = [];
+  const shouldIterateCandidates =
+    restrictionLookup === null ||
+    candidateIndices.length <= plan.smallestPostingList.size;
+
+  if (shouldIterateCandidates) {
+    for (
+      let candidateOffset = 0;
+      candidateOffset < candidateIndices.length;
+      candidateOffset++
+    ) {
+      const candidateIndex = candidateIndices[candidateOffset];
+
+      if (!plan.matches(candidateIndex)) {
+        continue;
+      }
+
       matchedIndices.push(candidateIndex);
 
       if (matchedIndices.length >= take) {
         break;
       }
+    }
+
+    return matchedIndices;
+  }
+
+  for (const candidateIndex of plan.smallestPostingList) {
+    if (!restrictionLookup[candidateIndex]) {
+      continue;
+    }
+
+    if (!plan.matches(candidateIndex)) {
+      continue;
+    }
+
+    matchedIndices.push(candidateIndex);
+
+    if (matchedIndices.length >= take) {
+      break;
     }
   }
 

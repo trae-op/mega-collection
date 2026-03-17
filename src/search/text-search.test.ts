@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { TextSearchEngine } from "./text-search";
 
@@ -1000,12 +1000,21 @@ describe("TextSearchEngine — normalizedValues optimizations", () => {
     expect(upper.length).toBeGreaterThan(0);
   });
 
-  it("filterByPreviousResult narrowing returns correct subset with index lookups", () => {
+  it("filterByPreviousResult narrowing reuses an indexed restriction lookup", () => {
     const engine = new TextSearchEngine<Person>({
       data,
       fields: ["name", "email", "city", "tag"],
       filterByPreviousResult: true,
     });
+
+    const restrictionLookupSpy = vi.spyOn(
+      engine as never as { getRestrictionLookup: () => Uint8Array },
+      "getRestrictionLookup",
+    );
+    const linearAllFieldsSpy = vi.spyOn(
+      engine as never as { searchLinearAllFields: () => void },
+      "searchLinearAllFields",
+    );
 
     const step1 = engine.search("jo");
     expect(step1.length).toBeGreaterThan(0);
@@ -1026,6 +1035,9 @@ describe("TextSearchEngine — normalizedValues optimizations", () => {
       fields: ["name", "email", "city", "tag"],
     });
     const directResult = directEngine.search("john");
+
+    expect(restrictionLookupSpy).toHaveBeenCalledTimes(1);
+    expect(linearAllFieldsSpy).not.toHaveBeenCalled();
     expect(step2.map((p) => p.id).sort()).toEqual(
       directResult.map((p) => p.id).sort(),
     );
@@ -1048,5 +1060,170 @@ describe("TextSearchEngine — normalizedValues optimizations", () => {
     expect(engineResult.map((p) => p.id).sort()).toEqual(
       nativeResult.map((p) => p.id).sort(),
     );
+  });
+
+  it("records one fallback warning per unique all-fields query", () => {
+    const engine = new TextSearchEngine<Person>({ data });
+
+    engine.search("john");
+    engine.search("john");
+    engine.search("alice");
+
+    const warnings = engine.getWarnings();
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('query "john"');
+    expect(warnings[0]).toContain("all fields");
+  });
+
+  it("silent mode suppresses fallback diagnostics", () => {
+    const engine = new TextSearchEngine<Person>({ data, silent: true });
+
+    engine.search("john");
+
+    expect(engine.getWarnings()).toEqual([]);
+  });
+
+  it("tracks indexed and fallback query stats", () => {
+    const engine = new TextSearchEngine<Person>({
+      data,
+      fields: ["name", "email", "city", "tag"],
+    });
+
+    engine.search("john");
+    engine.search("j");
+
+    const stats = engine.getStats();
+    expect(stats.totalQueries).toBe(2);
+    expect(stats.indexedQueries).toBe(1);
+    expect(stats.fallbackQueries).toBe(1);
+    expect(stats.fallbackFields["all fields"]).toBe(1);
+    expect(stats.fallbackRate).toBe(0.5);
+  });
+
+  it("resetStats clears accumulated query metrics", () => {
+    const engine = new TextSearchEngine<Person>({ data });
+
+    engine.search("john");
+    engine.resetStats();
+
+    expect(engine.getStats()).toEqual({
+      totalQueries: 0,
+      indexedQueries: 0,
+      fallbackQueries: 0,
+      fallbackRate: 0,
+      fallbackFields: {},
+    });
+  });
+});
+
+describe("TextSearchEngine — nested filterByPreviousResult regressions", () => {
+  type Order = { id: string; status: string };
+  type User = { id: string; name: string; city: string; orders: Order[] };
+
+  it("keeps nested-only matches during all-fields narrowing", () => {
+    const data: User[] = Array.from({ length: 700 }, (_, index) => ({
+      id: String(index + 1),
+      name: `User ${index + 1}`,
+      city: "Berlin",
+      orders:
+        index % 7 === 0
+          ? [{ id: String(index + 1), status: "john-approved" }]
+          : index % 5 === 0
+            ? [{ id: String(index + 1), status: "jo-pending" }]
+            : [{ id: String(index + 1), status: "pending" }],
+    }));
+
+    const engine = new TextSearchEngine<User>({
+      data,
+      fields: ["name", "city"],
+      nestedFields: ["orders.status"],
+      filterByPreviousResult: true,
+    });
+
+    const step1 = engine.search("jo");
+    const step2 = engine.search("john");
+
+    expect(step1.length).toBeGreaterThan(step2.length);
+    expect(step2.length).toBeGreaterThan(0);
+    expect(
+      step2.every((user) => user.orders[0].status === "john-approved"),
+    ).toBe(true);
+  });
+
+  it("narrows nested field searches without changing direct indexed results", () => {
+    const data: User[] = [
+      {
+        id: "1",
+        name: "Alice",
+        city: "Paris",
+        orders: [{ id: "1", status: "john-approved" }],
+      },
+      {
+        id: "2",
+        name: "Bob",
+        city: "Rome",
+        orders: [{ id: "2", status: "jo-pending" }],
+      },
+      {
+        id: "3",
+        name: "Cara",
+        city: "Madrid",
+        orders: [{ id: "3", status: "john-pending" }],
+      },
+    ];
+
+    const narrowedEngine = new TextSearchEngine<User>({
+      data,
+      nestedFields: ["orders.status"],
+      filterByPreviousResult: true,
+    });
+    narrowedEngine.search("orders.status", "jo");
+
+    const narrowed = narrowedEngine.search("orders.status", "john");
+
+    const directEngine = new TextSearchEngine<User>({
+      data,
+      nestedFields: ["orders.status"],
+    });
+    const direct = directEngine.search("orders.status", "john");
+
+    expect(narrowed.map((user) => user.id).sort()).toEqual(
+      direct.map((user) => user.id).sort(),
+    );
+  });
+
+  it("keeps nested linear fallback narrowing correct when no indexes are built", () => {
+    const data: User[] = [
+      {
+        id: "1",
+        name: "Alice",
+        city: "Paris",
+        orders: [{ id: "1", status: "john-approved" }],
+      },
+      {
+        id: "2",
+        name: "Bob",
+        city: "Rome",
+        orders: [{ id: "2", status: "jo-pending" }],
+      },
+      {
+        id: "3",
+        name: "Cara",
+        city: "Madrid",
+        orders: [{ id: "3", status: "john-pending" }],
+      },
+    ];
+
+    const narrowedEngine = new TextSearchEngine<User>({
+      data,
+      nestedFields: ["orders.status"],
+      filterByPreviousResult: true,
+    });
+    narrowedEngine.clearIndexes();
+    narrowedEngine.search("orders.status", "jo");
+
+    const narrowed = narrowedEngine.search("orders.status", "john");
+
+    expect(narrowed.map((user) => user.id).sort()).toEqual(["1", "3"]);
   });
 });

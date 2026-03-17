@@ -10,6 +10,7 @@
  *   C  — Multi-field search "jo"            (2-char,  ~20 000 hits, fewer trigrams)
  *   D  — Multi-field search "san antonio"   (11-char,  ~10 000 hits, highly selective)
  *   E  — filterByPreviousResult narrowing vs native re-filter ("jo" → "john")
+ *   E3/E4 — pre-warmed step-2 only (planner vs linear subset re-filter)
  *   F  — Non-indexed linear vs native multi-field (sanity / parity check)
  *
  * Why n-gram indexing wins:
@@ -47,6 +48,8 @@ const THRESHOLDS = {
   time_ms: 200,
   memory_mb: 30,
 } as const;
+
+const E_STEP2_MIN_SPEEDUP = 1.2;
 
 const FIRST_NAMES = [
   "john",
@@ -200,6 +203,62 @@ function run<T>(
   };
 }
 
+function runPrewarmed<T>(
+  scenario: string,
+  query: string,
+  prepare: () => void,
+  fn: () => T[],
+): ScenarioResult {
+  const round = (v: number) => Math.round(v * 10) / 10;
+
+  for (let warmupIndex = 0; warmupIndex < SEARCH_WARMUP_RUNS; warmupIndex++) {
+    prepare();
+    fn();
+  }
+  globalThis.gc?.();
+
+  prepare();
+  const memBefore = heapMB();
+  const memResult = fn();
+  const memAfter = heapMB();
+  const memory_mb = Math.round(Math.max(0, memAfter - memBefore) * 100) / 100;
+  const result_count = memResult.length;
+  globalThis.gc?.();
+
+  const times: number[] = [];
+  for (let runIndex = 0; runIndex < SEARCH_MEASURE_RUNS; runIndex++) {
+    prepare();
+    const t0 = performance.now();
+    fn();
+    times.push(performance.now() - t0);
+  }
+  times.sort((a, b) => a - b);
+
+  const min_ms = round(times[0]);
+  const p50_ms = round(percentile(times, 50));
+  const p95_ms = round(percentile(times, 95));
+  const p99_ms = round(percentile(times, 99));
+  const max_ms = round(times[SEARCH_MEASURE_RUNS - 1]);
+
+  const failed: string[] = [];
+  if (p50_ms > THRESHOLDS.time_ms) failed.push("p50_ms");
+  if (memory_mb > THRESHOLDS.memory_mb) failed.push("memory_mb");
+
+  return {
+    scenario,
+    query,
+    result_count,
+    min_ms,
+    p50_ms,
+    p95_ms,
+    p99_ms,
+    max_ms,
+    memory_mb,
+    status: failed.length === 0 ? "PASS" : "FAIL",
+    failed_metrics: failed,
+  };
+}
+
 function nativeSingleField(
   data: Item[],
   field: keyof Item & string,
@@ -299,6 +358,14 @@ function printLatencyTable(title: string, rows: LatencyTableRow[]): void {
   console.log(h(bar));
 }
 
+function speedupRatio(nativeMs: number, engineMs: number): number {
+  if (engineMs === 0) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  return nativeMs / engineMs;
+}
+
 async function main(): Promise<void> {
   printBenchHeader("search-bench", {
     warmupRuns: SEARCH_WARMUP_RUNS,
@@ -313,13 +380,18 @@ async function main(): Promise<void> {
     fields: ["name", "email", "city", "tag"],
   });
 
-  const noIndexEngine = new TextSearchEngine<Item>({ data: dataset });
+  const noIndexEngine = new TextSearchEngine<Item>({
+    data: dataset,
+    silent: true,
+  });
 
   const filterByPrevEngine = new TextSearchEngine<Item>({
     data: dataset,
     fields: ["name", "email", "city", "tag"],
     filterByPreviousResult: true,
   });
+
+  let previousSubset: Item[] = [];
 
   const results: ScenarioResult[] = [
     run(
@@ -380,6 +452,23 @@ async function main(): Promise<void> {
         const prev = nativeAllFields(dataset, "jo");
         return nativeAllFields(prev, "john");
       },
+    ),
+    runPrewarmed(
+      "E3. TextSearchEngine - step 2 only (pre-warmed 'jo' intermediate)",
+      "john",
+      () => {
+        filterByPrevEngine.resetSearchState();
+        filterByPrevEngine.search("jo");
+      },
+      () => filterByPrevEngine.search("john"),
+    ),
+    runPrewarmed(
+      "E4. Baseline step 2 only - linear re-filter over pre-warmed 'jo' subset",
+      "john",
+      () => {
+        previousSubset = nativeAllFields(dataset, "jo");
+      },
+      () => nativeAllFields(previousSubset, "john"),
     ),
 
     run(
@@ -448,10 +537,18 @@ async function main(): Promise<void> {
     {
       group: "E",
       description:
-        "Two-step search 'jo'→'john' (engine: indexed+linear; native: filter+filter)",
+        "Two-step search 'jo'→'john' (engine: candidate-aware narrow; native: filter+filter)",
       engine_p50_ms: p50("E1"),
       native_p50_ms: p50("E2"),
       speedup: speedup(p50("E2"), p50("E1")),
+    },
+    {
+      group: "E-step2",
+      description:
+        "Pre-warmed step 2 only (candidate-aware narrow vs linear subset re-filter)",
+      engine_p50_ms: p50("E3"),
+      native_p50_ms: p50("E4"),
+      speedup: speedup(p50("E4"), p50("E3")),
     },
     {
       group: "F",
@@ -472,6 +569,13 @@ async function main(): Promise<void> {
   const failedScenarios = results
     .filter((r) => r.status === "FAIL")
     .map((r) => r.scenario);
+
+  const eStep2Ratio = speedupRatio(p50("E4"), p50("E3"));
+  if (eStep2Ratio < E_STEP2_MIN_SPEEDUP) {
+    failedScenarios.push(
+      `E-step2 regression gate: expected >= ${E_STEP2_MIN_SPEEDUP.toFixed(2)}x, got ${eStep2Ratio.toFixed(2)}x`,
+    );
+  }
 
   const report: BenchReport = {
     dataset_size: N,
@@ -508,6 +612,7 @@ async function main(): Promise<void> {
     console.log("\n✅  All scenarios passed all thresholds.");
   } else {
     console.log(`\n❌  Failed: ${failedScenarios.join(" | ")}`);
+    process.exitCode = 1;
   }
 }
 

@@ -1,6 +1,7 @@
 import { CollectionItem } from "../types";
 import {
   indexLowerValue,
+  intersectPostingListsInCandidates,
   intersectPostingLists,
   removeLowerValue,
 } from "./ngram";
@@ -101,6 +102,8 @@ export class SearchNestedCollection<T extends CollectionItem> {
   searchAllIndexedFieldIndices(
     lowerQuery: string,
     uniqueQueryGrams: ReadonlySet<string>,
+    restrictionLookup?: Uint8Array | null,
+    candidateIndices?: readonly number[] | null,
   ): number[] {
     const seenIndices = new Set<number>();
     const matchedIndices: number[] = [];
@@ -110,6 +113,8 @@ export class SearchNestedCollection<T extends CollectionItem> {
         fieldPath,
         lowerQuery,
         uniqueQueryGrams,
+        restrictionLookup,
+        candidateIndices,
       )) {
         if (seenIndices.has(idx)) continue;
         seenIndices.add(idx);
@@ -125,11 +130,17 @@ export class SearchNestedCollection<T extends CollectionItem> {
     fieldPath: string,
     lowerQuery: string,
     uniqueQueryGrams: ReadonlySet<string>,
+    restrictionLookup?: Uint8Array | null,
+    candidateIndices?: readonly number[] | null,
+    take = Number.POSITIVE_INFINITY,
   ): T[] {
     const indices = this.searchIndexedFieldIndices(
       fieldPath,
       lowerQuery,
       uniqueQueryGrams,
+      restrictionLookup,
+      candidateIndices,
+      take,
     );
     const matchedItems: T[] = [];
     for (let i = 0; i < indices.length; i++) {
@@ -143,10 +154,13 @@ export class SearchNestedCollection<T extends CollectionItem> {
    * Core indexed search for a nested field: returns dataset indices of items
    * whose nested values match the query.
    */
-  private searchIndexedFieldIndices(
+  searchIndexedFieldIndices(
     fieldPath: string,
     lowerQuery: string,
     uniqueQueryGrams: ReadonlySet<string>,
+    restrictionLookup?: Uint8Array | null,
+    candidateIndices?: readonly number[] | null,
+    take = Number.POSITIVE_INFINITY,
   ): number[] {
     const ngramMap = this.storage.ngramIndexes.get(fieldPath);
     if (!ngramMap) return [];
@@ -154,20 +168,84 @@ export class SearchNestedCollection<T extends CollectionItem> {
     const normalizedValues =
       this.storage.normalizedFieldValues.get(fieldPath) ?? [];
 
+    if (candidateIndices !== null && candidateIndices !== undefined) {
+      return intersectPostingListsInCandidates(
+        ngramMap,
+        uniqueQueryGrams,
+        normalizedValues,
+        lowerQuery,
+        { candidateIndices, restrictionLookup, take },
+      );
+    }
+
     return intersectPostingLists(
       ngramMap,
       uniqueQueryGrams,
       normalizedValues,
       lowerQuery,
+      { restrictionLookup, take },
     );
   }
 
   searchFieldLinear(data: T[], fieldPath: string, lowerQuery: string): T[] {
+    const indices = this.searchFieldLinearIndices(data, fieldPath, lowerQuery);
+    const matchedItems: T[] = [];
+
+    for (let index = 0; index < indices.length; index++) {
+      const item = data[indices[index]];
+      if (item) {
+        matchedItems.push(item);
+      }
+    }
+
+    return matchedItems;
+  }
+
+  searchFieldLinearIndices(
+    data: T[],
+    fieldPath: string,
+    lowerQuery: string,
+    sourceIndices?: readonly number[],
+  ): number[] {
     const descriptor = this.fieldDescriptors.get(fieldPath);
     if (!descriptor) return [];
 
     const { collectionKey, nestedKey } = descriptor;
-    const matchedItems: T[] = [];
+    const matchedIndices: number[] = [];
+
+    if (sourceIndices) {
+      for (
+        let candidateIndex = 0;
+        candidateIndex < sourceIndices.length;
+        candidateIndex++
+      ) {
+        const itemIndex = sourceIndices[candidateIndex];
+        const item = data[itemIndex];
+        const collection = item[collectionKey];
+        if (!Array.isArray(collection)) continue;
+
+        let hasMatch = false;
+
+        for (
+          let nestedIndex = 0;
+          nestedIndex < collection.length;
+          nestedIndex++
+        ) {
+          const rawValue = collection[nestedIndex][nestedKey];
+          if (typeof rawValue !== "string") continue;
+          if (!rawValue.toLowerCase().includes(lowerQuery)) continue;
+
+          hasMatch = true;
+          break;
+        }
+
+        if (hasMatch) {
+          matchedIndices.push(itemIndex);
+        }
+      }
+
+      return matchedIndices;
+    }
 
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
       const item = data[itemIndex];
@@ -190,11 +268,11 @@ export class SearchNestedCollection<T extends CollectionItem> {
       }
 
       if (hasMatch) {
-        matchedItems.push(item);
+        matchedIndices.push(itemIndex);
       }
     }
 
-    return matchedItems;
+    return matchedIndices;
   }
 
   matchesAnyField(item: T, lowerQuery: string): boolean {

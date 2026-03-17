@@ -28,11 +28,25 @@ export interface TextSearchEngineOptions<
    * and force the next search to scan the full dataset.
    */
   filterByPreviousResult?: boolean;
+
+  /**
+   * Suppresses non-production fallback warnings.
+   * Diagnostic warnings also stop accumulating in {@link TextSearchEngine.getWarnings}.
+   */
+  silent?: boolean;
 }
 
 export interface SearchQueryOptions {
   limit?: number;
   offset?: number;
+}
+
+export interface TextSearchEngineStats {
+  totalQueries: number;
+  indexedQueries: number;
+  fallbackQueries: number;
+  fallbackRate: number;
+  fallbackFields: Record<string, number>;
 }
 
 export type NestedFieldDescriptor = {
@@ -56,8 +70,13 @@ export type SearchRuntime<T extends CollectionItem> = {
   flatIndexes: Map<string, SearchIndex>;
   nestedStorage: SearchNestedCollectionStorage;
   filterByPreviousResult: boolean;
-  previousResult: T[] | null;
   previousResultIndices: number[] | null;
   previousResultLookup: Uint8Array | null;
   previousQuery: string | null;
+  stats: {
+    totalQueries: number;
+    indexedQueries: number;
+    fallbackQueries: number;
+    fallbackFields: Map<string, number>;
+  };
 };
