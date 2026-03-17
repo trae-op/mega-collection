@@ -4,7 +4,7 @@ import type { ResolvedFilterCriterion } from "./types";
 export function resolveCriteria<T extends CollectionItem>(
   criteria: FilterCriterion<T>[],
 ): ResolvedFilterCriterion<T>[] {
-  const resolvedCriteria: ResolvedFilterCriterion<T>[] = [];
+  const criteriaByField = new Map<string, ResolvedFilterCriterion<T>>();
 
   for (
     let criterionIndex = 0;
@@ -24,15 +24,58 @@ export function resolveCriteria<T extends CollectionItem>(
       continue;
     }
 
-    resolvedCriteria.push({
-      field: criterion.field,
-      values: includedValues ? [...includedValues] : [],
-      exclude: excludedValues ? [...excludedValues] : [],
-      hasValues,
-      hasExclude,
-      includedValues,
-      excludedValues,
-    });
+    const field = criterion.field as string;
+    const existingCriterion = criteriaByField.get(field);
+
+    if (!existingCriterion) {
+      criteriaByField.set(field, {
+        field: criterion.field,
+        values: [],
+        exclude: [],
+        hasValues,
+        hasExclude,
+        includedValues: includedValues ? new Set(includedValues) : null,
+        excludedValues: excludedValues ? new Set(excludedValues) : null,
+        cacheKeySegment: "",
+      });
+      continue;
+    }
+
+    if (hasValues) {
+      if (!existingCriterion.hasValues) {
+        existingCriterion.hasValues = true;
+        existingCriterion.includedValues = new Set(includedValues);
+      } else {
+        for (const value of existingCriterion.includedValues!) {
+          if (!includedValues!.has(value)) {
+            existingCriterion.includedValues!.delete(value);
+          }
+        }
+      }
+    }
+
+    if (hasExclude) {
+      if (!existingCriterion.hasExclude) {
+        existingCriterion.hasExclude = true;
+        existingCriterion.excludedValues = new Set(excludedValues);
+      } else {
+        for (const value of excludedValues!) {
+          existingCriterion.excludedValues!.add(value);
+        }
+      }
+    }
+  }
+
+  const resolvedCriteria = [...criteriaByField.values()].sort((left, right) =>
+    (left.field as string).localeCompare(right.field as string),
+  );
+
+  for (
+    let criterionIndex = 0;
+    criterionIndex < resolvedCriteria.length;
+    criterionIndex++
+  ) {
+    finalizeResolvedCriterion(resolvedCriteria[criterionIndex]);
   }
 
   return resolvedCriteria;
@@ -83,4 +126,67 @@ function createIncludedValuesSet(
   }
 
   return includedValues;
+}
+
+function finalizeResolvedCriterion<T extends CollectionItem>(
+  criterion: ResolvedFilterCriterion<T>,
+): void {
+  if (criterion.hasValues && criterion.hasExclude) {
+    for (const value of criterion.excludedValues!) {
+      criterion.includedValues!.delete(value);
+    }
+  }
+
+  criterion.values = criterion.includedValues
+    ? [...criterion.includedValues]
+    : [];
+  criterion.exclude = criterion.excludedValues
+    ? [...criterion.excludedValues]
+    : [];
+
+  criterion.cacheKeySegment = createCriterionCacheKeySegment(criterion);
+}
+
+function createCriterionCacheKeySegment<T extends CollectionItem>(
+  criterion: ResolvedFilterCriterion<T>,
+): string {
+  let segment = criterion.field as string;
+  segment += `|hv:${criterion.hasValues ? "1" : "0"}|v:`;
+
+  if (criterion.hasValues) {
+    segment += createEncodedValueKey(criterion.values);
+  }
+
+  segment += `|hx:${criterion.hasExclude ? "1" : "0"}|x:`;
+
+  if (criterion.hasExclude) {
+    segment += createEncodedValueKey(criterion.exclude);
+  }
+
+  return segment;
+}
+
+function createEncodedValueKey(values: any[]): string {
+  if (values.length === 0) {
+    return "";
+  }
+
+  return values
+    .map((value) => encodeCriterionValue(value))
+    .sort()
+    .join(",");
+}
+
+function encodeCriterionValue(value: any): string {
+  if (value === null) {
+    return "null:null";
+  }
+
+  const valueType = typeof value;
+
+  if (valueType === "object") {
+    return `object:${JSON.stringify(value)}`;
+  }
+
+  return `${valueType}:${String(value)}`;
 }

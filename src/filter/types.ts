@@ -46,6 +46,12 @@ export type ResolvedFilterCriterion<T extends CollectionItem> = {
   hasExclude: boolean;
   includedValues: Set<any> | null;
   excludedValues: Set<any> | null;
+  cacheKeySegment: string;
+};
+
+export type FilterSequentialCacheEntry<T extends CollectionItem> = {
+  result: T[];
+  resultSet: Set<T> | null;
 };
 
 export type FilterEngineChainCallbacks<T extends CollectionItem> = {
@@ -67,8 +73,9 @@ export type FilterEngineChainCallbacks<T extends CollectionItem> = {
 export type FilterSequentialCache<T extends CollectionItem> = {
   previousResult: T[] | null;
   previousCriteria: ResolvedFilterCriterion<T>[] | null;
+  previousCriteriaKey: string | null;
   previousBaseData: T[] | null;
-  previousResultsByCriteria: Map<string, T[]>;
+  previousResultsByCriteria: Map<string, FilterSequentialCacheEntry<T>>;
   /** Cached Set of previousResult items — avoids O(m) Set construction on each filterViaIndex narrowing call. */
   previousResultSet: Set<T> | null;
 };

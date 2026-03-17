@@ -55,7 +55,7 @@ function generateDataset(): Item[] {
       status: STATUSES[i % 5],
       category: CATEGORIES[i % 4],
       region: REGIONS[i % 3],
-      score: (Math.random() * 1000) | 0,
+      score: (i * 17 + ((i / 3) | 0) * 31) % 1000,
       active: i % 7 !== 0,
     };
   }
@@ -122,7 +122,8 @@ function run<T>(scenario: string, fn: () => T[]): ScenarioResult {
 
 async function main(): Promise<void> {
   printBenchHeader("filter-bench", {
-    metricsLabel: "p50 / p95 / p99 latency across all iterations (lower is better)",
+    metricsLabel:
+      "p50 / p95 / p99 latency across all iterations (lower is better)",
   });
   const dataset = generateDataset();
 
@@ -255,16 +256,20 @@ async function main(): Promise<void> {
 
   printLatencyTable(
     "Per-scenario tail latency",
-    results.map((r): LatencyTableRow => ({
-      scenario: r.scenario,
-      p50_ms: r.p50_ms,
-      p95_ms: r.p95_ms,
-      p99_ms: r.p99_ms,
-      max_ms: r.max_ms,
-    })),
+    results.map(
+      (r): LatencyTableRow => ({
+        scenario: r.scenario,
+        p50_ms: r.p50_ms,
+        p95_ms: r.p95_ms,
+        p99_ms: r.p99_ms,
+        max_ms: r.max_ms,
+      }),
+    ),
   );
 
-  const failed = results.filter((r) => r.status === "FAIL").map((r) => r.scenario);
+  const failed = results
+    .filter((r) => r.status === "FAIL")
+    .map((r) => r.scenario);
   if (failed.length === 0) {
     console.log("\n✅  All FilterEngine scenarios passed all thresholds.");
   } else {

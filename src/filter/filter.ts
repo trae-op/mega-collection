@@ -16,6 +16,7 @@ import { FilterEngineChain, FilterEngineChainBuilder } from "./chain";
 import type {
   FilterEngineOptions,
   FilterRuntime,
+  FilterSequentialCacheEntry,
   FilterSequentialCache,
   MutableExcludeRuntime,
   ResolvedFilterCriterion,
@@ -47,8 +48,9 @@ const createFilterRuntime = <T extends CollectionItem>(): FilterRuntime<T> => ({
   sequentialCache: {
     previousResult: null,
     previousCriteria: null,
+    previousCriteriaKey: null,
     previousBaseData: null,
-    previousResultsByCriteria: new Map<string, T[]>(),
+    previousResultsByCriteria: new Map<string, FilterSequentialCacheEntry<T>>(),
     previousResultSet: null,
   },
 });
@@ -191,6 +193,7 @@ export class FilterEngine<T extends CollectionItem> {
   resetFilterState(): this {
     this.sequentialCache.previousResult = null;
     this.sequentialCache.previousCriteria = null;
+    this.sequentialCache.previousCriteriaKey = null;
     this.sequentialCache.previousBaseData = null;
     this.sequentialCache.previousResultsByCriteria.clear();
     this.sequentialCache.previousResultSet = null;
@@ -424,6 +427,7 @@ export class FilterEngine<T extends CollectionItem> {
     const {
       previousResult,
       previousCriteria,
+      previousCriteriaKey,
       previousBaseData,
       previousResultsByCriteria,
     } = this.sequentialCache;
@@ -441,21 +445,22 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     const nextCriteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
-    const previousCriteriaKey = this.createCriteriaCacheKey(previousCriteria);
-    const cachedResult = previousResultsByCriteria.get(nextCriteriaKey);
+    const cachedEntry = previousResultsByCriteria.get(nextCriteriaKey);
 
     if (nextCriteriaKey === previousCriteriaKey) {
       return { isFromCache: true, result: previousResult };
     }
 
-    if (cachedResult !== undefined) {
+    if (cachedEntry !== undefined) {
       this.storePreviousResult(
-        cachedResult,
+        cachedEntry.result,
         isUsingStoredData,
         baseData,
         resolvedCriteria,
+        nextCriteriaKey,
+        cachedEntry.resultSet,
       );
-      return { isFromCache: true, result: cachedResult };
+      return { isFromCache: true, result: cachedEntry.result };
     }
 
     const shouldRecalculate =
@@ -762,23 +767,75 @@ export class FilterEngine<T extends CollectionItem> {
         allowedItems = this.sequentialCache.previousResultSet;
       } else {
         allowedItems = new Set(sourceData);
+
+        if (sourceData === this.sequentialCache.previousResult) {
+          this.sequentialCache.previousResultSet = allowedItems;
+
+          const previousCriteriaKey = this.sequentialCache.previousCriteriaKey;
+          if (previousCriteriaKey !== null) {
+            const cachedEntry =
+              this.sequentialCache.previousResultsByCriteria.get(
+                previousCriteriaKey,
+              );
+
+            if (cachedEntry) {
+              cachedEntry.resultSet = allowedItems;
+            }
+          }
+        }
       }
     }
-    const inclusionCriteria = criteria.filter(
-      (criterion) => criterion.hasValues,
-    );
-    const exclusionCriteria = criteria.filter(
-      (criterion) => criterion.hasExclude,
-    );
+    const inclusionCriteria: ResolvedFilterCriterion<T>[] = [];
+    const exclusionCriteria: ResolvedFilterCriterion<T>[] = [];
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < criteria.length;
+      criterionIndex++
+    ) {
+      const criterion = criteria[criterionIndex];
+
+      if (criterion.hasValues) {
+        inclusionCriteria.push(criterion);
+      }
+
+      if (criterion.hasExclude) {
+        exclusionCriteria.push(criterion);
+      }
+    }
 
     if (inclusionCriteria.length === 0) {
       return this.applyIndexedExclusions(sourceData, exclusionCriteria);
     }
 
     if (inclusionCriteria.length === 1) {
+      const criterion = inclusionCriteria[0];
+      let hasCrossFieldExclusions = false;
+
+      for (
+        let criterionIndex = 0;
+        criterionIndex < exclusionCriteria.length;
+        criterionIndex++
+      ) {
+        if (exclusionCriteria[criterionIndex].field !== criterion.field) {
+          hasCrossFieldExclusions = true;
+          break;
+        }
+      }
+
+      if (allowedItems === null && !hasCrossFieldExclusions) {
+        if (criterion.values.length === 1) {
+          return this.indexer
+            .getByValue(criterion.field, criterion.values[0])
+            .slice();
+        }
+
+        return this.indexer.getByValues(criterion.field, criterion.values);
+      }
+
       const indexedResult = this.indexer.getByValues(
-        inclusionCriteria[0].field,
-        inclusionCriteria[0].values,
+        criterion.field,
+        criterion.values,
       );
       const matchingItems: T[] = [];
 
@@ -788,35 +845,32 @@ export class FilterEngine<T extends CollectionItem> {
           continue;
         }
 
-        if (
-          !matchesCriterionValue(
-            inclusionCriteria[0],
-            item[inclusionCriteria[0].field],
-          )
-        ) {
-          continue;
-        }
-
         matchingItems.push(item);
       }
 
       return this.applyIndexedExclusions(matchingItems, exclusionCriteria);
     }
 
-    const estimatedCriteria = inclusionCriteria
-      .map((criterion) => ({
-        criterion,
-        size: this.estimateIndexSize(criterion),
-      }))
-      .sort(
-        (leftEstimate, rightEstimate) => leftEstimate.size - rightEstimate.size,
-      );
+    let mostSelectiveCriterion = inclusionCriteria[0];
+    let mostSelectiveSize = this.estimateIndexSize(mostSelectiveCriterion);
 
-    const { field: mostSelectiveField, values: mostSelectiveValues } =
-      estimatedCriteria[0].criterion;
+    for (
+      let criterionIndex = 1;
+      criterionIndex < inclusionCriteria.length;
+      criterionIndex++
+    ) {
+      const criterion = inclusionCriteria[criterionIndex];
+      const estimatedSize = this.estimateIndexSize(criterion);
+
+      if (estimatedSize < mostSelectiveSize) {
+        mostSelectiveCriterion = criterion;
+        mostSelectiveSize = estimatedSize;
+      }
+    }
+
     const candidateItems = this.indexer.getByValues(
-      mostSelectiveField,
-      mostSelectiveValues,
+      mostSelectiveCriterion.field,
+      mostSelectiveCriterion.values,
     );
 
     if (candidateItems.length === 0) return [];
@@ -837,10 +891,15 @@ export class FilterEngine<T extends CollectionItem> {
 
       for (
         let criterionIndex = 0;
-        criterionIndex < estimatedCriteria.length;
+        criterionIndex < inclusionCriteria.length;
         criterionIndex++
       ) {
-        const criterion = estimatedCriteria[criterionIndex].criterion;
+        const criterion = inclusionCriteria[criterionIndex];
+
+        if (criterion === mostSelectiveCriterion) {
+          continue;
+        }
+
         if (!matchesCriterionValue(criterion, item[criterion.field])) {
           isMatchingAll = false;
           break;
@@ -862,10 +921,20 @@ export class FilterEngine<T extends CollectionItem> {
     const indexMap = this.indexer.getIndexMap(criterion.field);
     if (!indexMap) return Infinity;
 
-    return criterion.values.reduce((totalSize, value) => {
-      const bucket = indexMap.get(value);
-      return bucket ? totalSize + bucket.length : totalSize;
-    }, 0);
+    let totalSize = 0;
+
+    for (
+      let valueIndex = 0;
+      valueIndex < criterion.values.length;
+      valueIndex++
+    ) {
+      const bucket = indexMap.get(criterion.values[valueIndex]);
+      if (bucket) {
+        totalSize += bucket.length;
+      }
+    }
+
+    return totalSize;
   }
 
   private applyIndexedExclusions(
@@ -873,7 +942,7 @@ export class FilterEngine<T extends CollectionItem> {
     criteria: ResolvedFilterCriterion<T>[],
   ): T[] {
     if (criteria.length === 0 || data.length === 0) {
-      return data.slice();
+      return data;
     }
 
     const excludedItems = new Set<T>();
@@ -906,7 +975,7 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     if (excludedItems.size === 0) {
-      return data.slice();
+      return data;
     }
 
     const result: T[] = [];
@@ -941,61 +1010,56 @@ export class FilterEngine<T extends CollectionItem> {
     isUsingStoredData: boolean,
     baseData: T[],
     resolvedCriteria: ResolvedFilterCriterion<T>[],
+    criteriaKey = this.createCriteriaCacheKey(resolvedCriteria),
+    resultSet?: Set<T> | null,
   ): void {
     if (!this.filterByPreviousResult) {
       return;
     }
 
+    const cachedResultSet = resultSet === undefined ? null : resultSet;
+
     this.sequentialCache.previousResult = result;
     this.sequentialCache.previousCriteria = resolvedCriteria;
+    this.sequentialCache.previousCriteriaKey = criteriaKey;
     this.sequentialCache.previousBaseData = isUsingStoredData
       ? this.dataset
       : baseData;
-    this.sequentialCache.previousResultSet =
-      result.length > 0 ? new Set(result) : null;
+    this.sequentialCache.previousResultSet = cachedResultSet;
     this.state.setPreviousResult(
       result,
       isUsingStoredData ? this.dataset : baseData,
     );
     this.sequentialCache.previousResultsByCriteria.set(
-      this.createCriteriaCacheKey(resolvedCriteria),
-      result,
+      criteriaKey,
+      this.createSequentialCacheEntry(result, cachedResultSet),
     );
   }
 
   private createCriteriaCacheKey(
     criteria: ResolvedFilterCriterion<T>[],
   ): string {
-    // Sort criteria by field name so key is order-independent.
-    const sorted = criteria
-      .slice()
-      .sort((a, b) => ((a.field as string) < (b.field as string) ? -1 : 1));
-
     let key = "";
-    for (let i = 0; i < sorted.length; i++) {
-      const c = sorted[i];
-      // Segment format: "<field>|v:<v1>,<v2>|x:<x1>,<x2>;"
-      // String() handles boolean/number/string values correctly.
-      // Objects that appear as filter values are rare in practice; keep
-      // JSON.stringify only for them to preserve unambiguous encoding.
-      key += c.field as string;
-      key += "|v:";
-      if (c.hasValues) {
-        key += c.values
-          .map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v)))
-          .sort()
-          .join(",");
-      }
-      key += "|x:";
-      if (c.hasExclude) {
-        key += c.exclude
-          .map((v) => (typeof v === "object" ? JSON.stringify(v) : String(v)))
-          .sort()
-          .join(",");
-      }
+    for (
+      let criterionIndex = 0;
+      criterionIndex < criteria.length;
+      criterionIndex++
+    ) {
+      key += criteria[criterionIndex].cacheKeySegment;
       key += ";";
     }
+
     return key;
+  }
+
+  private createSequentialCacheEntry(
+    result: T[],
+    resultSet: Set<T> | null,
+  ): FilterSequentialCacheEntry<T> {
+    return {
+      result,
+      resultSet,
+    };
   }
 
   private createSequentialExecutionCriteria(
@@ -1145,59 +1209,7 @@ export class FilterEngine<T extends CollectionItem> {
       criterionIndex++
     ) {
       const criterion = criteria[criterionIndex];
-      const existingCriterion = criteriaByField.get(criterion.field);
-
-      if (!existingCriterion) {
-        criteriaByField.set(criterion.field, {
-          ...criterion,
-          values: criterion.values.slice(),
-          exclude: criterion.exclude.slice(),
-          includedValues: criterion.includedValues
-            ? new Set(criterion.includedValues)
-            : null,
-          excludedValues: criterion.excludedValues
-            ? new Set(criterion.excludedValues)
-            : null,
-        });
-        continue;
-      }
-
-      if (criterion.hasValues) {
-        if (!existingCriterion.hasValues) {
-          existingCriterion.hasValues = true;
-          existingCriterion.includedValues = new Set(criterion.includedValues!);
-        } else {
-          for (const value of existingCriterion.includedValues!) {
-            if (!criterion.includedValues!.has(value)) {
-              existingCriterion.includedValues!.delete(value);
-            }
-          }
-        }
-      }
-
-      if (criterion.hasExclude) {
-        if (!existingCriterion.hasExclude) {
-          existingCriterion.hasExclude = true;
-          existingCriterion.excludedValues = new Set(criterion.excludedValues!);
-        } else {
-          for (const value of criterion.excludedValues!) {
-            existingCriterion.excludedValues!.add(value);
-          }
-        }
-      }
-
-      if (existingCriterion.hasValues && existingCriterion.hasExclude) {
-        for (const value of existingCriterion.excludedValues!) {
-          existingCriterion.includedValues!.delete(value);
-        }
-      }
-
-      existingCriterion.values = existingCriterion.includedValues
-        ? [...existingCriterion.includedValues]
-        : [];
-      existingCriterion.exclude = existingCriterion.excludedValues
-        ? [...existingCriterion.excludedValues]
-        : [];
+      criteriaByField.set(criterion.field, criterion);
     }
 
     return criteriaByField;
