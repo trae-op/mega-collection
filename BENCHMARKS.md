@@ -117,19 +117,19 @@ These benchmarks compare `MergeEngines` controls against a baseline native `Arra
 
 ### Summary
 
-| Scenario                                             | Engine p50 | Native p50 | Speedup      |
-| ---------------------------------------------------- | ---------- | ---------- | ------------ |
-| A — add 5 items, then read once                      | 3.64 ms    | 116.69 ms  | 32.1× faster |
-| B — update 1 item, then read once                    | 24.35 ms   | 64.08 ms   | 2.6× faster  |
-| C — delete 5 ids via mutable exclude, then read once | 28.2 ms    | 57.13 ms   | 2.0× faster  |
+| Scenario                                             | Engine p50                                | Native p50                                | Speedup                                       |
+| ---------------------------------------------------- | ----------------------------------------- | ----------------------------------------- | --------------------------------------------- |
+| A — add 5 items, then read once                      | <span style="color:green">3.64 ms</span>  | <span style="color:#666">116.69 ms</span> | <span style="color:green">32.1× faster</span> |
+| B — update 1 item, then read once                    | <span style="color:green">24.35 ms</span> | <span style="color:#666">64.08 ms</span>  | <span style="color:green">2.6× faster</span>  |
+| C — delete 5 ids via mutable exclude, then read once | <span style="color:green">28.2 ms</span>  | <span style="color:#666">57.13 ms</span>  | <span style="color:green">2.0× faster</span>  |
 
 ### Per-scenario tail latency (p95 / p99 / max)
 
-| Scenario                                                                                       | p50       | p95       | p99       | Max       |
-| ---------------------------------------------------------------------------------------------- | --------- | --------- | --------- | --------- |
-| A1. MergeEngines.add() append 5 items + immediate search/filter/sort read                      | 3.64 ms   | 6.93 ms   | 6.93 ms   | 6.93 ms   |
-| A2. Native Array/Map add – append 5 items + immediate linear search/filter/sort read           | 116.69 ms | 180.55 ms | 180.55 ms | 180.55 ms |
-| B1. MergeEngines.update() refresh 1 item + immediate search/filter/sort read                   | 24.35 ms  | 318.62 ms | 318.62 ms | 318.62 ms |
-| B2. Native Array/Map update – replace 1 item + immediate linear search/filter/sort read        | 64.08 ms  | 116.25 ms | 116.25 ms | 116.25 ms |
-| C1. MergeEngines mutable exclude – remove 5 ids + immediate search/filter/sort read            | 28.2 ms   | 52.51 ms  | 52.51 ms  | 52.51 ms  |
-| C2. Native Array/Map swap-pop delete – remove 5 ids + immediate linear search/filter/sort read | 57.13 ms  | 155.8 ms  | 155.8 ms  | 155.8 ms  |
+| Scenario                                                                                       | p50                                       | p95                                       | p99                                       | Max                                       |
+| ---------------------------------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------- | ----------------------------------------- | ----------------------------------------- |
+| A1. MergeEngines.add() append 5 items + immediate search/filter/sort read                      | <span style="color:green">3.64 ms</span>  | <span style="color:#666">6.93 ms</span>   | <span style="color:#666">6.93 ms</span>   | <span style="color:#666">6.93 ms</span>   |
+| A2. Native Array/Map add – append 5 items + immediate linear search/filter/sort read           | <span style="color:#666">116.69 ms</span> | <span style="color:#666">180.55 ms</span> | <span style="color:#666">180.55 ms</span> | <span style="color:#666">180.55 ms</span> |
+| B1. MergeEngines.update() refresh 1 item + immediate search/filter/sort read                   | <span style="color:green">24.35 ms</span> | <span style="color:#666">318.62 ms</span> | <span style="color:#666">318.62 ms</span> | <span style="color:#666">318.62 ms</span> |
+| B2. Native Array/Map update – replace 1 item + immediate linear search/filter/sort read        | <span style="color:#666">64.08 ms</span>  | <span style="color:#666">116.25 ms</span> | <span style="color:#666">116.25 ms</span> | <span style="color:#666">116.25 ms</span> |
+| C1. MergeEngines mutable exclude – remove 5 ids + immediate search/filter/sort read            | <span style="color:green">28.2 ms</span>  | <span style="color:#666">52.51 ms</span>  | <span style="color:#666">52.51 ms</span>  | <span style="color:#666">52.51 ms</span>  |
+| C2. Native Array/Map swap-pop delete – remove 5 ids + immediate linear search/filter/sort read | <span style="color:#666">57.13 ms</span>  | <span style="color:#666">155.8 ms</span>  | <span style="color:#666">155.8 ms</span>  | <span style="color:#666">155.8 ms</span>  |
