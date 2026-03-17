@@ -19,8 +19,8 @@ export const CLR = {
 };
 
 export const N = 100_000;
-export const WARMUP_RUNS = 3;
-export const MEASURE_RUNS = 15;
+export const WARMUP_RUNS = Number(process.env.BENCH_WARMUP_RUNS ?? 3);
+export const MEASURE_RUNS = Number(process.env.BENCH_MEASURE_RUNS ?? 15);
 
 export interface TableRow {
   label: string;

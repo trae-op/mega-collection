@@ -9,6 +9,9 @@ import {
 import type { SortEngineOptions, SortIndex, SortRuntime } from "./types";
 import { SortEngineError } from "./errors";
 
+const MERGE_SHARED_SCOPE = "__merge__";
+const DEFER_SORT_MUTATION_CACHE_UPDATES_KEY = "deferSortMutationCacheUpdates";
+
 // ---------------------------------------------------------------------------
 // Radix-sort helpers (LSD, 2-pass, base 2^16)
 // ---------------------------------------------------------------------------
@@ -117,6 +120,21 @@ export class SortEngine<T extends CollectionItem> {
     return this.runtime.indexedFields;
   }
 
+  private shouldDeferMutationCacheUpdates(): boolean {
+    return (
+      this.state.getScopedValue<boolean>(
+        MERGE_SHARED_SCOPE,
+        DEFER_SORT_MUTATION_CACHE_UPDATES_KEY,
+      ) === true
+    );
+  }
+
+  private invalidateCachedIndexes(): void {
+    for (const field of this.indexedFields) {
+      this.cache.delete(field as string);
+    }
+  }
+
   private rebuildConfiguredIndexes(): void {
     this.cache.clear();
 
@@ -211,6 +229,11 @@ export class SortEngine<T extends CollectionItem> {
 
   private applyAddedItems(startIndex: number, count: number): this {
     if (count === 0) {
+      return this;
+    }
+
+    if (this.shouldDeferMutationCacheUpdates()) {
+      this.invalidateCachedIndexes();
       return this;
     }
 
@@ -511,6 +534,11 @@ export class SortEngine<T extends CollectionItem> {
   }
 
   private applyUpdatedItem(index: number, previousItem: T, nextItem: T): void {
+    if (this.shouldDeferMutationCacheUpdates()) {
+      this.invalidateCachedIndexes();
+      return;
+    }
+
     for (const field of this.indexedFields) {
       if (previousItem[field] === nextItem[field]) continue;
 
@@ -714,6 +742,11 @@ export class SortEngine<T extends CollectionItem> {
     removedIndex: number,
     movedFromIndex: number | null,
   ): void {
+    if (this.shouldDeferMutationCacheUpdates()) {
+      this.invalidateCachedIndexes();
+      return;
+    }
+
     for (const field of this.indexedFields) {
       const cachedIndex = this.cache.get(field as string);
 
@@ -736,6 +769,11 @@ export class SortEngine<T extends CollectionItem> {
       movedFromIndex: number | null;
     }>,
   ): void {
+    if (this.shouldDeferMutationCacheUpdates()) {
+      this.invalidateCachedIndexes();
+      return;
+    }
+
     for (const field of this.indexedFields) {
       const cachedIndex = this.cache.get(field as string);
 

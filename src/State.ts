@@ -15,6 +15,8 @@ export class State<T extends CollectionItem> {
 
   private filterByPreviousResult: boolean;
 
+  private itemIndexLookup = new WeakMap<T, number>();
+
   private mutationVersion = 0;
 
   private namespaceSequence = 0;
@@ -33,6 +35,7 @@ export class State<T extends CollectionItem> {
   constructor(data: T[] = [], options: StateOptions = {}) {
     this.originData = data;
     this.filterByPreviousResult = options.filterByPreviousResult ?? false;
+    this.rebuildItemIndexLookup();
   }
 
   subscribe(listener: StateListener<T>): () => void {
@@ -45,6 +48,10 @@ export class State<T extends CollectionItem> {
 
   getOriginData(): T[] {
     return this.originData;
+  }
+
+  getItemIndex(item: T): number | undefined {
+    return this.itemIndexLookup.get(item);
   }
 
   getMutationVersion(): number {
@@ -147,6 +154,7 @@ export class State<T extends CollectionItem> {
   data(data: T[]): void {
     this.originData = data;
     this.bumpMutationVersion();
+    this.rebuildItemIndexLookup();
 
     for (const field of this.indexMaps.keys()) {
       this.rebuildIndexMap(field);
@@ -163,6 +171,7 @@ export class State<T extends CollectionItem> {
     const startIndex = this.originData.length;
     for (let i = 0; i < items.length; i++) {
       this.originData.push(items[i]);
+      this.itemIndexLookup.set(items[i], startIndex + i);
     }
     this.bumpMutationVersion();
 
@@ -192,6 +201,8 @@ export class State<T extends CollectionItem> {
 
     const previousItem = this.originData[itemIndex];
     this.originData[itemIndex] = data;
+    this.itemIndexLookup.delete(previousItem);
+    this.itemIndexLookup.set(data, itemIndex);
     this.bumpMutationVersion();
 
     for (const [indexedField, indexedFieldMap] of this.indexMaps) {
@@ -221,6 +232,7 @@ export class State<T extends CollectionItem> {
   clearData(): void {
     const data: T[] = [];
     this.originData = data;
+    this.itemIndexLookup = new WeakMap<T, number>();
     this.bumpMutationVersion();
 
     for (const indexMap of this.indexMaps.values()) {
@@ -245,9 +257,11 @@ export class State<T extends CollectionItem> {
 
     if (itemIndex !== lastIndex && movedItem) {
       this.originData[itemIndex] = movedItem;
+      this.itemIndexLookup.set(movedItem, itemIndex);
     }
 
     this.originData.pop();
+    this.itemIndexLookup.delete(removedItem);
     this.bumpMutationVersion();
 
     for (const [indexedField, indexedFieldMap] of this.indexMaps) {
@@ -296,9 +310,11 @@ export class State<T extends CollectionItem> {
 
       if (itemIndex !== lastIndex && movedItem) {
         this.originData[itemIndex] = movedItem;
+        this.itemIndexLookup.set(movedItem, itemIndex);
       }
 
       this.originData.pop();
+      this.itemIndexLookup.delete(removedItem);
 
       for (const [indexedField, indexedFieldMap] of this.indexMaps) {
         const removedFieldValue = removedItem[indexedField];
@@ -377,5 +393,13 @@ export class State<T extends CollectionItem> {
 
     this.indexMaps.set(field, indexMap);
     return indexMap;
+  }
+
+  private rebuildItemIndexLookup(): void {
+    this.itemIndexLookup = new WeakMap<T, number>();
+
+    for (let itemIndex = 0; itemIndex < this.originData.length; itemIndex++) {
+      this.itemIndexLookup.set(this.originData[itemIndex], itemIndex);
+    }
   }
 }

@@ -183,4 +183,5 @@ export type MergeSortCache<T extends CollectionItem> = {
   sourceData: T[];
   result: T[];
   version: number;
+  descriptors: SortDescriptor<T>[];
 };

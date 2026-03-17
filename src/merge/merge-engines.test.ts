@@ -22,6 +22,40 @@ class CountingSearchEngine<
   }
 }
 
+class CountingSortEngine<
+  T extends { id: number; name: string; city: string; age: number },
+> extends SortEngine<T> {
+  static storedSortCalls = 0;
+
+  override sort(
+    descriptors: Array<{ field: keyof T & string; direction: "asc" | "desc" }>,
+  ): T[];
+  override sort(
+    data: T[],
+    descriptors: Array<{ field: keyof T & string; direction: "asc" | "desc" }>,
+    inPlace?: boolean,
+  ): T[];
+  override sort(
+    dataOrDescriptors:
+      | T[]
+      | Array<{ field: keyof T & string; direction: "asc" | "desc" }>,
+    descriptors?: Array<{ field: keyof T & string; direction: "asc" | "desc" }>,
+    inPlace?: boolean,
+  ): T[] {
+    if (descriptors === undefined) {
+      CountingSortEngine.storedSortCalls += 1;
+      return super.sort(
+        dataOrDescriptors as Array<{
+          field: keyof T & string;
+          direction: "asc" | "desc";
+        }>,
+      );
+    }
+
+    return super.sort(dataOrDescriptors as T[], descriptors, inPlace);
+  }
+}
+
 type User = {
   id: number;
   name: string;
@@ -477,6 +511,28 @@ describe("MergeEngines", () => {
     ).toEqual([10, 1, 4, 2, 3, 5, 11]);
   });
 
+  it("reuses patched stored-dataset sort cache after add()", () => {
+    CountingSortEngine.storedSortCalls = 0;
+
+    const merge = new MergeEngines<User>({
+      imports: [CountingSortEngine],
+      data: users.map((user) => ({ ...user })),
+      sort: { fields: ["age", "name"] },
+    });
+
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([1, 4, 2, 3, 5]);
+    expect(CountingSortEngine.storedSortCalls).toBe(1);
+
+    merge.add([{ id: 10, name: "Tim", city: "Boston", age: 20 }]);
+
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([10, 1, 4, 2, 3, 5]);
+    expect(CountingSortEngine.storedSortCalls).toBe(1);
+  });
+
   it("update() refreshes all imported modules against the shared dataset", () => {
     const dataset = users.map((user) => ({ ...user }));
     const merge = new MergeEngines<User>({
@@ -502,6 +558,31 @@ describe("MergeEngines", () => {
     expect(
       merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
     ).toEqual([2, 1, 4, 3, 5]);
+  });
+
+  it("reuses patched stored-dataset sort cache after update()", () => {
+    CountingSortEngine.storedSortCalls = 0;
+
+    const merge = new MergeEngines<User>({
+      imports: [CountingSortEngine],
+      data: users.map((user) => ({ ...user })),
+      sort: { fields: ["age", "name"] },
+    });
+
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([1, 4, 2, 3, 5]);
+    expect(CountingSortEngine.storedSortCalls).toBe(1);
+
+    merge.update({
+      field: "id",
+      data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+    });
+
+    expect(
+      merge.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([2, 1, 4, 3, 5]);
+    expect(CountingSortEngine.storedSortCalls).toBe(1);
   });
 
   it("getOriginData() returns shared origin dataset", () => {

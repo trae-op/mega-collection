@@ -41,11 +41,24 @@ interface ScenarioResult {
   memory_mb: number;
   status: "PASS" | "FAIL";
   failed_metrics: string[];
+  breakdown: ScenarioBreakdown;
 }
 
 interface OperationSummary {
   resultCount: number;
   checksum: number;
+  mutation_ms: number;
+  search_ms: number;
+  filter_ms: number;
+  sort_ms: number;
+  total_ms: number;
+}
+
+interface ScenarioBreakdown {
+  mutation_p50_ms: number;
+  search_p50_ms: number;
+  filter_p50_ms: number;
+  sort_p50_ms: number;
 }
 
 interface NativeRuntime {
@@ -61,7 +74,6 @@ const THRESHOLDS = {
 const ADD_BATCH_SIZE = 2;
 const REMOVE_BATCH_SIZE = 10;
 const REMOVE_INTERVAL = 40;
-const POST_MUTATION_READS = 1;
 
 const FILTER_STATUSES = ["active", "pending"];
 const CITIES = ["kyiv", "berlin", "miami", "tokyo", "oslo"] as const;
@@ -107,6 +119,10 @@ const REMOVE_IDS = BASE_DATASET.filter((item) =>
 )
   .slice(0, REMOVE_BATCH_SIZE)
   .map((item) => item.id);
+
+function nowMs(): number {
+  return Number(process.hrtime.bigint()) / 1_000_000;
+}
 
 function generateDataset(): Item[] {
   const data: Item[] = new Array(N);
@@ -206,6 +222,16 @@ function warmMergeRuntime(merge: MergeEngines<Item>): void {
   merge.sort([{ field: "score", direction: "asc" }]);
 }
 
+function warmImmediateReadRuntime(
+  merge: MergeEngines<Item>,
+  searchQuery: string,
+  criteria: FilterCriterion<Item>[],
+): void {
+  merge.search("name", searchQuery);
+  merge.filter(criteria);
+  merge.sort(SORT_DESCRIPTORS);
+}
+
 function nativeSearchByName(data: Item[], query: string): Item[] {
   return data.filter((item) => item.name.includes(query));
 }
@@ -300,57 +326,30 @@ function checksumIds(items: Item[], sampleSize: number): number {
   return checksum;
 }
 
-function runRepeatedReadWorkloadMerge(
-  merge: MergeEngines<Item>,
-  searchQuery: string,
-  criteria: FilterCriterion<Item>[],
+function measureOperationSummary(
+  mutate: () => void,
+  search: () => Item[],
+  filter: () => Item[],
+  sort: () => Item[],
 ): OperationSummary {
-  let aggregateResultCount = 0;
-  let aggregateChecksum = 0;
-
-  for (let index = 0; index < POST_MUTATION_READS; index++) {
-    const summary = summarizeOperations(
-      merge.search("name", searchQuery),
-      merge.filter(criteria),
-      merge.sort(SORT_DESCRIPTORS),
-    );
-
-    aggregateResultCount += summary.resultCount;
-    aggregateChecksum += summary.checksum * (index + 1);
-  }
+  const mutationStart = nowMs();
+  mutate();
+  const afterMutation = nowMs();
+  const searchResult = search();
+  const afterSearch = nowMs();
+  const filterResult = filter();
+  const afterFilter = nowMs();
+  const sortResult = sort();
+  const afterSort = nowMs();
+  const summary = summarizeOperations(searchResult, filterResult, sortResult);
 
   return {
-    resultCount: aggregateResultCount,
-    checksum: aggregateChecksum,
-  };
-}
-
-function runRepeatedReadWorkloadNative(
-  runtime: NativeRuntime,
-  searchQuery: string,
-  city: string,
-  statuses: string[],
-): OperationSummary {
-  let aggregateResultCount = 0;
-  let aggregateChecksum = 0;
-  const allowedStatuses = new Set(statuses);
-
-  for (let index = 0; index < POST_MUTATION_READS; index++) {
-    const summary = summarizeOperations(
-      nativeSearchByName(runtime.data, searchQuery),
-      runtime.data.filter(
-        (item) => item.city === city && allowedStatuses.has(item.status),
-      ),
-      nativeSortByDescriptors(runtime.data),
-    );
-
-    aggregateResultCount += summary.resultCount;
-    aggregateChecksum += summary.checksum * (index + 1);
-  }
-
-  return {
-    resultCount: aggregateResultCount,
-    checksum: aggregateChecksum,
+    ...summary,
+    mutation_ms: afterMutation - mutationStart,
+    search_ms: afterSearch - afterMutation,
+    filter_ms: afterFilter - afterSearch,
+    sort_ms: afterSort - afterFilter,
+    total_ms: afterSort - mutationStart,
   };
 }
 
@@ -426,49 +425,82 @@ function verifyOperationParity(
 }
 
 function runAddMerge(merge: MergeEngines<Item>): OperationSummary {
-  merge.add(ADD_ITEMS);
-  return runRepeatedReadWorkloadMerge(merge, ADD_QUERY, [
+  const criteria: FilterCriterion<Item>[] = [
     { field: "city", values: [ADD_CITY] },
     { field: "status", values: [ADD_STATUS] },
-  ]);
+  ];
+
+  return measureOperationSummary(
+    () => merge.add(ADD_ITEMS),
+    () => merge.search("name", ADD_QUERY),
+    () => merge.filter(criteria),
+    () => merge.sort(SORT_DESCRIPTORS),
+  );
 }
 
 function runAddNative(runtime: NativeRuntime): OperationSummary {
-  nativeAdd(runtime, ADD_ITEMS);
-  return runRepeatedReadWorkloadNative(runtime, ADD_QUERY, ADD_CITY, [
-    ADD_STATUS,
-  ]);
+  return measureOperationSummary(
+    () => nativeAdd(runtime, ADD_ITEMS),
+    () => nativeSearchByName(runtime.data, ADD_QUERY),
+    () =>
+      runtime.data.filter(
+        (item) => item.city === ADD_CITY && item.status === ADD_STATUS,
+      ),
+    () => nativeSortByDescriptors(runtime.data),
+  );
 }
 
 function runUpdateMerge(merge: MergeEngines<Item>): OperationSummary {
-  merge.update({
-    field: "id",
-    data: UPDATE_ITEM,
-  });
-
-  return runRepeatedReadWorkloadMerge(merge, UPDATE_QUERY, [
+  const criteria: FilterCriterion<Item>[] = [
     { field: "city", values: [UPDATE_CITY] },
     { field: "status", values: [UPDATE_STATUS] },
-  ]);
+  ];
+
+  return measureOperationSummary(
+    () =>
+      merge.update({
+        field: "id",
+        data: UPDATE_ITEM,
+      }),
+    () => merge.search("name", UPDATE_QUERY),
+    () => merge.filter(criteria),
+    () => merge.sort(SORT_DESCRIPTORS),
+  );
 }
 
 function runUpdateNative(runtime: NativeRuntime): OperationSummary {
-  nativeUpdate(runtime, [UPDATE_ITEM]);
-  return runRepeatedReadWorkloadNative(runtime, UPDATE_QUERY, UPDATE_CITY, [
-    UPDATE_STATUS,
-  ]);
+  return measureOperationSummary(
+    () => nativeUpdate(runtime, [UPDATE_ITEM]),
+    () => nativeSearchByName(runtime.data, UPDATE_QUERY),
+    () =>
+      runtime.data.filter(
+        (item) => item.city === UPDATE_CITY && item.status === UPDATE_STATUS,
+      ),
+    () => nativeSortByDescriptors(runtime.data),
+  );
 }
 
 function runDeleteMerge(merge: MergeEngines<Item>): OperationSummary {
-  merge.filter([{ field: "id", exclude: REMOVE_IDS }]);
-  return runRepeatedReadWorkloadMerge(merge, REMOVE_QUERY, FILTER_CRITERIA);
+  return measureOperationSummary(
+    () => {
+      merge.filter([{ field: "id", exclude: REMOVE_IDS }]);
+    },
+    () => merge.search("name", REMOVE_QUERY),
+    () => merge.filter(FILTER_CRITERIA),
+    () => merge.sort(SORT_DESCRIPTORS),
+  );
 }
 
 function runDeleteNative(runtime: NativeRuntime): OperationSummary {
-  nativeMutableExclude(runtime, REMOVE_IDS);
-  return runRepeatedReadWorkloadNative(runtime, REMOVE_QUERY, "kyiv", [
-    ...FILTER_STATUSES,
-  ]);
+  return measureOperationSummary(
+    () => nativeMutableExclude(runtime, REMOVE_IDS),
+    () => nativeSearchByName(runtime.data, REMOVE_QUERY),
+    () =>
+      runtime.data.filter(
+        (item) => item.city === "kyiv" && FILTER_STATUSES.includes(item.status),
+      ),
+    () => nativeSortByDescriptors(runtime.data),
+  );
 }
 
 function verifyScenarios(): void {
@@ -512,7 +544,6 @@ function runScenario(
   fn: () => OperationSummary,
 ): ScenarioResult {
   const round = (value: number) => Math.round(value * 100) / 100;
-  const nowMs = (): number => Number(process.hrtime.bigint()) / 1_000_000;
 
   console.log(`Running ${scenario}...`);
 
@@ -531,14 +562,25 @@ function runScenario(
   globalThis.gc?.();
 
   const times: number[] = [];
+  const mutationTimes: number[] = [];
+  const searchTimes: number[] = [];
+  const filterTimes: number[] = [];
+  const sortTimes: number[] = [];
   for (let run = 0; run < MEASURE_RUNS; run++) {
     setup();
-    const start = nowMs();
-    fn();
-    times.push(nowMs() - start);
+    const measured = fn();
+    times.push(measured.total_ms);
+    mutationTimes.push(measured.mutation_ms);
+    searchTimes.push(measured.search_ms);
+    filterTimes.push(measured.filter_ms);
+    sortTimes.push(measured.sort_ms);
   }
 
   times.sort((left, right) => left - right);
+  mutationTimes.sort((left, right) => left - right);
+  searchTimes.sort((left, right) => left - right);
+  filterTimes.sort((left, right) => left - right);
+  sortTimes.sort((left, right) => left - right);
 
   const min_ms = round(times[0]);
   const p50_ms = round(percentile(times, 50));
@@ -562,6 +604,12 @@ function runScenario(
     memory_mb,
     status: failed.length === 0 ? "PASS" : "FAIL",
     failed_metrics: failed,
+    breakdown: {
+      mutation_p50_ms: round(percentile(mutationTimes, 50)),
+      search_p50_ms: round(percentile(searchTimes, 50)),
+      filter_p50_ms: round(percentile(filterTimes, 50)),
+      sort_p50_ms: round(percentile(sortTimes, 50)),
+    },
   };
 }
 
@@ -585,6 +633,10 @@ async function main(): Promise<void> {
       () => {
         mergeRuntime = createMergeRuntime();
         warmMergeRuntime(mergeRuntime);
+        warmImmediateReadRuntime(mergeRuntime, ADD_QUERY, [
+          { field: "city", values: [ADD_CITY] },
+          { field: "status", values: [ADD_STATUS] },
+        ]);
       },
       () => runAddMerge(mergeRuntime),
     ),
@@ -600,6 +652,10 @@ async function main(): Promise<void> {
       () => {
         mergeRuntime = createMergeRuntime();
         warmMergeRuntime(mergeRuntime);
+        warmImmediateReadRuntime(mergeRuntime, UPDATE_QUERY, [
+          { field: "city", values: [UPDATE_CITY] },
+          { field: "status", values: [UPDATE_STATUS] },
+        ]);
       },
       () => runUpdateMerge(mergeRuntime),
     ),
@@ -615,6 +671,7 @@ async function main(): Promise<void> {
       () => {
         mergeRuntime = createMergeRuntime();
         warmMergeRuntime(mergeRuntime);
+        warmImmediateReadRuntime(mergeRuntime, REMOVE_QUERY, FILTER_CRITERIA);
       },
       () => runDeleteMerge(mergeRuntime),
     ),
@@ -651,6 +708,120 @@ async function main(): Promise<void> {
   printComparisonTable(
     "MergeEngines controls vs Native Array/Map — Performance Comparison (100k items)",
     comparisonRows,
+  );
+
+  printComparisonTable(
+    "Stage breakdown p50 — mutation/search/filter/sort contribution",
+    [
+      {
+        label: "A mutation",
+        engineMs: results[0].breakdown.mutation_p50_ms,
+        nativeMs: results[1].breakdown.mutation_p50_ms,
+        speedup: speedupStr(
+          results[1].breakdown.mutation_p50_ms,
+          results[0].breakdown.mutation_p50_ms,
+        ),
+      },
+      {
+        label: "A search",
+        engineMs: results[0].breakdown.search_p50_ms,
+        nativeMs: results[1].breakdown.search_p50_ms,
+        speedup: speedupStr(
+          results[1].breakdown.search_p50_ms,
+          results[0].breakdown.search_p50_ms,
+        ),
+      },
+      {
+        label: "A filter",
+        engineMs: results[0].breakdown.filter_p50_ms,
+        nativeMs: results[1].breakdown.filter_p50_ms,
+        speedup: speedupStr(
+          results[1].breakdown.filter_p50_ms,
+          results[0].breakdown.filter_p50_ms,
+        ),
+      },
+      {
+        label: "A sort",
+        engineMs: results[0].breakdown.sort_p50_ms,
+        nativeMs: results[1].breakdown.sort_p50_ms,
+        speedup: speedupStr(
+          results[1].breakdown.sort_p50_ms,
+          results[0].breakdown.sort_p50_ms,
+        ),
+      },
+      {
+        label: "B mutation",
+        engineMs: results[2].breakdown.mutation_p50_ms,
+        nativeMs: results[3].breakdown.mutation_p50_ms,
+        speedup: speedupStr(
+          results[3].breakdown.mutation_p50_ms,
+          results[2].breakdown.mutation_p50_ms,
+        ),
+      },
+      {
+        label: "B search",
+        engineMs: results[2].breakdown.search_p50_ms,
+        nativeMs: results[3].breakdown.search_p50_ms,
+        speedup: speedupStr(
+          results[3].breakdown.search_p50_ms,
+          results[2].breakdown.search_p50_ms,
+        ),
+      },
+      {
+        label: "B filter",
+        engineMs: results[2].breakdown.filter_p50_ms,
+        nativeMs: results[3].breakdown.filter_p50_ms,
+        speedup: speedupStr(
+          results[3].breakdown.filter_p50_ms,
+          results[2].breakdown.filter_p50_ms,
+        ),
+      },
+      {
+        label: "B sort",
+        engineMs: results[2].breakdown.sort_p50_ms,
+        nativeMs: results[3].breakdown.sort_p50_ms,
+        speedup: speedupStr(
+          results[3].breakdown.sort_p50_ms,
+          results[2].breakdown.sort_p50_ms,
+        ),
+      },
+      {
+        label: "C mutation",
+        engineMs: results[4].breakdown.mutation_p50_ms,
+        nativeMs: results[5].breakdown.mutation_p50_ms,
+        speedup: speedupStr(
+          results[5].breakdown.mutation_p50_ms,
+          results[4].breakdown.mutation_p50_ms,
+        ),
+      },
+      {
+        label: "C search",
+        engineMs: results[4].breakdown.search_p50_ms,
+        nativeMs: results[5].breakdown.search_p50_ms,
+        speedup: speedupStr(
+          results[5].breakdown.search_p50_ms,
+          results[4].breakdown.search_p50_ms,
+        ),
+      },
+      {
+        label: "C filter",
+        engineMs: results[4].breakdown.filter_p50_ms,
+        nativeMs: results[5].breakdown.filter_p50_ms,
+        speedup: speedupStr(
+          results[5].breakdown.filter_p50_ms,
+          results[4].breakdown.filter_p50_ms,
+        ),
+      },
+      {
+        label: "C sort",
+        engineMs: results[4].breakdown.sort_p50_ms,
+        nativeMs: results[5].breakdown.sort_p50_ms,
+        speedup: speedupStr(
+          results[5].breakdown.sort_p50_ms,
+          results[4].breakdown.sort_p50_ms,
+        ),
+      },
+    ],
   );
 
   printLatencyTable(

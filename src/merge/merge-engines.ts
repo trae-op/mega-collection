@@ -7,6 +7,7 @@ import { State } from "../State";
 import type {
   CollectionItem,
   FilterCriterion,
+  StateMutation,
   SortDescriptor,
   UpdateDescriptor,
 } from "../types";
@@ -27,6 +28,9 @@ import type {
   SortModuleAdapter,
 } from "./types";
 import { MergeEnginesError } from "./errors";
+
+const MERGE_SHARED_SCOPE = "__merge__";
+const DEFER_SORT_MUTATION_CACHE_UPDATES_KEY = "deferSortMutationCacheUpdates";
 
 export class MergeEngines<T extends CollectionItem> {
   private readonly state: State<T>;
@@ -103,6 +107,16 @@ export class MergeEngines<T extends CollectionItem> {
     this.searchModule = searchModule;
     this.sortModule = sortModule;
     this.filterModule = filterModule;
+
+    if (this.sortModule) {
+      this.state.setScopedValue(
+        MERGE_SHARED_SCOPE,
+        DEFER_SORT_MUTATION_CACHE_UPDATES_KEY,
+        true,
+      );
+    }
+
+    this.state.subscribe((mutation) => this.handleStateMutation(mutation));
 
     this.chainBuilder = new MergeEnginesChainBuilder<T>({
       search: (fieldOrQuery, maybeQuery) => {
@@ -213,6 +227,208 @@ export class MergeEngines<T extends CollectionItem> {
     return JSON.stringify({ descriptors, inPlace: inPlace ?? false });
   }
 
+  private handleStateMutation(mutation: StateMutation<T>): void {
+    this.previousSearchState = null;
+
+    switch (mutation.type) {
+      case "add":
+        this.previousSortState =
+          this.previousSortState === null
+            ? null
+            : this.patchSortCacheForAddedItems(
+                this.previousSortState,
+                mutation.items,
+              );
+        return;
+      case "update":
+        this.previousSortState =
+          this.previousSortState === null
+            ? null
+            : this.patchSortCacheForUpdatedItem(
+                this.previousSortState,
+                mutation.previousItem,
+                mutation.nextItem,
+              );
+        return;
+      case "remove":
+        this.previousSortState =
+          this.previousSortState === null
+            ? null
+            : this.patchSortCacheForRemovedItems(this.previousSortState, [
+                mutation.removedItem,
+              ]);
+        return;
+      case "removeMany":
+        this.previousSortState =
+          this.previousSortState === null
+            ? null
+            : this.patchSortCacheForRemovedItems(
+                this.previousSortState,
+                mutation.entries.map((entry) => entry.removedItem),
+              );
+        return;
+      case "data":
+      case "clearData":
+        this.previousSortState = null;
+        return;
+    }
+  }
+
+  private canPatchStoredDatasetSort(cache: MergeSortCache<T>): boolean {
+    return cache.sourceData === this.state.getOriginData();
+  }
+
+  private compareItemsByDescriptors(
+    left: T,
+    right: T,
+    descriptors: SortDescriptor<T>[],
+  ): number {
+    for (let index = 0; index < descriptors.length; index++) {
+      const { field, direction } = descriptors[index];
+      const leftValue = left[field];
+      const rightValue = right[field];
+
+      if (leftValue < rightValue) {
+        return direction === "asc" ? -1 : 1;
+      }
+
+      if (leftValue > rightValue) {
+        return direction === "asc" ? 1 : -1;
+      }
+    }
+
+    return (
+      (this.state.getItemIndex(left) ?? -1) -
+      (this.state.getItemIndex(right) ?? -1)
+    );
+  }
+
+  private findSortInsertPosition(
+    items: T[],
+    candidate: T,
+    descriptors: SortDescriptor<T>[],
+  ): number {
+    let low = 0;
+    let high = items.length;
+
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      const comparison = this.compareItemsByDescriptors(
+        items[middle],
+        candidate,
+        descriptors,
+      );
+
+      if (comparison <= 0) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+
+    return low;
+  }
+
+  private patchSortCacheForAddedItems(
+    cache: MergeSortCache<T>,
+    items: T[],
+  ): MergeSortCache<T> | null {
+    if (!this.canPatchStoredDatasetSort(cache)) {
+      return null;
+    }
+
+    const nextResult = cache.result.slice();
+
+    for (let index = 0; index < items.length; index++) {
+      const candidate = items[index];
+      const insertPosition = this.findSortInsertPosition(
+        nextResult,
+        candidate,
+        cache.descriptors,
+      );
+      nextResult.splice(insertPosition, 0, candidate);
+    }
+
+    return {
+      ...cache,
+      result: nextResult,
+      version: this.state.getMutationVersion(),
+    };
+  }
+
+  private patchSortCacheForUpdatedItem(
+    cache: MergeSortCache<T>,
+    previousItem: T,
+    nextItem: T,
+  ): MergeSortCache<T> | null {
+    if (!this.canPatchStoredDatasetSort(cache)) {
+      return null;
+    }
+
+    const nextResult = cache.result.slice();
+    const previousPosition = nextResult.indexOf(previousItem);
+
+    if (previousPosition === -1) {
+      if (cache.result.indexOf(nextItem) !== -1) {
+        return {
+          ...cache,
+          version: this.state.getMutationVersion(),
+        };
+      }
+
+      return null;
+    }
+
+    const sortFieldsChanged = cache.descriptors.some(
+      ({ field }) => previousItem[field] !== nextItem[field],
+    );
+
+    if (!sortFieldsChanged) {
+      nextResult[previousPosition] = nextItem;
+
+      return {
+        ...cache,
+        result: nextResult,
+        version: this.state.getMutationVersion(),
+      };
+    }
+
+    nextResult.splice(previousPosition, 1);
+
+    const insertPosition = this.findSortInsertPosition(
+      nextResult,
+      nextItem,
+      cache.descriptors,
+    );
+    nextResult.splice(insertPosition, 0, nextItem);
+
+    return {
+      ...cache,
+      result: nextResult,
+      version: this.state.getMutationVersion(),
+    };
+  }
+
+  private patchSortCacheForRemovedItems(
+    cache: MergeSortCache<T>,
+    removedItems: T[],
+  ): MergeSortCache<T> | null {
+    if (!this.canPatchStoredDatasetSort(cache)) {
+      return null;
+    }
+
+    const removedItemsSet = new Set(removedItems);
+
+    return {
+      ...cache,
+      result: Array.prototype.filter.call(
+        cache.result,
+        (item: T) => !removedItemsSet.has(item),
+      ) as T[],
+      version: this.state.getMutationVersion(),
+    };
+  }
+
   search(query: string): T[] & MergeEnginesChain<T>;
   search(
     field: (keyof T & string) | (string & {}),
@@ -317,6 +533,7 @@ export class MergeEngines<T extends CollectionItem> {
         sourceData,
         result,
         version: mutationVersion,
+        descriptors: resolvedDescriptors,
       };
 
       return this.withChain(this.trackPreviousResult(result, sourceData));
@@ -382,16 +599,12 @@ export class MergeEngines<T extends CollectionItem> {
       return this;
     }
 
-    this.clearOperationState();
     this.state.add(items);
 
     return this;
   }
 
   update(descriptor: UpdateDescriptor<T>): this {
-    // Clear MergeEngines-level operation caches (previousSearchState, previousSortState)
-    // before State.update() clears its own State-level previous result via bumpMutationVersion().
-    this.clearOperationState();
     this.state.update(descriptor);
     return this;
   }
@@ -409,7 +622,6 @@ export class MergeEngines<T extends CollectionItem> {
   }
 
   data(data: T[]): this {
-    this.clearOperationState();
     this.state.data(data);
 
     return this;
@@ -418,7 +630,6 @@ export class MergeEngines<T extends CollectionItem> {
   clearData(module: MergeModuleName): this {
     if (this.getAdapter(module)) {
       this.state.clearData();
-      this.clearOperationState();
       return this;
     }
 
