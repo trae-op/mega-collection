@@ -71,8 +71,8 @@ const THRESHOLDS = {
   memory_mb: 45,
 } as const;
 
-const ADD_BATCH_SIZE = 2;
-const REMOVE_BATCH_SIZE = 10;
+const ADD_BATCH_SIZE = 5;
+const REMOVE_BATCH_SIZE = 5;
 const REMOVE_INTERVAL = 40;
 
 const FILTER_STATUSES = ["active", "pending"];
@@ -629,7 +629,7 @@ async function main(): Promise<void> {
 
   const results = [
     runScenario(
-      "A1. MergeEngines.add() - append 2 items + immediate search/filter/sort read",
+      `A1. MergeEngines.add() - append ${ADD_BATCH_SIZE} items + immediate search/filter/sort read`,
       () => {
         mergeRuntime = createMergeRuntime();
         warmMergeRuntime(mergeRuntime);
@@ -641,14 +641,14 @@ async function main(): Promise<void> {
       () => runAddMerge(mergeRuntime),
     ),
     runScenario(
-      "A2. Native Array/Map add - append 2 items + immediate linear search/filter/sort read",
+      `A2. Native Array/Map add - append ${ADD_BATCH_SIZE} items + immediate linear search/filter/sort read`,
       () => {
         nativeRuntime = createNativeRuntime();
       },
       () => runAddNative(nativeRuntime),
     ),
     runScenario(
-      "B1. MergeEngines.update() - refresh 1 item + immediate search/filter/sort read",
+      `B1. MergeEngines.update() - refresh 1 item + immediate search/filter/sort read`,
       () => {
         mergeRuntime = createMergeRuntime();
         warmMergeRuntime(mergeRuntime);
@@ -660,14 +660,14 @@ async function main(): Promise<void> {
       () => runUpdateMerge(mergeRuntime),
     ),
     runScenario(
-      "B2. Native Array/Map update - replace 1 item + immediate linear search/filter/sort read",
+      `B2. Native Array/Map update - replace 1 item + immediate linear search/filter/sort read`,
       () => {
         nativeRuntime = createNativeRuntime();
       },
       () => runUpdateNative(nativeRuntime),
     ),
     runScenario(
-      "C1. MergeEngines mutable exclude - remove 10 ids + immediate search/filter/sort read",
+      `C1. MergeEngines mutable exclude - remove ${REMOVE_BATCH_SIZE} ids + immediate search/filter/sort read`,
       () => {
         mergeRuntime = createMergeRuntime();
         warmMergeRuntime(mergeRuntime);
@@ -676,7 +676,7 @@ async function main(): Promise<void> {
       () => runDeleteMerge(mergeRuntime),
     ),
     runScenario(
-      "C2. Native Array/Map swap-pop delete - remove 10 ids + immediate linear search/filter/sort read",
+      `C2. Native Array/Map swap-pop delete - remove ${REMOVE_BATCH_SIZE} ids + immediate linear search/filter/sort read`,
       () => {
         nativeRuntime = createNativeRuntime();
       },
@@ -686,19 +686,19 @@ async function main(): Promise<void> {
 
   const comparisonRows: TableRow[] = [
     {
-      label: "A — add 2 items, then read once",
+      label: `A — add ${ADD_BATCH_SIZE} items, then read once`,
       engineMs: results[0].p50_ms,
       nativeMs: results[1].p50_ms,
       speedup: speedupStr(results[1].p50_ms, results[0].p50_ms),
     },
     {
-      label: "B — update 1 item, then read once",
+      label: `B — update 1 item, then read once`,
       engineMs: results[2].p50_ms,
       nativeMs: results[3].p50_ms,
       speedup: speedupStr(results[3].p50_ms, results[2].p50_ms),
     },
     {
-      label: "C — delete 10 ids via mutable exclude, then read once",
+      label: `C — delete ${REMOVE_BATCH_SIZE} ids via mutable exclude, then read once`,
       engineMs: results[4].p50_ms,
       nativeMs: results[5].p50_ms,
       speedup: speedupStr(results[5].p50_ms, results[4].p50_ms),
@@ -708,120 +708,6 @@ async function main(): Promise<void> {
   printComparisonTable(
     "MergeEngines controls vs Native Array/Map — Performance Comparison (100k items)",
     comparisonRows,
-  );
-
-  printComparisonTable(
-    "Stage breakdown p50 — mutation/search/filter/sort contribution",
-    [
-      {
-        label: "A mutation",
-        engineMs: results[0].breakdown.mutation_p50_ms,
-        nativeMs: results[1].breakdown.mutation_p50_ms,
-        speedup: speedupStr(
-          results[1].breakdown.mutation_p50_ms,
-          results[0].breakdown.mutation_p50_ms,
-        ),
-      },
-      {
-        label: "A search",
-        engineMs: results[0].breakdown.search_p50_ms,
-        nativeMs: results[1].breakdown.search_p50_ms,
-        speedup: speedupStr(
-          results[1].breakdown.search_p50_ms,
-          results[0].breakdown.search_p50_ms,
-        ),
-      },
-      {
-        label: "A filter",
-        engineMs: results[0].breakdown.filter_p50_ms,
-        nativeMs: results[1].breakdown.filter_p50_ms,
-        speedup: speedupStr(
-          results[1].breakdown.filter_p50_ms,
-          results[0].breakdown.filter_p50_ms,
-        ),
-      },
-      {
-        label: "A sort",
-        engineMs: results[0].breakdown.sort_p50_ms,
-        nativeMs: results[1].breakdown.sort_p50_ms,
-        speedup: speedupStr(
-          results[1].breakdown.sort_p50_ms,
-          results[0].breakdown.sort_p50_ms,
-        ),
-      },
-      {
-        label: "B mutation",
-        engineMs: results[2].breakdown.mutation_p50_ms,
-        nativeMs: results[3].breakdown.mutation_p50_ms,
-        speedup: speedupStr(
-          results[3].breakdown.mutation_p50_ms,
-          results[2].breakdown.mutation_p50_ms,
-        ),
-      },
-      {
-        label: "B search",
-        engineMs: results[2].breakdown.search_p50_ms,
-        nativeMs: results[3].breakdown.search_p50_ms,
-        speedup: speedupStr(
-          results[3].breakdown.search_p50_ms,
-          results[2].breakdown.search_p50_ms,
-        ),
-      },
-      {
-        label: "B filter",
-        engineMs: results[2].breakdown.filter_p50_ms,
-        nativeMs: results[3].breakdown.filter_p50_ms,
-        speedup: speedupStr(
-          results[3].breakdown.filter_p50_ms,
-          results[2].breakdown.filter_p50_ms,
-        ),
-      },
-      {
-        label: "B sort",
-        engineMs: results[2].breakdown.sort_p50_ms,
-        nativeMs: results[3].breakdown.sort_p50_ms,
-        speedup: speedupStr(
-          results[3].breakdown.sort_p50_ms,
-          results[2].breakdown.sort_p50_ms,
-        ),
-      },
-      {
-        label: "C mutation",
-        engineMs: results[4].breakdown.mutation_p50_ms,
-        nativeMs: results[5].breakdown.mutation_p50_ms,
-        speedup: speedupStr(
-          results[5].breakdown.mutation_p50_ms,
-          results[4].breakdown.mutation_p50_ms,
-        ),
-      },
-      {
-        label: "C search",
-        engineMs: results[4].breakdown.search_p50_ms,
-        nativeMs: results[5].breakdown.search_p50_ms,
-        speedup: speedupStr(
-          results[5].breakdown.search_p50_ms,
-          results[4].breakdown.search_p50_ms,
-        ),
-      },
-      {
-        label: "C filter",
-        engineMs: results[4].breakdown.filter_p50_ms,
-        nativeMs: results[5].breakdown.filter_p50_ms,
-        speedup: speedupStr(
-          results[5].breakdown.filter_p50_ms,
-          results[4].breakdown.filter_p50_ms,
-        ),
-      },
-      {
-        label: "C sort",
-        engineMs: results[4].breakdown.sort_p50_ms,
-        nativeMs: results[5].breakdown.sort_p50_ms,
-        speedup: speedupStr(
-          results[5].breakdown.sort_p50_ms,
-          results[4].breakdown.sort_p50_ms,
-        ),
-      },
-    ],
   );
 
   printLatencyTable(
