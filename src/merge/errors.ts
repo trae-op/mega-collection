@@ -1,10 +1,5 @@
 import type { MergeModuleName } from "./types";
-
-const MODULE_TO_ENGINE = {
-  search: "TextSearchEngine",
-  sort: "SortEngine",
-  filter: "FilterEngine",
-} as const;
+import { MODULE_TO_ENGINE } from "./constants";
 
 export class MergeEnginesError extends Error {
   constructor(message: string) {

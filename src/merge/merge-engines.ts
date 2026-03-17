@@ -29,13 +29,12 @@ import type {
   SortModuleAdapter,
 } from "./types";
 import { MergeEnginesError } from "./errors";
-
-const MERGE_SHARED_SCOPE = "__merge__";
-const DEFER_SORT_MUTATION_CACHE_UPDATES_KEY = "deferSortMutationCacheUpdates";
-const DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY =
-  "deferSearchMutationIndexUpdates";
-const DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY =
-  "deferFilterMutationIndexUpdates";
+import {
+  MERGE_SHARED_SCOPE,
+  DEFER_SORT_MUTATION_CACHE_UPDATES_KEY,
+  DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY,
+  DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY,
+} from "./constants";
 
 export class MergeEngines<T extends CollectionItem> {
   private readonly state: State<T>;
