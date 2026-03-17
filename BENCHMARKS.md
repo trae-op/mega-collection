@@ -22,35 +22,35 @@ Benchmarks below compare `TextSearchEngine` against a baseline native `Array.fil
 
 | Scenario                                                      | TextSearchEngine p50                    | Native p50                              | Speedup                                         |
 | ------------------------------------------------------------- | --------------------------------------- | --------------------------------------- | ----------------------------------------------- |
-| A — single-field 'john' (~10k hits)                           | <span style="color:green">1.6 ms</span> | <span style="color:#666">6.1 ms</span>  | <span style="color:green">3.8× faster</span>    |
-| B — all-fields 'john' (~10k hits)                             | <span style="color:green">3.6 ms</span> | <span style="color:#666">17.1 ms</span> | <span style="color:green">4.8× faster</span>    |
-| C — all-fields 'jo' (~20k hits, fewer trigrams)               | <span style="color:green">4.2 ms</span> | <span style="color:#666">17.9 ms</span> | <span style="color:green">4.3× faster</span>    |
-| D — all-fields 'san antonio' (~10k hits, highly selective)    | <span style="color:green">4 ms</span>   | <span style="color:#666">16.1 ms</span> | <span style="color:green">4.0× faster</span>    |
-| E — two-step 'jo'→'john' (filterByPreviousResult)             | <span style="color:green">7.3 ms</span> | <span style="color:#666">21.6 ms</span> | <span style="color:green">3.0× faster</span>    |
-| E-step2 — pre-warmed step 2 only (narrow vs re-filter subset) | <span style="color:green">2.6 ms</span> | <span style="color:#666">3.6 ms</span>  | <span style="color:green">1.4× faster</span>    |
-| F — non-indexed linear fallback (parity check)                | <span style="color:green">4.2 ms</span> | <span style="color:#666">17 ms</span>   | <span style="color:green">4.0× faster</span>    |
-| G — absent long query, worst-case scan                        | <span style="color:green">0 ms</span>   | <span style="color:#666">11.5 ms</span> | <span style="color:green">∞× (cache hit)</span> |
+| A — single-field 'john' (~10k hits)                           | <span style="color:green">1.7 ms</span> | <span style="color:#666">6.5 ms</span>  | <span style="color:green">3.8× faster</span>    |
+| B — all-fields 'john' (~10k hits)                             | <span style="color:green">3.5 ms</span> | <span style="color:#666">17.2 ms</span> | <span style="color:green">4.9× faster</span>    |
+| C — all-fields 'jo' (~20k hits, fewer trigrams)               | <span style="color:green">4.4 ms</span> | <span style="color:#666">18.1 ms</span> | <span style="color:green">4.1× faster</span>    |
+| D — all-fields 'san antonio' (~10k hits, highly selective)    | <span style="color:green">4.5 ms</span> | <span style="color:#666">16.2 ms</span> | <span style="color:green">3.6× faster</span>    |
+| E — two-step 'jo'→'john' (filterByPreviousResult)             | <span style="color:green">7.6 ms</span> | <span style="color:#666">21.7 ms</span> | <span style="color:green">2.9× faster</span>    |
+| E-step2 — pre-warmed step 2 only (narrow vs re-filter subset) | <span style="color:green">2.4 ms</span> | <span style="color:#666">3.6 ms</span>  | <span style="color:green">1.5× faster</span>    |
+| F — non-indexed linear fallback (parity check)                | <span style="color:green">4.6 ms</span> | <span style="color:#666">17 ms</span>   | <span style="color:green">3.7× faster</span>    |
+| G — absent long query, worst-case scan                        | <span style="color:green">0 ms</span>   | <span style="color:#666">11.9 ms</span> | <span style="color:green">∞× (cache hit)</span> |
 
 ### Per-scenario tail latency (p95 / p99 / max)
 
 | Scenario                                                                          | p50                                     | p95     | p99     | Max     |
 | --------------------------------------------------------------------------------- | --------------------------------------- | ------- | ------- | ------- |
-| TextSearchEngine - indexed single-field (name, query: 'john')                     | <span style="color:green">1.6 ms</span> | 1.9 ms  | 1.9 ms  | 1.9 ms  |
-| Native Array.filter - single-field (name.toLowerCase includes 'john')             | <span style="color:#666">6.1 ms</span>  | 8.5 ms  | 8.5 ms  | 8.5 ms  |
-| TextSearchEngine - indexed all-fields (query: 'john')                             | <span style="color:green">3.6 ms</span> | 5.8 ms  | 5.8 ms  | 5.8 ms  |
-| Native Array.filter - all-fields (every field.toLowerCase includes 'john')        | <span style="color:#666">17.1 ms</span> | 19.1 ms | 19.1 ms | 19.1 ms |
-| TextSearchEngine - indexed all-fields (query: 'jo')                               | <span style="color:green">4.2 ms</span> | 8.6 ms  | 8.6 ms  | 8.6 ms  |
-| Native Array.filter - all-fields (every field.toLowerCase includes 'jo')          | <span style="color:#666">17.9 ms</span> | 20.1 ms | 20.1 ms | 20.1 ms |
-| TextSearchEngine - indexed all-fields (query: 'san antonio')                      | <span style="color:green">4 ms</span>   | 23.2 ms | 23.2 ms | 23.2 ms |
-| Native Array.filter - all-fields (every field.toLowerCase includes 'san antonio') | <span style="color:#666">16.1 ms</span> | 18.9 ms | 18.9 ms | 18.9 ms |
-| TextSearchEngine - filterByPreviousResult two-step search ('jo' → 'john')         | <span style="color:green">7.3 ms</span> | 14.1 ms | 14.1 ms | 14.1 ms |
-| Native two-step: nativeAllFields('jo') then re-filter result for 'john'           | <span style="color:#666">21.6 ms</span> | 30.4 ms | 30.4 ms | 30.4 ms |
-| TextSearchEngine - step 2 only (pre-warmed 'jo' intermediate)                     | <span style="color:green">2.6 ms</span> | 4.1 ms  | 4.1 ms  | 4.1 ms  |
-| Baseline step 2 only - linear re-filter over pre-warmed 'jo' subset               | <span style="color:#666">3.6 ms</span>  | 5.6 ms  | 5.6 ms  | 5.6 ms  |
-| TextSearchEngine - non-indexed linear fallback (query: 'john')                    | <span style="color:green">4.2 ms</span> | 9.4 ms  | 9.4 ms  | 9.4 ms  |
-| Native Array.filter - all-fields (every field.toLowerCase includes 'john')        | <span style="color:#666">17 ms</span>   | 19.7 ms | 19.7 ms | 19.7 ms |
+| TextSearchEngine - indexed single-field (name, query: 'john')                     | <span style="color:green">1.7 ms</span> | 2.4 ms  | 2.4 ms  | 2.4 ms  |
+| Native Array.filter - single-field (name.toLowerCase includes 'john')             | <span style="color:#666">6.5 ms</span>  | 7.6 ms  | 7.6 ms  | 7.6 ms  |
+| TextSearchEngine - indexed all-fields (query: 'john')                             | <span style="color:green">3.5 ms</span> | 4.9 ms  | 4.9 ms  | 4.9 ms  |
+| Native Array.filter - all-fields (every field.toLowerCase includes 'john')        | <span style="color:#666">17.2 ms</span> | 19.2 ms | 19.2 ms | 19.2 ms |
+| TextSearchEngine - indexed all-fields (query: 'jo')                               | <span style="color:green">4.4 ms</span> | 5.8 ms  | 5.8 ms  | 5.8 ms  |
+| Native Array.filter - all-fields (every field.toLowerCase includes 'jo')          | <span style="color:#666">18.1 ms</span> | 18.4 ms | 18.4 ms | 18.4 ms |
+| TextSearchEngine - indexed all-fields (query: 'san antonio')                      | <span style="color:green">4.5 ms</span> | 5.4 ms  | 5.4 ms  | 5.4 ms  |
+| Native Array.filter - all-fields (every field.toLowerCase includes 'san antonio') | <span style="color:#666">16.2 ms</span> | 16.5 ms | 16.5 ms | 16.5 ms |
+| TextSearchEngine - filterByPreviousResult two-step search ('jo' → 'john')         | <span style="color:green">7.6 ms</span> | 10.1 ms | 10.1 ms | 10.1 ms |
+| Native two-step: nativeAllFields('jo') then re-filter result for 'john'           | <span style="color:#666">21.7 ms</span> | 23.9 ms | 23.9 ms | 23.9 ms |
+| TextSearchEngine - step 2 only (pre-warmed 'jo' intermediate)                     | <span style="color:green">2.4 ms</span> | 3 ms    | 3 ms    | 3 ms    |
+| Baseline step 2 only - linear re-filter over pre-warmed 'jo' subset               | <span style="color:#666">3.6 ms</span>  | 4.7 ms  | 4.7 ms  | 4.7 ms  |
+| TextSearchEngine - non-indexed linear fallback (query: 'john')                    | <span style="color:green">4.6 ms</span> | 7.9 ms  | 7.9 ms  | 7.9 ms  |
+| Native Array.filter - all-fields (every field.toLowerCase includes 'john')        | <span style="color:#666">17 ms</span>   | 17.6 ms | 17.6 ms | 17.6 ms |
 | TextSearchEngine - indexed all-fields worst-case absent long query                | <span style="color:green">0 ms</span>   | 0.1 ms  | 0.1 ms  | 0.1 ms  |
-| Native Array.filter - all-fields worst-case absent long query                     | <span style="color:#666">11.5 ms</span> | 14 ms   | 14 ms   | 14 ms   |
+| Native Array.filter - all-fields worst-case absent long query                     | <span style="color:#666">11.9 ms</span> | 12.9 ms | 12.9 ms | 12.9 ms |
 
 ---
 
@@ -62,23 +62,23 @@ These benchmarks compare `FilterEngine` against a baseline native `Array.filter`
 
 | Scenario                                    | FilterEngine p50                        | Native p50                              | Speedup                                       |
 | ------------------------------------------- | --------------------------------------- | --------------------------------------- | --------------------------------------------- |
-| A — single-call overhead                    | <span style="color:green">0.2 ms</span> | <span style="color:#666">1.7 ms</span>  | <span style="color:green">8.5× faster</span>  |
-| B — 5 repeated queries                      | <span style="color:green">1.7 ms</span> | <span style="color:#666">7.8 ms</span>  | <span style="color:green">4.6× faster</span>  |
-| C — 20 repeated queries                     | <span style="color:green">1.8 ms</span> | <span style="color:#666">29.1 ms</span> | <span style="color:green">16.2× faster</span> |
-| D — 30-query session (2 criteria, 3 phases) | <span style="color:green">2.3 ms</span> | <span style="color:#666">81.3 ms</span> | <span style="color:green">35.3× faster</span> |
+| A — single-call overhead                    | <span style="color:green">0.2 ms</span> | <span style="color:#666">1.9 ms</span>  | <span style="color:green">9.5× faster</span>  |
+| B — 5 repeated queries                      | <span style="color:green">1.9 ms</span> | <span style="color:#666">9.3 ms</span>  | <span style="color:green">4.9× faster</span>  |
+| C — 20 repeated queries                     | <span style="color:green">1.9 ms</span> | <span style="color:#666">32 ms</span>   | <span style="color:green">16.8× faster</span> |
+| D — 30-query session (2 criteria, 3 phases) | <span style="color:green">1.8 ms</span> | <span style="color:#666">87.9 ms</span> | <span style="color:green">48.8× faster</span> |
 
 ### Per-scenario tail latency (p95 / p99 / max)
 
-| Scenario                                                              | p50                                     | p95      | p99      | Max      |
-| --------------------------------------------------------------------- | --------------------------------------- | -------- | -------- | -------- |
-| Native Array.filter — single-field equality (100k scanned, baseline)  | <span style="color:#666">1.7 ms</span>  | 4.4 ms   | 4.4 ms   | 4.4 ms   |
-| FilterEngine indexed — single-field (1 compute, result cached)        | <span style="color:green">0.2 ms</span> | 0.5 ms   | 0.5 ms   | 0.5 ms   |
-| Native × 5 — 5 identical filters, no cache (5 × 100k scans)           | <span style="color:#666">7.8 ms</span>  | 12.4 ms  | 12.4 ms  | 12.4 ms  |
-| FilterEngine × 5 — 5 identical filters: 1 compute + 4 cache hits      | <span style="color:green">1.7 ms</span> | 4.6 ms   | 4.6 ms   | 4.6 ms   |
-| Native × 20 — 20 identical filters, no cache (20 × 100k scans)        | <span style="color:#666">29.1 ms</span> | 49.6 ms  | 49.6 ms  | 49.6 ms  |
-| FilterEngine × 20 — 20 identical filters: 1 compute + 19 cache hits   | <span style="color:green">1.8 ms</span> | 7.9 ms   | 7.9 ms   | 7.9 ms   |
-| Native session × 30 — 3 criteria phases × 10 queries each (30 × 100k) | <span style="color:#666">81.3 ms</span> | 110.4 ms | 110.4 ms | 110.4 ms |
-| FilterEngine session × 30 — 2 computes + 28 cache hits (map persists) | <span style="color:green">2.3 ms</span> | 5 ms     | 5 ms     | 5 ms     |
+| Scenario                                                              | p50                                     | p95     | p99     | Max     |
+| --------------------------------------------------------------------- | --------------------------------------- | ------- | ------- | ------- |
+| Native Array.filter — single-field equality (100k scanned, baseline)  | <span style="color:#666">1.9 ms</span>  | 2.1 ms  | 2.1 ms  | 2.1 ms  |
+| FilterEngine indexed — single-field (1 compute, result cached)        | <span style="color:green">0.2 ms</span> | 0.4 ms  | 0.4 ms  | 0.4 ms  |
+| Native × 5 — 5 identical filters, no cache (5 × 100k scans)           | <span style="color:#666">9.3 ms</span>  | 11.3 ms | 11.3 ms | 11.3 ms |
+| FilterEngine × 5 — 5 identical filters: 1 compute + 4 cache hits      | <span style="color:green">1.9 ms</span> | 2.5 ms  | 2.5 ms  | 2.5 ms  |
+| Native × 20 — 20 identical filters, no cache (20 × 100k scans)        | <span style="color:#666">32 ms</span>   | 33.3 ms | 33.3 ms | 33.3 ms |
+| FilterEngine × 20 — 20 identical filters: 1 compute + 19 cache hits   | <span style="color:green">1.9 ms</span> | 2.8 ms  | 2.8 ms  | 2.8 ms  |
+| Native session × 30 — 3 criteria phases × 10 queries each (30 × 100k) | <span style="color:#666">87.9 ms</span> | 90.1 ms | 90.1 ms | 90.1 ms |
+| FilterEngine session × 30 — 2 computes + 28 cache hits (map persists) | <span style="color:green">1.8 ms</span> | 5.2 ms  | 5.2 ms  | 5.2 ms  |
 
 ---
 
@@ -88,23 +88,48 @@ Benchmarks below compare `SortEngine` to the baseline `Array.sort` implementatio
 
 ### Summary
 
-| Scenario                                            | SortEngine p50                          | Native p50                              | Speedup                                       |
-| --------------------------------------------------- | --------------------------------------- | --------------------------------------- | --------------------------------------------- |
-| 1. SortEngine - indexed numeric (asc)               | <span style="color:green">0.9 ms</span> | <span style="color:#666">45.9 ms</span> | <span style="color:green">51.0× faster</span> |
-| 2. SortEngine - indexed numeric (desc)              | <span style="color:green">0.9 ms</span> | <span style="color:#666">45.9 ms</span> | <span style="color:green">51.0× faster</span> |
-| 3. SortEngine - non-indexed numeric                 | <span style="color:green">6.1 ms</span> | <span style="color:#666">45.9 ms</span> | <span style="color:green">7.5× faster</span>  |
-| 4. SortEngine - multi-field (value asc, score desc) | <span style="color:green">6.6 ms</span> | <span style="color:#666">45.9 ms</span> | <span style="color:green">7.0× faster</span>  |
-| 5. SortEngine - indexed string (label asc)          | <span style="color:green">0.9 ms</span> | <span style="color:#666">45.9 ms</span> | <span style="color:green">51.0× faster</span> |
-| 6. SortEngine - ad-hoc external sort (value asc)    | <span style="color:green">6 ms</span>   | <span style="color:#666">45.9 ms</span> | <span style="color:green">7.6× faster</span>  |
+| Scenario                                            | SortEngine p50                          | Native p50                              | Speedup                                         |
+| --------------------------------------------------- | --------------------------------------- | --------------------------------------- | ----------------------------------------------- |
+| 1. SortEngine - indexed numeric (asc)               | <span style="color:green">0 ms</span>   | <span style="color:#666">48.9 ms</span> | <span style="color:green">∞× (cache hit)</span> |
+| 2. SortEngine - indexed numeric (desc)              | <span style="color:green">0 ms</span>   | <span style="color:#666">48.9 ms</span> | <span style="color:green">∞× (cache hit)</span> |
+| 3. SortEngine - non-indexed numeric                 | <span style="color:green">6.3 ms</span> | <span style="color:#666">48.9 ms</span> | <span style="color:green">7.8× faster</span>    |
+| 4. SortEngine - multi-field (value asc, score desc) | <span style="color:green">6.6 ms</span> | <span style="color:#666">48.9 ms</span> | <span style="color:green">7.4× faster</span>    |
+| 5. SortEngine - indexed string (label asc)          | <span style="color:green">0 ms</span>   | <span style="color:#666">48.9 ms</span> | <span style="color:green">∞× (cache hit)</span> |
+| 6. SortEngine - ad-hoc external sort (value asc)    | <span style="color:green">6.4 ms</span> | <span style="color:#666">48.9 ms</span> | <span style="color:green">7.6× faster</span>    |
 
 ### Per-scenario tail latency (p95 / p99 / max)
 
 | Scenario                                         | p50     | p95     | p99     | Max     |
 | ------------------------------------------------ | ------- | ------- | ------- | ------- |
-| SortEngine - indexed numeric (asc)               | 1 ms    | 4 ms    | 4 ms    | 4 ms    |
-| SortEngine - indexed numeric (desc)              | 0.9 ms  | 2.7 ms  | 2.7 ms  | 2.7 ms  |
-| SortEngine - non-indexed numeric                 | 6 ms    | 7.9 ms  | 7.9 ms  | 7.9 ms  |
-| SortEngine - multi-field (value asc, score desc) | 6.6 ms  | 8.9 ms  | 8.9 ms  | 8.9 ms  |
-| SortEngine - indexed string (label asc)          | 0.9 ms  | 2.5 ms  | 2.5 ms  | 2.5 ms  |
-| SortEngine - ad-hoc external sort (value asc)    | 6 ms    | 7.4 ms  | 7.4 ms  | 7.4 ms  |
-| Native Array.sort (value asc, baseline)          | 46.2 ms | 50.2 ms | 50.2 ms | 50.2 ms |
+| SortEngine - indexed numeric (asc)               | 0 ms    | 0.1 ms  | 0.1 ms  | 0.1 ms  |
+| SortEngine - indexed numeric (desc)              | 0 ms    | 0 ms    | 0 ms    | 0 ms    |
+| SortEngine - non-indexed numeric                 | 6.3 ms  | 13.1 ms | 13.1 ms | 13.1 ms |
+| SortEngine - multi-field (value asc, score desc) | 6.6 ms  | 8.7 ms  | 8.7 ms  | 8.7 ms  |
+| SortEngine - indexed string (label asc)          | 0 ms    | 0 ms    | 0 ms    | 0 ms    |
+| SortEngine - ad-hoc external sort (value asc)    | 6.4 ms  | 8.1 ms  | 8.1 ms  | 8.1 ms  |
+| Native Array.sort (value asc, baseline)          | 48.9 ms | 51.1 ms | 51.1 ms | 51.1 ms |
+
+---
+
+## MergeEngines controls add/update/delete
+
+These benchmarks compare `MergeEngines` controls against a baseline native `Array`/`Map` approach. The key metric is how fast the engine can apply small mutations and then read back results (search/filter/sort) immediately.
+
+### Summary
+
+| Scenario                                             | Engine p50 | Native p50 | Speedup      |
+| ---------------------------------------------------- | ---------- | ---------- | ------------ |
+| A — add 5 items, then read once                      | 3.64 ms    | 116.69 ms  | 32.1× faster |
+| B — update 1 item, then read once                    | 24.35 ms   | 64.08 ms   | 2.6× faster  |
+| C — delete 5 ids via mutable exclude, then read once | 28.2 ms    | 57.13 ms   | 2.0× faster  |
+
+### Per-scenario tail latency (p95 / p99 / max)
+
+| Scenario                                                                                       | p50       | p95       | p99       | Max       |
+| ---------------------------------------------------------------------------------------------- | --------- | --------- | --------- | --------- |
+| A1. MergeEngines.add() append 5 items + immediate search/filter/sort read                      | 3.64 ms   | 6.93 ms   | 6.93 ms   | 6.93 ms   |
+| A2. Native Array/Map add – append 5 items + immediate linear search/filter/sort read           | 116.69 ms | 180.55 ms | 180.55 ms | 180.55 ms |
+| B1. MergeEngines.update() refresh 1 item + immediate search/filter/sort read                   | 24.35 ms  | 318.62 ms | 318.62 ms | 318.62 ms |
+| B2. Native Array/Map update – replace 1 item + immediate linear search/filter/sort read        | 64.08 ms  | 116.25 ms | 116.25 ms | 116.25 ms |
+| C1. MergeEngines mutable exclude – remove 5 ids + immediate search/filter/sort read            | 28.2 ms   | 52.51 ms  | 52.51 ms  | 52.51 ms  |
+| C2. Native Array/Map swap-pop delete – remove 5 ids + immediate linear search/filter/sort read | 57.13 ms  | 155.8 ms  | 155.8 ms  | 155.8 ms  |
