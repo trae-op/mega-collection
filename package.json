@@ -54,6 +54,7 @@
     "sort-bench": "npx tsx ./benchmarks/sorter.bench.ts",
     "filter-bench": "npx tsx ./benchmarks/filter.bench.ts",
     "search-bench": "npx tsx ./benchmarks/search.bench.ts",
+    "controls-bench": "npx tsx ./benchmarks/controls.bench.ts",
     "test:coverage": "vitest run --coverage",
     "test:ci": "vitest run --coverage --reporter=verbose --reporter=json",
     "clean": "rm -rf dist",
