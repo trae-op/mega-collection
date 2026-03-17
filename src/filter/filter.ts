@@ -27,6 +27,10 @@ import {
   matchesCriterionValue,
   resolveCriteria,
 } from "./criterion";
+import {
+  DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY,
+  MERGE_SHARED_SCOPE,
+} from "./constants";
 import { FilterNestedCollection } from "./nested";
 
 const createFilterRuntime = <T extends CollectionItem>(): FilterRuntime<T> => ({
@@ -55,10 +59,6 @@ const createFilterRuntime = <T extends CollectionItem>(): FilterRuntime<T> => ({
     previousResultSet: null,
   },
 });
-
-const MERGE_SHARED_SCOPE = "__merge__";
-const DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY =
-  "deferFilterMutationIndexUpdates";
 
 export class FilterEngine<T extends CollectionItem> {
   private readonly indexer: Indexer<T>;
