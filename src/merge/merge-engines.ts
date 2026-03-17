@@ -30,11 +30,11 @@ import type {
 } from "./types";
 import { MergeEnginesError } from "./errors";
 import {
-  MERGE_SHARED_SCOPE,
   DEFER_SORT_MUTATION_CACHE_UPDATES_KEY,
   DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY,
   DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY,
 } from "./constants";
+import { MERGE_SHARED_SCOPE } from "../constants";
 
 export class MergeEngines<T extends CollectionItem> {
   private readonly state: State<T>;
@@ -255,10 +255,6 @@ export class MergeEngines<T extends CollectionItem> {
 
   private createFilterCacheKey(criteria: FilterCriterion<T>[]): string {
     return JSON.stringify(criteria);
-  }
-
-  private normalizeSearchQuery(query: string): string {
-    return query.trim().toLowerCase();
   }
 
   private handleStateMutation(mutation: StateMutation<T>): void {
@@ -680,10 +676,6 @@ export class MergeEngines<T extends CollectionItem> {
     return !String(criterion.field).includes(".");
   }
 
-  private getFilterCriterionValue(item: T, field: string): unknown {
-    return item[field as keyof T];
-  }
-
   private doesItemMatchFilterCache(
     cache: MergeFilterCache<T>,
     item: T,
@@ -695,10 +687,7 @@ export class MergeEngines<T extends CollectionItem> {
         return false;
       }
 
-      const fieldValue = this.getFilterCriterionValue(
-        item,
-        String(criterion.field),
-      );
+      const fieldValue = item[criterion.field as keyof T];
 
       if (
         criterion.values !== undefined &&
@@ -937,7 +926,7 @@ export class MergeEngines<T extends CollectionItem> {
       result,
       version: mutationVersion,
       field: maybeQuery === undefined ? null : fieldOrQuery,
-      lowerQuery: this.normalizeSearchQuery(maybeQuery ?? fieldOrQuery),
+      lowerQuery: (maybeQuery ?? fieldOrQuery).trim().toLowerCase(),
       pendingMutations: [],
     };
 

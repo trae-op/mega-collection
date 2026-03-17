@@ -8,11 +8,9 @@ import {
 } from "../types";
 import type { SortEngineOptions, SortIndex, SortRuntime } from "./types";
 import { SortEngineError } from "./errors";
-import {
-  DEFER_SORT_MUTATION_CACHE_UPDATES_KEY,
-  MERGE_SHARED_SCOPE,
-} from "./constants";
+import { DEFER_SORT_MUTATION_CACHE_UPDATES_KEY } from "./constants";
 import { canUseUint32Radix, createSortRuntime, radixSortUint32 } from "./utils";
+import { MERGE_SHARED_SCOPE } from "../constants";
 
 export class SortEngine<T extends CollectionItem> {
   private readonly state: State<T>;
@@ -300,7 +298,7 @@ export class SortEngine<T extends CollectionItem> {
       indexes.sort((a, b) => values[a] - values[b]);
     }
 
-    return this.reconstructFromIndex(data, indexes, direction);
+    return this.materializeItemsFromIndexes(data, indexes, direction);
   }
 
   // Uses cached index of first field, then sorts only tie-groups by remaining fields
@@ -373,14 +371,6 @@ export class SortEngine<T extends CollectionItem> {
     }
 
     return data;
-  }
-
-  private reconstructFromIndex(
-    data: T[],
-    indexes: Uint32Array,
-    direction: SortDirection,
-  ): T[] {
-    return this.materializeItemsFromIndexes(data, indexes, direction);
   }
 
   private materializeItemsFromIndexes(

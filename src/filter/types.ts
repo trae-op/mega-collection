@@ -2,10 +2,8 @@ import type { IndexerStorage } from "../indexer";
 import type { CollectionItem, FilterCriterion } from "../types";
 import type { FilterEngine } from "./filter";
 
-export interface FilterNestedCollectionStorage<T extends CollectionItem> {
-  indexes: Map<string, Map<any, T[]>>;
-  itemPositions: Map<string, Map<any, WeakMap<T, number>>>;
-}
+export type FilterNestedCollectionStorage<T extends CollectionItem> =
+  IndexerStorage<T>;
 
 export interface FilterEngineChain<T extends CollectionItem> {
   filter(criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;

@@ -27,12 +27,10 @@ import {
   matchesCriterionValue,
   resolveCriteria,
 } from "./criterion";
-import {
-  DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY,
-  MERGE_SHARED_SCOPE,
-} from "./constants";
+import { DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY } from "./constants";
 import { FilterNestedCollection } from "./nested";
 import { createFilterRuntime } from "./utils";
+import { MERGE_SHARED_SCOPE } from "../constants";
 
 export class FilterEngine<T extends CollectionItem> {
   private readonly indexer: Indexer<T>;
@@ -74,7 +72,7 @@ export class FilterEngine<T extends CollectionItem> {
         filterByPreviousResult: options.filterByPreviousResult ?? false,
       });
 
-    if (options.filterByPreviousResult) {
+    if (options.state && options.filterByPreviousResult) {
       this.state.setFilterByPreviousResult(true);
     }
 

@@ -29,11 +29,11 @@ import {
 } from "./ngram";
 import { SearchNestedCollection } from "./nested";
 import { createSearchRuntime } from "./utils";
-import { MINIMUM_INDEXED_QUERY_LENGTH } from "./constants";
-
-const MERGE_SHARED_SCOPE = "__merge__";
-const DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY =
-  "deferSearchMutationIndexUpdates";
+import {
+  DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY,
+  MINIMUM_INDEXED_QUERY_LENGTH,
+} from "./constants";
+import { MERGE_SHARED_SCOPE } from "../constants";
 
 export class TextSearchEngine<T extends CollectionItem> {
   private readonly state: State<T>;
