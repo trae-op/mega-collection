@@ -9,7 +9,6 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
 ## Table of Contents
 
 - [What does this package solve](#what-does-this-package-solve) – what problem this package helps with
-- [Features](#features) – what the package can do
 - [How it works](#how-it-works) – plain-English explanation of how each engine works internally
 - [Benchmarks](#benchmarks) – performance numbers and how to run them
 - [React demo](#react-demo) – example project and live demo
@@ -33,8 +32,6 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
   - [`TextSearchEngine<T>`](#textsearchenginet-search-module) – engine for text search
   - [`FilterEngine<T>`](#filterenginet-filter-module) – engine for filtering
   - [`SortEngine<T>`](#sortenginet-sort-module) – engine for sorting
-- [Types](#types) – TypeScript types you can import
-- [Build](#build) – commands for build and development
 - [Contributing](#contributing) – contribution rules
 - [Security](#security) – security policy
 - [License](#license) – license information
