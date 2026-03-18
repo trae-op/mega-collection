@@ -5,8 +5,16 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     target: "es2020",
-    minify: true,
+    minify: "terser",
     sourcemap: false,
+    terserOptions: {
+      format: {
+        comments: false,
+      },
+      compress: {
+        passes: 2,
+      },
+    },
     lib: {
       entry: {
         index: "src/index.ts",
@@ -20,10 +28,8 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        preserveModules: true,
-        preserveModulesRoot: "src",
         entryFileNames: "[name].mjs",
-        chunkFileNames: "[name].mjs",
+        chunkFileNames: "chunks/[name]-[hash].mjs",
       },
     },
   },
