@@ -62,17 +62,6 @@ Each engine has its own entry point: `/search`, `/filter`, `/sort`.
 If you import only `@devisfuture/mega-collection/search`, only search code goes into the bundle.
 Unused modules are not included.
 
-## Features
-
-| Capability                   | Strategy                                   | Complexity                         |
-| ---------------------------- | ------------------------------------------ | ---------------------------------- |
-| **Indexed filter**           | Hash-Map index (`Map<value, T[]>`)         | **O(1)**                           |
-| **Multi-value filter**       | Index intersection + `Set` membership      | **O(k)** indexed / **O(n)** linear |
-| **Nested collection filter** | Pre-built nested index + `Set` lookup      | **O(k)** indexed / **O(n)** linear |
-| **Text search** (contains)   | N-gram (2–3 chars) inverted index + verify | **O(candidates)**                  |
-| **Nested collection search** | Nested n-gram index + verify               | **O(candidates)**                  |
-| **Sorting**                  | Pre-sorted index (cached) / radix sort     | **O(n)** cached / **O(n log n)**   |
-
 ## How it works
 
 ### Search
@@ -118,13 +107,7 @@ The first sort call builds this index. Subsequent calls just read it in O(n). Th
 
 ## Benchmarks
 
-Benchmarks for `TextSearchEngine`, `FilterEngine`, and `SortEngine` are collected in [`BENCHMARKS`](./BENCHMARKS.md).
-
-Run the benchmark scripts locally to regenerate the numbers:
-
-- `npm run search-bench`
-- `npm run filter-bench`
-- `npm run sort-bench`
+Benchmarks for `TextSearchEngine`, `FilterEngine`, and `SortEngine` are collected in [BENCHMARKS](./BENCHMARKS.md).
 
 ## React demo
 
@@ -340,12 +323,6 @@ Use `update(...)` when you need to replace one stored item by a unique field suc
 - `update(...)` keeps the same stored array reference.
 - `update(...)` replaces only the matched item in stored data.
 - configured indexes or caches refresh only the affected item instead of rebuilding the whole dataset.
-
-> **Notes on `update()`:**
->
-> - The lookup field value in `data[field]` must already exist in the stored dataset. If it is `null`, `undefined`, or not found, `update()` is a silent no-op — no error is thrown and no data is changed.
-> - The lookup field value must not change between the old and new item. For example, calling `update({ field: 'id', data: { id: 99, ... } })` when no item has `id: 99` will do nothing. Always use the current value of the lookup field.
-> - When using `FilterEngine` with `filterByPreviousResult: true`, every `update()` resets the sequential criteria cache, so the next `filter()` will re-evaluate from the full dataset.
 
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
@@ -690,11 +667,6 @@ One class that combines search, filter, and sort for the same dataset.
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
 | `clearData(module)`                 | Clear the shared stored dataset through one imported module (`"search"`, `"sort"`, `"filter"`)                             |
 
-If `filter.mutableExcludeField` is configured, `filter([{ field, exclude }])` on that field removes items from the stored filter dataset with swap-pop.
-This changes the stored filter dataset and does not preserve order.
-
-`filter.filterByPreviousResult` is not supported inside `MergeEngines`. Use the root `filterByPreviousResult` option instead.
-
 ---
 
 ### `TextSearchEngine<T>` (search module)
@@ -768,49 +740,6 @@ Sort methods return plain arrays.
 | `clearData()`                       | Clear stored data                                     |
 
 ---
-
-**Note on `data` method:** Calling `data` updates the stored dataset. It also rebuilds configured indexes and resets internal state when needed, so usually you do not need to call `clearIndexes` before it.
-
-## Types
-
-All types are exported from the root package and from each sub-module:
-
-```ts
-import type {
-  CollectionItem,
-  IndexableKey,
-  FilterCriterion,
-  SortDescriptor,
-  SortDirection,
-  UpdateDescriptor,
-  MergeEnginesOptions,
-} from "@devisfuture/mega-collection";
-```
-
-You can also import them from individual sub-modules:
-
-```ts
-import type {
-  CollectionItem,
-  IndexableKey,
-} from "@devisfuture/mega-collection/search";
-import type { FilterCriterion } from "@devisfuture/mega-collection/filter";
-import type {
-  SortDescriptor,
-  SortDirection,
-} from "@devisfuture/mega-collection/sort";
-```
-
----
-
-## Build
-
-```bash
-npm install
-npm run build          # Build ESM + declarations
-npm run typecheck      # Type-check without emitting
-npm run dev            # Watch mode
-```
 
 ## Contributing
 
