@@ -30,11 +30,11 @@ import type {
 } from "./types";
 import { MergeEnginesError } from "./errors";
 import {
-  DEFER_SORT_MUTATION_CACHE_UPDATES_KEY,
-  DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY,
   DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY,
-} from "./constants";
-import { MERGE_SHARED_SCOPE } from "../constants";
+  DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY,
+  DEFER_SORT_MUTATION_CACHE_UPDATES_KEY,
+  MERGE_SHARED_SCOPE,
+} from "../constants";
 
 export class MergeEngines<T extends CollectionItem> {
   private readonly state: State<T>;

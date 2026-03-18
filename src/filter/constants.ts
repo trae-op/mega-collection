@@ -1,2 +1,1 @@
-export const DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY =
-  "deferFilterMutationIndexUpdates";
+export { DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY } from "../constants";

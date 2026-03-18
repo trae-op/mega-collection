@@ -4,6 +4,7 @@ import type {
   SortDescriptor,
   UpdateDescriptor,
 } from "../types";
+import { createChainMethodDescriptor } from "../internal";
 import type {
   MergeEnginesChain,
   MergeEnginesChainCallbacks,
@@ -11,17 +12,6 @@ import type {
 } from "./types";
 
 export type { MergeEnginesChain, MergeModuleName } from "./types";
-
-function createChainMethodDescriptor<TValue>(
-  value: TValue,
-): PropertyDescriptor {
-  return {
-    value,
-    enumerable: false,
-    configurable: true,
-    writable: true,
-  };
-}
 
 export class MergeEnginesChainBuilder<T extends CollectionItem> {
   constructor(private readonly callbacks: MergeEnginesChainCallbacks<T>) {}

@@ -1,7 +1,5 @@
 export const MINIMUM_NGRAM_LENGTH = 2;
 export const MAXIMUM_NGRAM_LENGTH = 3;
-export const DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY =
-  "deferSearchMutationIndexUpdates";
 
 export const MINIMUM_INDEXED_QUERY_LENGTH = MINIMUM_NGRAM_LENGTH;
 export const MAXIMUM_QUERY_GRAMS_FOR_INTERSECTION = 12;

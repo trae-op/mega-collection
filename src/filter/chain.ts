@@ -3,8 +3,8 @@ import type {
   FilterCriterion,
   UpdateDescriptor,
 } from "../types";
+import { createChainMethodDescriptor } from "../internal";
 import type { FilterEngineChain, FilterEngineChainCallbacks } from "./types";
-import { createChainMethodDescriptor } from "./utils";
 
 export type { FilterEngineChain } from "./types";
 

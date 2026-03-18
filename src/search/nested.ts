@@ -1,4 +1,5 @@
 import { CollectionItem } from "../types";
+import { createNestedFieldDescriptor } from "../internal";
 import {
   indexLowerValue,
   intersectPostingListsInCandidates,
@@ -299,21 +300,11 @@ export class SearchNestedCollection<T extends CollectionItem> {
   }
 
   private registerField(fieldPath: string): void {
-    const descriptor = this.createDescriptor(fieldPath);
+    const descriptor = createNestedFieldDescriptor(fieldPath);
     if (!descriptor) return;
 
     this.registeredFields.add(fieldPath);
     this.fieldDescriptors.set(fieldPath, descriptor);
-  }
-
-  private createDescriptor(fieldPath: string): NestedFieldDescriptor | null {
-    const dotIndex = fieldPath.indexOf(".");
-    if (dotIndex === -1) return null;
-
-    return {
-      collectionKey: fieldPath.substring(0, dotIndex),
-      nestedKey: fieldPath.substring(dotIndex + 1),
-    };
   }
 
   private getNormalizedValues(fieldPath: string): string[] {

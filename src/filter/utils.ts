@@ -29,14 +29,3 @@ export const createFilterRuntime = <
     previousResultSet: null,
   },
 });
-
-export function createChainMethodDescriptor<TValue>(
-  value: TValue,
-): PropertyDescriptor {
-  return {
-    value,
-    enumerable: false,
-    configurable: true,
-    writable: true,
-  };
-}
