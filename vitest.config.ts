@@ -17,6 +17,7 @@ export default defineConfig({
       exclude: [
         "node_modules/**",
         "dist/**",
+        "package/**",
         "**/*.d.ts",
         "vitest.config.ts",
         "tsup.config.ts",
@@ -26,6 +27,7 @@ export default defineConfig({
         "src/sort/index.ts",
         "src/merge/index.ts",
         "src/types.ts",
+        "benchmarks/**",
       ],
     },
   },
