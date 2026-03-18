@@ -20,7 +20,10 @@ export default defineConfig({
     },
     rollupOptions: {
       output: {
-        chunkFileNames: "chunk-[hash].mjs",
+        preserveModules: true,
+        preserveModulesRoot: "src",
+        entryFileNames: "[name].mjs",
+        chunkFileNames: "[name].mjs",
       },
     },
   },

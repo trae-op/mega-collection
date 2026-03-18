@@ -1,62 +1,39 @@
 {
   "name": "@devisfuture/mega-collection",
-  "version": "2.4.6",
+  "version": "2.4.7",
   "description": "High-performance search, filter & sort engine for 100K+ item collections in JavaScript/TypeScript",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.mts",
+      "types": "./dist/index.d.ts",
       "default": "./dist/index.mjs"
     },
     "./search": {
-      "types": "./dist/search/index.d.mts",
+      "types": "./dist/search/index.d.ts",
       "default": "./dist/search/index.mjs"
     },
     "./filter": {
-      "types": "./dist/filter/index.d.mts",
+      "types": "./dist/filter/index.d.ts",
       "default": "./dist/filter/index.mjs"
     },
     "./sort": {
-      "types": "./dist/sort/index.d.mts",
+      "types": "./dist/sort/index.d.ts",
       "default": "./dist/sort/index.mjs"
     },
     "./merge": {
-      "types": "./dist/merge/index.d.mts",
+      "types": "./dist/merge/index.d.ts",
       "default": "./dist/merge/index.mjs"
     },
     "./package.json": "./package.json"
   },
-  "typesVersions": {
-    "*": {
-      "search": [
-        "./dist/search/index.d.mts"
-      ],
-      "filter": [
-        "./dist/filter/index.d.mts"
-      ],
-      "sort": [
-        "./dist/sort/index.d.mts"
-      ],
-      "merge": [
-        "./dist/merge/index.d.mts"
-      ]
-    }
-  },
   "files": [
-    "dist/index.mjs",
-    "dist/index.d.mts",
-    "dist/chunk-*.mjs",
-    "dist/search/index.mjs",
-    "dist/search/index.d.mts",
-    "dist/filter/index.mjs",
-    "dist/filter/index.d.mts",
-    "dist/sort/index.mjs",
-    "dist/sort/index.d.mts",
-    "dist/merge/index.mjs",
-    "dist/merge/index.d.mts"
+    "dist/**/*.mjs",
+    "dist/**/*.d.ts",
+    "dist/index.d.ts"
   ],
   "sideEffects": false,
   "scripts": {
-    "build:types": "tsc --emitDeclarationOnly && node ./scripts/rename-dts-to-dmts.js",
+    "build:types": "tsc --emitDeclarationOnly",
     "build": "vite build && npm run build:types",
     "build:watch": "vite build --watch",
     "dev": "vite build --watch",
