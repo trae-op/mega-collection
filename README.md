@@ -52,9 +52,9 @@ This works fine for small arrays. But with 10 000–100 000+ items, every call t
 
 This package solves this by building indexes ahead of time — special data structures that let you look up results without scanning the full array every time. You pay the cost once when the data arrives, and then each search, filter, or sort is much cheaper.
 
-The package has no dependencies.
-You can import only the parts you need.
+### Important
 
+The package has no dependencies. You can import only the parts you need.
 Each engine has its own entry point: `/search`, `/filter`, `/sort`.
 If you import only `@devisfuture/mega-collection/search`, only search code goes into the bundle.
 Unused modules are not included.
