@@ -1,6 +1,6 @@
 {
   "name": "@devisfuture/mega-collection",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "description": "High-performance search, filter & sort engine for 100K+ item collections in JavaScript/TypeScript",
   "exports": {
     ".": {
@@ -42,13 +42,24 @@
     }
   },
   "files": [
-    "dist"
+    "dist/index.mjs",
+    "dist/index.d.mts",
+    "dist/chunk-*.mjs",
+    "dist/search/index.mjs",
+    "dist/search/index.d.mts",
+    "dist/filter/index.mjs",
+    "dist/filter/index.d.mts",
+    "dist/sort/index.mjs",
+    "dist/sort/index.d.mts",
+    "dist/merge/index.mjs",
+    "dist/merge/index.d.mts"
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup",
-    "build:watch": "tsup --watch",
-    "dev": "tsup --watch",
+    "build:types": "tsc --emitDeclarationOnly && node ./scripts/rename-dts-to-dmts.js",
+    "build": "vite build && npm run build:types",
+    "build:watch": "vite build --watch",
+    "dev": "vite build --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "sort-bench": "npx tsx ./benchmarks/sorter.bench.ts",
@@ -95,10 +106,10 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
-    "@vitest/coverage-v8": "^2.1.9",
-    "tsup": "^8.0.0",
+    "@vitest/coverage-v8": "^4.1.0",
     "typescript": "^5.3.0",
-    "vitest": "^2.1.8"
+    "vite": "^8.0.0",
+    "vitest": "^4.1.0"
   },
   "license": "MIT"
 }

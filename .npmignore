@@ -13,7 +13,6 @@ src/
 tsconfig.json
 tsconfig.tests.json
 vitest.config.ts
-tsup.config.ts
 .gitignore
 .github/
 node_modules/
@@ -40,3 +39,11 @@ npm-debug.log*
 
 # Performance Benchmarks
 benchmarks/
+
+# Don’t publish internal type files (only entrypoint d.mts are needed)
+dist/**/*.d.mts
+!dist/index.d.mts
+!dist/search/index.d.mts
+!dist/filter/index.d.mts
+!dist/sort/index.d.mts
+!dist/merge/index.d.mts
