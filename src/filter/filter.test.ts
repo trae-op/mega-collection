@@ -103,6 +103,23 @@ describe("FilterEngine", () => {
     ).toEqual([2, 4, 5, 10]);
   });
 
+  it("reuses persistent cache for repeated stored-data exclude filters", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      filterByPreviousResult: true,
+    });
+
+    const firstResult = engine.filter([{ field: "id", exclude: [1, 4] }]);
+
+    engine.resetFilterState();
+
+    const secondResult = engine.filter([{ field: "id", exclude: [1, 4] }]);
+
+    expect(secondResult).toBe(firstResult);
+    expect(secondResult.map((user) => user.id)).toEqual([2, 3, 5]);
+  });
+
   it("delete() removes stored items and keeps flat indexes in sync", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new FilterEngine<User>({
@@ -536,6 +553,26 @@ describe("FilterEngine", () => {
       expect(third).toEqual([]);
       expect(backToTwo).toEqual([]);
       expect(backToOne.map((user) => user.id)).toEqual([2]);
+    });
+
+    it("narrows incrementally when exclude values grow on the same field", () => {
+      const excludeEngine = new FilterEngine<User>({
+        data: users,
+        fields: ["id"],
+        filterByPreviousResult: true,
+      });
+
+      const first = excludeEngine.filter([{ field: "id", exclude: [1, 4] }]);
+      const second = excludeEngine.filter([
+        { field: "id", exclude: [1, 4, 5] },
+      ]);
+      const backToFirst = excludeEngine.filter([
+        { field: "id", exclude: [1, 4] },
+      ]);
+
+      expect(first.map((user) => user.id)).toEqual([2, 3, 5]);
+      expect(second.map((user) => user.id)).toEqual([2, 3]);
+      expect(backToFirst.map((user) => user.id)).toEqual([2, 3, 5]);
     });
   });
 });

@@ -37,6 +37,7 @@ import { createFilterRuntime } from "./utils";
 import { MERGE_SHARED_SCOPE } from "../constants";
 
 const PERSISTENT_INDEXED_RESULT_CACHE_LIMIT = 32;
+const SEQUENTIAL_RESULT_CACHE_LIMIT = 12;
 
 export class FilterEngine<T extends CollectionItem> {
   private readonly indexer: Indexer<T>;
@@ -353,19 +354,31 @@ export class FilterEngine<T extends CollectionItem> {
     this.ensureRuntimeReady();
 
     const isUsingStoredData = criteria === undefined;
+    const inputCriteria = isUsingStoredData
+      ? (dataOrCriteria as FilterCriterion<T>[])
+      : criteria!;
 
     if (isUsingStoredData && !this.dataset.length) {
       throw FilterEngineError.missingDatasetForFilter();
     }
 
-    const resolvedCriteria = resolveCriteria(
-      isUsingStoredData ? (dataOrCriteria as FilterCriterion<T>[]) : criteria!,
-    );
-    const criteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
-
     const baseData: T[] = isUsingStoredData
       ? this.dataset
       : (dataOrCriteria as T[]);
+
+    const resolvedCriteria = resolveCriteria(inputCriteria);
+    const criteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
+
+    const fastStoredExcludeResult = this.tryFastStoredExcludeView(
+      baseData,
+      isUsingStoredData,
+      resolvedCriteria,
+      criteriaKey,
+    );
+
+    if (fastStoredExcludeResult !== null) {
+      return fastStoredExcludeResult;
+    }
 
     let sourceData = baseData;
     let executionCriteria = resolvedCriteria;
@@ -468,13 +481,12 @@ export class FilterEngine<T extends CollectionItem> {
       }
     }
 
-    const canReadPersistentIndexedCache =
+    const canReadPersistentFlatResultCache =
       canUsePersistentIndexedCache &&
       nestedCriteria.length === 0 &&
-      flatCriteria.length > 0 &&
-      linearCriteria.length === 0;
+      flatCriteria.length > 0;
 
-    if (canReadPersistentIndexedCache) {
+    if (canReadPersistentFlatResultCache) {
       const cachedEntry = this.getPersistentIndexedResult(criteriaKey);
 
       if (cachedEntry !== undefined) {
@@ -495,7 +507,7 @@ export class FilterEngine<T extends CollectionItem> {
     if (indexedCriteria.length > 0 && linearCriteria.length === 0) {
       result = this.filterViaIndex(indexedCriteria, sourceData);
 
-      if (canReadPersistentIndexedCache) {
+      if (canReadPersistentFlatResultCache) {
         this.setPersistentIndexedResult(criteriaKey, result);
       }
 
@@ -512,6 +524,11 @@ export class FilterEngine<T extends CollectionItem> {
     if (indexedCriteria.length > 0 && linearCriteria.length > 0) {
       const candidates = this.filterViaIndex(indexedCriteria, sourceData);
       result = this.linearFilter(candidates, linearCriteria);
+
+      if (canReadPersistentFlatResultCache) {
+        this.setPersistentIndexedResult(criteriaKey, result);
+      }
+
       this.storePreviousResult(
         result,
         isUsingStoredData,
@@ -522,6 +539,11 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     result = this.linearFilter(sourceData, flatCriteria);
+
+    if (canReadPersistentFlatResultCache) {
+      this.setPersistentIndexedResult(criteriaKey, result);
+    }
+
     this.storePreviousResult(
       result,
       isUsingStoredData,
@@ -529,6 +551,206 @@ export class FilterEngine<T extends CollectionItem> {
       resolvedCriteria,
     );
     return result;
+  }
+
+  private tryFastStoredExcludeView(
+    baseData: T[],
+    isUsingStoredData: boolean,
+    resolvedCriteria: ResolvedFilterCriterion<T>[],
+    criteriaKey: string,
+  ): T[] | null {
+    if (
+      !isUsingStoredData ||
+      baseData !== this.dataset ||
+      resolvedCriteria.length !== 1
+    ) {
+      return null;
+    }
+
+    const criterion = resolvedCriteria[0];
+
+    if (
+      criterion.hasValues ||
+      !criterion.hasExclude ||
+      criterion.exclude.length === 0 ||
+      !this.indexer.hasIndex(criterion.field as string)
+    ) {
+      return null;
+    }
+
+    const previousResult = this.sequentialCache.previousResult;
+    const previousCriteriaKey = this.sequentialCache.previousCriteriaKey;
+    const previousBaseData = this.sequentialCache.previousBaseData;
+
+    if (
+      previousResult !== null &&
+      previousCriteriaKey === criteriaKey &&
+      previousBaseData === baseData
+    ) {
+      return previousResult;
+    }
+
+    const cachedEntry = this.getPersistentIndexedResult(criteriaKey);
+
+    if (cachedEntry !== undefined) {
+      this.storePreviousResult(
+        cachedEntry.result,
+        true,
+        baseData,
+        resolvedCriteria,
+        criteriaKey,
+        cachedEntry.resultSet,
+      );
+      return cachedEntry.result;
+    }
+
+    const result = this.createIndexedExcludeView(baseData, criterion);
+
+    if (result === baseData) {
+      this.storePreviousResult(
+        result,
+        true,
+        baseData,
+        resolvedCriteria,
+        criteriaKey,
+      );
+      return result;
+    }
+
+    this.setPersistentIndexedResult(criteriaKey, result);
+    this.storePreviousResult(
+      result,
+      true,
+      baseData,
+      resolvedCriteria,
+      criteriaKey,
+    );
+    return result;
+  }
+
+  private createIndexedExcludeView(
+    data: T[],
+    criterion: ResolvedFilterCriterion<T>,
+  ): T[] {
+    const excludedCount = this.countIndexedExcludedItems(criterion);
+
+    if (excludedCount === 0) {
+      return data;
+    }
+
+    const snapshot = {
+      data,
+      field: criterion.field,
+      excludedValues: criterion.excludedValues!,
+      visibleCount: Math.max(0, data.length - excludedCount),
+      visibleIndexes: [] as number[],
+      nextSourceIndex: 0,
+    };
+
+    const getVisibleIndex = (requestedIndex: number): number | undefined => {
+      if (requestedIndex < 0 || requestedIndex >= snapshot.visibleCount) {
+        return undefined;
+      }
+
+      while (snapshot.visibleIndexes.length <= requestedIndex) {
+        while (snapshot.nextSourceIndex < snapshot.data.length) {
+          const sourceIndex = snapshot.nextSourceIndex;
+          snapshot.nextSourceIndex += 1;
+
+          const item = snapshot.data[sourceIndex];
+
+          if (!snapshot.excludedValues.has(item[snapshot.field])) {
+            snapshot.visibleIndexes.push(sourceIndex);
+            break;
+          }
+        }
+      }
+
+      return snapshot.visibleIndexes[requestedIndex];
+    };
+
+    const target: T[] = new Array(snapshot.visibleCount);
+
+    return new Proxy(target, {
+      get: (proxyTarget, property, receiver) => {
+        if (property === "length") {
+          return snapshot.visibleCount;
+        }
+
+        if (property === Symbol.iterator) {
+          return function* () {
+            for (
+              let visibleIndex = 0;
+              visibleIndex < snapshot.visibleCount;
+              visibleIndex++
+            ) {
+              const sourceIndex = getVisibleIndex(visibleIndex);
+
+              if (sourceIndex !== undefined) {
+                yield snapshot.data[sourceIndex];
+              }
+            }
+          };
+        }
+
+        if (typeof property === "string") {
+          const numericIndex = Number(property);
+
+          if (Number.isInteger(numericIndex) && numericIndex >= 0) {
+            const sourceIndex = getVisibleIndex(numericIndex);
+            return sourceIndex === undefined
+              ? undefined
+              : snapshot.data[sourceIndex];
+          }
+        }
+
+        return Reflect.get(proxyTarget, property, receiver);
+      },
+      has: (_proxyTarget, property) => {
+        if (typeof property === "string") {
+          const numericIndex = Number(property);
+          if (Number.isInteger(numericIndex) && numericIndex >= 0) {
+            return numericIndex < snapshot.visibleCount;
+          }
+        }
+
+        return property in target;
+      },
+    });
+  }
+
+  private countIndexedExcludedItems(
+    criterion: ResolvedFilterCriterion<T>,
+  ): number {
+    const indexMap = this.indexer.getIndexMap(criterion.field);
+
+    if (!indexMap) {
+      return 0;
+    }
+
+    const seenIndexes = new Set<number>();
+
+    for (
+      let valueIndex = 0;
+      valueIndex < criterion.exclude.length;
+      valueIndex++
+    ) {
+      const bucket = indexMap.get(criterion.exclude[valueIndex]);
+
+      if (!bucket) {
+        continue;
+      }
+
+      for (let itemIndex = 0; itemIndex < bucket.length; itemIndex++) {
+        const datasetIndex = this.state.getItemIndex(bucket[itemIndex]);
+
+        if (datasetIndex !== undefined) {
+          seenIndexes.add(datasetIndex);
+        }
+      }
+    }
+
+    return seenIndexes.size;
   }
 
   private resolveWithSequentialCache(
@@ -905,6 +1127,20 @@ export class FilterEngine<T extends CollectionItem> {
       return data;
     }
 
+    if (criteria.length === 1) {
+      const criterion = criteria[0];
+      const result = Array.prototype.filter.call(
+        data,
+        (item: T) => !criterion.excludedValues!.has(item[criterion.field]),
+      );
+
+      return result.length === data.length ? data : result;
+    }
+
+    if (data !== this.dataset) {
+      return this.applySubsetExclusions(data, criteria);
+    }
+
     const exclusionMask = new Uint8Array(this.dataset.length);
     let excludedCount = 0;
 
@@ -946,31 +1182,54 @@ export class FilterEngine<T extends CollectionItem> {
       return data;
     }
 
-    if (data === this.dataset) {
-      const result = new Array<T>(data.length - excludedCount);
-      let resultIndex = 0;
+    const result = new Array<T>(data.length - excludedCount);
+    let resultIndex = 0;
 
-      for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
-        if (exclusionMask[itemIndex] === 0) {
-          result[resultIndex] = data[itemIndex];
-          resultIndex += 1;
-        }
+    for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
+      if (exclusionMask[itemIndex] === 0) {
+        result[resultIndex] = data[itemIndex];
+        resultIndex += 1;
       }
-
-      return result;
     }
 
-    const result: T[] = [];
+    return result;
+  }
+
+  private applySubsetExclusions(
+    data: T[],
+    criteria: ResolvedFilterCriterion<T>[],
+  ): T[] {
+    const result = new Array<T>(data.length);
+    let resultIndex = 0;
 
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
       const item = data[itemIndex];
-      const datasetIndex = this.state.getItemIndex(item);
+      let isExcluded = false;
 
-      if (datasetIndex === undefined || exclusionMask[datasetIndex] === 0) {
-        result.push(item);
+      for (
+        let criterionIndex = 0;
+        criterionIndex < criteria.length;
+        criterionIndex++
+      ) {
+        const criterion = criteria[criterionIndex];
+
+        if (criterion.excludedValues?.has(item[criterion.field])) {
+          isExcluded = true;
+          break;
+        }
+      }
+
+      if (!isExcluded) {
+        result[resultIndex] = item;
+        resultIndex += 1;
       }
     }
 
+    if (resultIndex === data.length) {
+      return data;
+    }
+
+    result.length = resultIndex;
     return result;
   }
 
@@ -1014,10 +1273,51 @@ export class FilterEngine<T extends CollectionItem> {
       result,
       isUsingStoredData ? this.dataset : baseData,
     );
-    this.sequentialCache.previousResultsByCriteria.set(
+
+    if (this.shouldSkipSequentialHistoryCache(resolvedCriteria)) {
+      return;
+    }
+
+    const sequentialResults = this.sequentialCache.previousResultsByCriteria;
+
+    if (sequentialResults.has(criteriaKey)) {
+      sequentialResults.delete(criteriaKey);
+    }
+
+    sequentialResults.set(
       criteriaKey,
       this.createSequentialCacheEntry(result, cachedResultSet),
     );
+
+    if (sequentialResults.size > SEQUENTIAL_RESULT_CACHE_LIMIT) {
+      const oldestKey = sequentialResults.keys().next().value;
+
+      if (oldestKey !== undefined) {
+        sequentialResults.delete(oldestKey);
+      }
+    }
+  }
+
+  private shouldSkipSequentialHistoryCache(
+    criteria: ResolvedFilterCriterion<T>[],
+  ): boolean {
+    if (criteria.length === 0) {
+      return false;
+    }
+
+    for (
+      let criterionIndex = 0;
+      criterionIndex < criteria.length;
+      criterionIndex++
+    ) {
+      const criterion = criteria[criterionIndex];
+
+      if (!criterion.hasExclude || criterion.hasValues) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   private createCriteriaCacheKey(
@@ -1064,46 +1364,102 @@ export class FilterEngine<T extends CollectionItem> {
     return nextCriteria.map((criterion) => {
       const previousCriterion = previousByField.get(criterion.field);
 
-      if (
-        !previousCriterion ||
-        !previousCriterion.hasValues ||
-        !criterion.hasValues ||
-        previousCriterion.hasExclude ||
-        criterion.hasExclude
-      ) {
-        return criterion;
-      }
+      let executionCriterion = criterion;
 
       if (
-        criterion.includedValues!.size <= previousCriterion.includedValues!.size
+        previousCriterion &&
+        previousCriterion.hasValues &&
+        criterion.hasValues &&
+        !previousCriterion.hasExclude &&
+        !criterion.hasExclude
       ) {
-        return criterion;
-      }
+        if (
+          criterion.includedValues!.size >
+          previousCriterion.includedValues!.size
+        ) {
+          let canCreateIncludedDelta = true;
 
-      for (const value of previousCriterion.includedValues!) {
-        if (!criterion.includedValues!.has(value)) {
-          return criterion;
+          for (const value of previousCriterion.includedValues!) {
+            if (!criterion.includedValues!.has(value)) {
+              canCreateIncludedDelta = false;
+              break;
+            }
+          }
+
+          if (canCreateIncludedDelta) {
+            const appendedValues: any[] = [];
+
+            for (const value of criterion.includedValues!) {
+              if (!previousCriterion.includedValues!.has(value)) {
+                appendedValues.push(value);
+              }
+            }
+
+            if (appendedValues.length > 0) {
+              executionCriterion = {
+                ...criterion,
+                values: appendedValues,
+                includedValues: new Set(appendedValues),
+              };
+            }
+          }
         }
       }
 
-      const appendedValues: any[] = [];
+      if (
+        previousCriterion &&
+        previousCriterion.hasExclude &&
+        executionCriterion.hasExclude &&
+        this.hasEquivalentSequentialValues(
+          previousCriterion,
+          executionCriterion,
+        )
+      ) {
+        const previousExcluded = previousCriterion.excludedValues!;
+        const nextExcluded = executionCriterion.excludedValues!;
 
-      for (const value of criterion.includedValues!) {
-        if (!previousCriterion.includedValues!.has(value)) {
-          appendedValues.push(value);
+        if (
+          !this.areSetsEqual(previousExcluded, nextExcluded) &&
+          this.isSubset(previousExcluded, nextExcluded)
+        ) {
+          const appendedExcludedValues: any[] = [];
+
+          for (const value of nextExcluded) {
+            if (!previousExcluded.has(value)) {
+              appendedExcludedValues.push(value);
+            }
+          }
+
+          if (appendedExcludedValues.length > 0) {
+            executionCriterion = {
+              ...executionCriterion,
+              exclude: appendedExcludedValues,
+              excludedValues: new Set(appendedExcludedValues),
+            };
+          }
         }
       }
 
-      if (appendedValues.length === 0) {
-        return criterion;
-      }
-
-      return {
-        ...criterion,
-        values: appendedValues,
-        includedValues: new Set(appendedValues),
-      };
+      return executionCriterion;
     });
+  }
+
+  private hasEquivalentSequentialValues(
+    previousCriterion: ResolvedFilterCriterion<T>,
+    nextCriterion: ResolvedFilterCriterion<T>,
+  ): boolean {
+    if (previousCriterion.hasValues !== nextCriterion.hasValues) {
+      return false;
+    }
+
+    if (!previousCriterion.hasValues && !nextCriterion.hasValues) {
+      return true;
+    }
+
+    return this.areSetsEqual(
+      previousCriterion.includedValues,
+      nextCriterion.includedValues,
+    );
   }
 
   private hasCriteriaBacktrack(

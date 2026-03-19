@@ -265,7 +265,7 @@ async function main(): Promise<void> {
       speedup: speedupStr(d1.p50_ms, d2.p50_ms),
     },
     {
-      label: "E — exclude filter (status not in set)",
+      label: "E — exclude filter (ids not in set)",
       engineMs: e2.p50_ms,
       nativeMs: e1.p50_ms,
       speedup: speedupStr(e1.p50_ms, e2.p50_ms),
