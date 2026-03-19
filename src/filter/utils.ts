@@ -22,4 +22,5 @@ export const createFilterRuntime = <
     previousResultsByCriteria: new Map<string, FilterSequentialCacheEntry<T>>(),
     previousResultSet: null,
   },
+  persistentIndexedResults: new Map<string, FilterSequentialCacheEntry<T>>(),
 });

@@ -5,7 +5,7 @@
 These benchmarks were collected using the same environment information printed by each benchmark script.
 
 ```
-Measured on  @devisfuture/mega-collection v2.3.5
+Measured on  @devisfuture/mega-collection v2.4.8
 Environment  Node.js v22.13.1 · macOS 12 Monterey 12.7.6 · Intel(R) Core(TM) i5-5257U CPU @ 2.70GHz · 8 GB RAM
 Benchmark    Warmup: 3 un-timed runs · Measured: 15 timed runs per scenario
 Metrics      p50 / p95 / p99 latency across all iterations (lower is better)
@@ -60,25 +60,28 @@ These benchmarks compare `FilterEngine` against a baseline native `Array.filter`
 
 ### Summary
 
-| Scenario                                    | FilterEngine p50                        | Native p50                              | Speedup                                       |
-| ------------------------------------------- | --------------------------------------- | --------------------------------------- | --------------------------------------------- |
-| A — single-call overhead                    | <span style="color:green">0.2 ms</span> | <span style="color:#666">1.9 ms</span>  | <span style="color:green">9.5× faster</span>  |
-| B — 5 repeated queries                      | <span style="color:green">1.9 ms</span> | <span style="color:#666">9.3 ms</span>  | <span style="color:green">4.9× faster</span>  |
-| C — 20 repeated queries                     | <span style="color:green">1.9 ms</span> | <span style="color:#666">32 ms</span>   | <span style="color:green">16.8× faster</span> |
-| D — 30-query session (2 criteria, 3 phases) | <span style="color:green">1.8 ms</span> | <span style="color:#666">87.9 ms</span> | <span style="color:green">48.8× faster</span> |
+| Scenario                                    | FilterEngine p50                        | Native p50                              | Speedup                                         |
+| ------------------------------------------- | --------------------------------------- | --------------------------------------- | ----------------------------------------------- |
+| A — single-call overhead                    | <span style="color:green">0 ms</span>   | <span style="color:#666">1.9 ms</span>  | <span style="color:green">∞× (cache hit)</span> |
+| B — 5 repeated queries                      | <span style="color:green">0.1 ms</span> | <span style="color:#666">7.5 ms</span>  | <span style="color:green">75× faster</span>     |
+| C — 20 repeated queries                     | <span style="color:green">0.2 ms</span> | <span style="color:#666">27.8 ms</span> | <span style="color:green">139× faster</span>    |
+| D — 30-query session (2 criteria, 3 phases) | <span style="color:green">0.3 ms</span> | <span style="color:#666">80.9 ms</span> | <span style="color:green">270× faster</span>    |
+| E — exclude filter (status not in set)      | <span style="color:green">0 ms</span>   | <span style="color:#666">3.1 ms</span>  | <span style="color:green">∞× (cache hit)</span> |
 
 ### Per-scenario tail latency (p95 / p99 / max)
 
 | Scenario                                                              | p50                                     | p95     | p99     | Max     |
 | --------------------------------------------------------------------- | --------------------------------------- | ------- | ------- | ------- |
 | Native Array.filter — single-field equality (100k scanned, baseline)  | <span style="color:#666">1.9 ms</span>  | 2.1 ms  | 2.1 ms  | 2.1 ms  |
-| FilterEngine indexed — single-field (1 compute, result cached)        | <span style="color:green">0.2 ms</span> | 0.4 ms  | 0.4 ms  | 0.4 ms  |
+| FilterEngine indexed — single-field (1 compute, result cached)        | <span style="color:green">0 ms</span>   | 0.2 ms  | 0.2 ms  | 0.2 ms  |
 | Native × 5 — 5 identical filters, no cache (5 × 100k scans)           | <span style="color:#666">9.3 ms</span>  | 11.3 ms | 11.3 ms | 11.3 ms |
-| FilterEngine × 5 — 5 identical filters: 1 compute + 4 cache hits      | <span style="color:green">1.9 ms</span> | 2.5 ms  | 2.5 ms  | 2.5 ms  |
+| FilterEngine × 5 — 5 identical filters: 1 compute + 4 cache hits      | <span style="color:green">0.1 ms</span> | 0.1 ms  | 0.1 ms  | 0.1 ms  |
 | Native × 20 — 20 identical filters, no cache (20 × 100k scans)        | <span style="color:#666">32 ms</span>   | 33.3 ms | 33.3 ms | 33.3 ms |
-| FilterEngine × 20 — 20 identical filters: 1 compute + 19 cache hits   | <span style="color:green">1.9 ms</span> | 2.8 ms  | 2.8 ms  | 2.8 ms  |
-| Native session × 30 — 3 criteria phases × 10 queries each (30 × 100k) | <span style="color:#666">87.9 ms</span> | 90.1 ms | 90.1 ms | 90.1 ms |
-| FilterEngine session × 30 — 2 computes + 28 cache hits (map persists) | <span style="color:green">1.8 ms</span> | 5.2 ms  | 5.2 ms  | 5.2 ms  |
+| FilterEngine × 20 — 20 identical filters: 1 compute + 19 cache hits   | <span style="color:green">0.2 ms</span> | 0.4 ms  | 0.4 ms  | 0.4 ms  |
+| Native session × 30 — 3 criteria phases × 10 queries each (30 × 100k) | <span style="color:#666">80.9 ms</span> | 88.8 ms | 88.8 ms | 88.8 ms |
+| FilterEngine session × 30 — 2 computes + 28 cache hits (map persists) | <span style="color:green">0.3 ms</span> | 0.5 ms  | 0.5 ms  | 0.5 ms  |
+| [E1] Native exclude filter — single-field exclusion (100k scanned)    | 3.1 ms                                  | 4.9 ms  | 4.9 ms  | 4.9 ms  |
+| [E2] FilterEngine exclude — single-field exclusion (cached)           | 0 ms                                    | 0 ms    | 0 ms    | 0 ms    |
 
 ---
 

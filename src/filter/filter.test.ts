@@ -78,6 +78,31 @@ describe("FilterEngine", () => {
     ).toEqual([1, 2, 3, 4, 5]);
   });
 
+  it("invalidates cached indexed exclude results after add()", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      fields: ["city"],
+    });
+
+    expect(
+      engine
+        .filter([{ field: "city", exclude: ["Kyiv"] }])
+        .map((user) => user.id),
+    ).toEqual([2, 4, 5]);
+
+    engine.resetFilterState();
+    engine.add([
+      { id: 10, name: "Lia", city: "Berlin", age: 28, active: true },
+    ]);
+
+    expect(
+      engine
+        .filter([{ field: "city", exclude: ["Kyiv"] }])
+        .map((user) => user.id),
+    ).toEqual([2, 4, 5, 10]);
+  });
+
   it("delete() removes stored items and keeps flat indexes in sync", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new FilterEngine<User>({

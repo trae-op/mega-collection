@@ -94,4 +94,5 @@ export type FilterRuntime<T extends CollectionItem> = {
   nestedStorage: FilterNestedCollectionStorage<T>;
   deferredMutationVersion: number | null;
   sequentialCache: FilterSequentialCache<T>;
+  persistentIndexedResults: Map<string, FilterSequentialCacheEntry<T>>;
 };

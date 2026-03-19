@@ -36,6 +36,8 @@ import { FilterNestedCollection } from "./nested";
 import { createFilterRuntime } from "./utils";
 import { MERGE_SHARED_SCOPE } from "../constants";
 
+const PERSISTENT_INDEXED_RESULT_CACHE_LIMIT = 32;
+
 export class FilterEngine<T extends CollectionItem> {
   private readonly indexer: Indexer<T>;
   private readonly filterByPreviousResult: boolean;
@@ -121,6 +123,13 @@ export class FilterEngine<T extends CollectionItem> {
     return this.runtime.sequentialCache;
   }
 
+  private get persistentIndexedResults(): Map<
+    string,
+    FilterSequentialCacheEntry<T>
+  > {
+    return this.runtime.persistentIndexedResults;
+  }
+
   private shouldDeferMutationIndexUpdates(): boolean {
     return (
       this.state.getScopedValue<boolean>(
@@ -134,6 +143,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.runtime.deferredMutationVersion = this.state.getMutationVersion();
     this.indexer.clear();
     this.nestedCollection.clearIndexes();
+    this.clearPersistentIndexedResults();
     this.resetFilterState();
   }
 
@@ -166,6 +176,34 @@ export class FilterEngine<T extends CollectionItem> {
     }
   }
 
+  private clearPersistentIndexedResults(): void {
+    this.persistentIndexedResults.clear();
+  }
+
+  private getPersistentIndexedResult(
+    criteriaKey: string,
+  ): FilterSequentialCacheEntry<T> | undefined {
+    return this.persistentIndexedResults.get(criteriaKey);
+  }
+
+  private setPersistentIndexedResult(criteriaKey: string, result: T[]): void {
+    const cache = this.persistentIndexedResults;
+
+    if (cache.has(criteriaKey)) {
+      cache.delete(criteriaKey);
+    }
+
+    cache.set(criteriaKey, this.createSequentialCacheEntry(result, null));
+
+    if (cache.size > PERSISTENT_INDEXED_RESULT_CACHE_LIMIT) {
+      const oldestKey = cache.keys().next().value;
+
+      if (oldestKey !== undefined) {
+        cache.delete(oldestKey);
+      }
+    }
+  }
+
   /**
    * Builds an index for the given field.
    */
@@ -175,6 +213,8 @@ export class FilterEngine<T extends CollectionItem> {
     dataOrField: T[] | (keyof T & string),
     field?: keyof T & string,
   ): this {
+    this.clearPersistentIndexedResults();
+
     if (!Array.isArray(dataOrField)) {
       if (!this.dataset.length) {
         throw FilterEngineError.missingDatasetForBuildIndex();
@@ -192,6 +232,7 @@ export class FilterEngine<T extends CollectionItem> {
   clearIndexes(): this {
     this.indexer.clear();
     this.nestedCollection.clearIndexes();
+    this.clearPersistentIndexedResults();
     return this;
   }
 
@@ -275,6 +316,7 @@ export class FilterEngine<T extends CollectionItem> {
     }
 
     this.resetFilterState();
+    this.clearPersistentIndexedResults();
     this.indexer.addItems(items);
     this.nestedCollection.addItems(items);
     return this;
@@ -319,6 +361,7 @@ export class FilterEngine<T extends CollectionItem> {
     const resolvedCriteria = resolveCriteria(
       isUsingStoredData ? (dataOrCriteria as FilterCriterion<T>[]) : criteria!,
     );
+    const criteriaKey = this.createCriteriaCacheKey(resolvedCriteria);
 
     const baseData: T[] = isUsingStoredData
       ? this.dataset
@@ -362,6 +405,11 @@ export class FilterEngine<T extends CollectionItem> {
         );
       }
     }
+
+    const canUsePersistentIndexedCache =
+      isUsingStoredData &&
+      sourceData === this.dataset &&
+      executionCriteria === resolvedCriteria;
 
     const nestedCriteria: ResolvedFilterCriterion<T>[] = [];
     const flatCriteria: ResolvedFilterCriterion<T>[] = [];
@@ -420,15 +468,43 @@ export class FilterEngine<T extends CollectionItem> {
       }
     }
 
+    const canReadPersistentIndexedCache =
+      canUsePersistentIndexedCache &&
+      nestedCriteria.length === 0 &&
+      flatCriteria.length > 0 &&
+      linearCriteria.length === 0;
+
+    if (canReadPersistentIndexedCache) {
+      const cachedEntry = this.getPersistentIndexedResult(criteriaKey);
+
+      if (cachedEntry !== undefined) {
+        this.storePreviousResult(
+          cachedEntry.result,
+          isUsingStoredData,
+          baseData,
+          resolvedCriteria,
+          criteriaKey,
+          cachedEntry.resultSet,
+        );
+        return cachedEntry.result;
+      }
+    }
+
     let result: T[];
 
     if (indexedCriteria.length > 0 && linearCriteria.length === 0) {
       result = this.filterViaIndex(indexedCriteria, sourceData);
+
+      if (canReadPersistentIndexedCache) {
+        this.setPersistentIndexedResult(criteriaKey, result);
+      }
+
       this.storePreviousResult(
         result,
         isUsingStoredData,
         baseData,
         resolvedCriteria,
+        criteriaKey,
       );
       return result;
     }
@@ -548,12 +624,14 @@ export class FilterEngine<T extends CollectionItem> {
       case "data":
         this.runtime.deferredMutationVersion = null;
         this.resetFilterState();
+        this.clearPersistentIndexedResults();
         this.rebuildConfiguredIndexes();
         return;
       case "clearData":
         this.runtime.deferredMutationVersion = null;
         this.indexer.clear();
         this.nestedCollection.clearIndexes();
+        this.clearPersistentIndexedResults();
         this.resetFilterState();
         return;
       case "remove":
@@ -567,12 +645,14 @@ export class FilterEngine<T extends CollectionItem> {
 
   private applyUpdatedItem(previousItem: T, nextItem: T): void {
     this.resetFilterState();
+    this.clearPersistentIndexedResults();
     this.indexer.updateItem(previousItem, nextItem);
     this.nestedCollection.updateItem(nextItem, previousItem);
   }
 
   private applyRemovedItem(removedItem: T): void {
     this.resetFilterState();
+    this.clearPersistentIndexedResults();
     this.indexer.removeItem(removedItem);
     this.nestedCollection.removeItem(removedItem);
   }
@@ -586,6 +666,8 @@ export class FilterEngine<T extends CollectionItem> {
       movedFromIndex: number | null;
     }>,
   ): void {
+    this.clearPersistentIndexedResults();
+
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
       const entry = entries[entryIndex];
 
@@ -823,7 +905,8 @@ export class FilterEngine<T extends CollectionItem> {
       return data;
     }
 
-    const excludedItems = new Set<T>();
+    const exclusionMask = new Uint8Array(this.dataset.length);
+    let excludedCount = 0;
 
     for (
       let criterionIndex = 0;
@@ -847,20 +930,43 @@ export class FilterEngine<T extends CollectionItem> {
         }
 
         for (let itemIndex = 0; itemIndex < bucket.length; itemIndex++) {
-          excludedItems.add(bucket[itemIndex]);
+          const datasetIndex = this.state.getItemIndex(bucket[itemIndex]);
+
+          if (datasetIndex === undefined || exclusionMask[datasetIndex] === 1) {
+            continue;
+          }
+
+          exclusionMask[datasetIndex] = 1;
+          excludedCount += 1;
         }
       }
     }
 
-    if (excludedItems.size === 0) {
+    if (excludedCount === 0) {
       return data;
+    }
+
+    if (data === this.dataset) {
+      const result = new Array<T>(data.length - excludedCount);
+      let resultIndex = 0;
+
+      for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
+        if (exclusionMask[itemIndex] === 0) {
+          result[resultIndex] = data[itemIndex];
+          resultIndex += 1;
+        }
+      }
+
+      return result;
     }
 
     const result: T[] = [];
 
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
       const item = data[itemIndex];
-      if (!excludedItems.has(item)) {
+      const datasetIndex = this.state.getItemIndex(item);
+
+      if (datasetIndex === undefined || exclusionMask[datasetIndex] === 0) {
         result.push(item);
       }
     }
