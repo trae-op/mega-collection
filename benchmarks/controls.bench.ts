@@ -208,7 +208,6 @@ function createMergeRuntime(): MergeEngines<Item> {
     },
     filter: {
       fields: ["id", "city", "status", "active"],
-      mutableExcludeField: "id",
     },
     sort: {
       fields: ["score", "age", "name"],
@@ -483,7 +482,7 @@ function runUpdateNative(runtime: NativeRuntime): OperationSummary {
 function runDeleteMerge(merge: MergeEngines<Item>): OperationSummary {
   return measureOperationSummary(
     () => {
-      merge.filter([{ field: "id", exclude: REMOVE_IDS }]);
+      merge.delete("id", REMOVE_IDS);
     },
     () => merge.search("name", REMOVE_QUERY),
     () => merge.filter(FILTER_CRITERIA),
@@ -530,7 +529,7 @@ function verifyScenarios(): void {
   runDeleteMerge(deleteMerge);
   runDeleteNative(deleteNative);
   verifyOperationParity(
-    "mutable exclude delete",
+    "delete()",
     deleteMerge,
     deleteNative,
     REMOVE_QUERY,
@@ -667,7 +666,7 @@ async function main(): Promise<void> {
       () => runUpdateNative(nativeRuntime),
     ),
     runScenario(
-      `C1. MergeEngines mutable exclude - remove ${REMOVE_BATCH_SIZE} ids + immediate search/filter/sort read`,
+      `C1. MergeEngines.delete() - remove ${REMOVE_BATCH_SIZE} ids + immediate search/filter/sort read`,
       () => {
         mergeRuntime = createMergeRuntime();
         warmMergeRuntime(mergeRuntime);
@@ -698,7 +697,7 @@ async function main(): Promise<void> {
       speedup: speedupStr(results[3].p50_ms, results[2].p50_ms),
     },
     {
-      label: `C — delete ${REMOVE_BATCH_SIZE} ids via mutable exclude, then read once`,
+      label: `C — delete ${REMOVE_BATCH_SIZE} ids via delete(), then read once`,
       engineMs: results[4].p50_ms,
       nativeMs: results[5].p50_ms,
       speedup: speedupStr(results[5].p50_ms, results[4].p50_ms),
