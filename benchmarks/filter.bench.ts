@@ -219,14 +219,12 @@ async function main(): Promise<void> {
       return engine.filter(d_broad);
     },
   );
-  const e_excludeStatuses = ["closed", "archived"] as const;
+  const e_excludeIds = [300, 133, 56, 2, 200] as const;
   const e_excludeCriteria: FilterCriterion<Item>[] = [
-    { field: "status", exclude: [...e_excludeStatuses] },
+    { field: "id", exclude: [...e_excludeIds] },
   ];
   const e_excludeNative = (item: Item): boolean =>
-    !e_excludeStatuses.includes(
-      item.status as (typeof e_excludeStatuses)[number],
-    );
+    !e_excludeIds.includes(item.id as (typeof e_excludeIds)[number]);
 
   const e1 = run(
     "[E1] Native exclude filter — single-field exclusion (100k scanned)",
