@@ -219,8 +219,27 @@ async function main(): Promise<void> {
       return engine.filter(d_broad);
     },
   );
+  const e_excludeStatuses = ["closed", "archived"] as const;
+  const e_excludeCriteria: FilterCriterion<Item>[] = [
+    { field: "status", exclude: [...e_excludeStatuses] },
+  ];
+  const e_excludeNative = (item: Item): boolean =>
+    !e_excludeStatuses.includes(
+      item.status as (typeof e_excludeStatuses)[number],
+    );
 
-  const results = [a1, a2, b1, b2, c1, c2, d1, d2];
+  const e1 = run(
+    "[E1] Native exclude filter — single-field exclusion (100k scanned)",
+    () => dataset.filter(e_excludeNative),
+  );
+
+  const e2 = runWithSetup(
+    "[E2] FilterEngine exclude — single-field exclusion (cached)",
+    () => engine.resetFilterState(),
+    () => engine.filter(e_excludeCriteria),
+  );
+
+  const results = [a1, a2, b1, b2, c1, c2, d1, d2, e1, e2];
 
   const comparisonRows: TableRow[] = [
     {
@@ -246,6 +265,12 @@ async function main(): Promise<void> {
       engineMs: d2.p50_ms,
       nativeMs: d1.p50_ms,
       speedup: speedupStr(d1.p50_ms, d2.p50_ms),
+    },
+    {
+      label: "E — exclude filter (status not in set)",
+      engineMs: e2.p50_ms,
+      nativeMs: e1.p50_ms,
+      speedup: speedupStr(e1.p50_ms, e2.p50_ms),
     },
   ];
 
