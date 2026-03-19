@@ -5,7 +5,7 @@
 These benchmarks were collected using the same environment information printed by each benchmark script.
 
 ```
-Measured on  @devisfuture/mega-collection v2.4.8
+Measured on  @devisfuture/mega-collection v2.5.0
 Environment  Node.js v22.13.1 · macOS 12 Monterey 12.7.6 · Intel(R) Core(TM) i5-5257U CPU @ 2.70GHz · 8 GB RAM
 Benchmark    Warmup: 3 un-timed runs · Measured: 15 timed runs per scenario
 Metrics      p50 / p95 / p99 latency across all iterations (lower is better)
@@ -60,13 +60,22 @@ These benchmarks compare `FilterEngine` against a baseline native `Array.filter`
 
 ### Summary
 
-| Scenario                                    | FilterEngine p50                        | Native p50                              | Speedup                                         |
-| ------------------------------------------- | --------------------------------------- | --------------------------------------- | ----------------------------------------------- |
-| A — single-call overhead                    | <span style="color:green">0 ms</span>   | <span style="color:#666">1.9 ms</span>  | <span style="color:green">∞× (cache hit)</span> |
-| B — 5 repeated queries                      | <span style="color:green">0.1 ms</span> | <span style="color:#666">7.5 ms</span>  | <span style="color:green">75× faster</span>     |
-| C — 20 repeated queries                     | <span style="color:green">0.2 ms</span> | <span style="color:#666">27.8 ms</span> | <span style="color:green">139× faster</span>    |
-| D — 30-query session (2 criteria, 3 phases) | <span style="color:green">0.3 ms</span> | <span style="color:#666">80.9 ms</span> | <span style="color:green">270× faster</span>    |
-| E — exclude filter (status not in set)      | <span style="color:green">0 ms</span>   | <span style="color:#666">3.1 ms</span>  | <span style="color:green">∞× (cache hit)</span> |
+| Scenario                                                         | FilterEngine p50                        | Native p50                               | Speedup                                         |
+| ---------------------------------------------------------------- | --------------------------------------- | ---------------------------------------- | ----------------------------------------------- |
+| A — single-call overhead                                         | <span style="color:green">0 ms</span>   | <span style="color:#666">1.9 ms</span>   | <span style="color:green">∞× (cache hit)</span> |
+| B — 5 repeated queries                                           | <span style="color:green">0.1 ms</span> | <span style="color:#666">7.5 ms</span>   | <span style="color:green">75× faster</span>     |
+| C — 20 repeated queries                                          | <span style="color:green">0.2 ms</span> | <span style="color:#666">27.8 ms</span>  | <span style="color:green">139× faster</span>    |
+| D — 30-query session (2 criteria, 3 phases)                      | <span style="color:green">0.3 ms</span> | <span style="color:#666">80.9 ms</span>  | <span style="color:green">270× faster</span>    |
+| E — exclude filter (status not in set)                           | <span style="color:green">0 ms</span>   | <span style="color:#666">3.1 ms</span>   | <span style="color:green">∞× (cache hit)</span> |
+| F — component-like cumulative exclude session (30 steps × 5 ids) | <span style="color:green">1.1 ms</span> | <span style="color:#666">225.1 ms</span> | <span style="color:green">204.6× faster</span>  |
+
+### Cumulative Exclude Session
+
+This benchmark measures a typical UI interaction where a user repeatedly excludes items (by id) over multiple steps. The native baseline rebuilds the filtered set from scratch on every change, while `FilterEngine` incrementally grows an exclusion set using cached indexes.
+
+| Scenario                                                         | Engine p50                              | Native p50                               | Speedup                                        |
+| ---------------------------------------------------------------- | --------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
+| F — component-like cumulative exclude session (30 steps × 5 ids) | <span style="color:green">1.1 ms</span> | <span style="color:#666">225.1 ms</span> | <span style="color:green">204.6× faster</span> |
 
 ### Per-scenario tail latency (p95 / p99 / max)
 
@@ -113,26 +122,3 @@ Benchmarks below compare `SortEngine` to the baseline `Array.sort` implementatio
 | Native Array.sort (value asc, baseline)          | 48.9 ms | 51.1 ms | 51.1 ms | 51.1 ms |
 
 ---
-
-## MergeEngines controls add/update/delete
-
-These benchmarks compare `MergeEngines` controls against a baseline native `Array`/`Map` approach. The key metric is how fast the engine can apply small mutations and then read back results (search/filter/sort) immediately.
-
-### Summary
-
-| Scenario                                             | Engine p50                                | Native p50                                | Speedup                                       |
-| ---------------------------------------------------- | ----------------------------------------- | ----------------------------------------- | --------------------------------------------- |
-| A — add 5 items, then read once                      | <span style="color:green">3.64 ms</span>  | <span style="color:#666">116.69 ms</span> | <span style="color:green">32.1× faster</span> |
-| B — update 1 item, then read once                    | <span style="color:green">24.35 ms</span> | <span style="color:#666">64.08 ms</span>  | <span style="color:green">2.6× faster</span>  |
-| C — delete 5 ids via mutable exclude, then read once | <span style="color:green">28.2 ms</span>  | <span style="color:#666">57.13 ms</span>  | <span style="color:green">2.0× faster</span>  |
-
-### Per-scenario tail latency (p95 / p99 / max)
-
-| Scenario                                                                                       | p50                                       | p95                                       | p99                                       | Max                                       |
-| ---------------------------------------------------------------------------------------------- | ----------------------------------------- | ----------------------------------------- | ----------------------------------------- | ----------------------------------------- |
-| A1. MergeEngines.add() append 5 items + immediate search/filter/sort read                      | <span style="color:green">3.64 ms</span>  | <span style="color:#666">6.93 ms</span>   | <span style="color:#666">6.93 ms</span>   | <span style="color:#666">6.93 ms</span>   |
-| A2. Native Array/Map add – append 5 items + immediate linear search/filter/sort read           | <span style="color:#666">116.69 ms</span> | <span style="color:#666">180.55 ms</span> | <span style="color:#666">180.55 ms</span> | <span style="color:#666">180.55 ms</span> |
-| B1. MergeEngines.update() refresh 1 item + immediate search/filter/sort read                   | <span style="color:green">24.35 ms</span> | <span style="color:#666">318.62 ms</span> | <span style="color:#666">318.62 ms</span> | <span style="color:#666">318.62 ms</span> |
-| B2. Native Array/Map update – replace 1 item + immediate linear search/filter/sort read        | <span style="color:#666">64.08 ms</span>  | <span style="color:#666">116.25 ms</span> | <span style="color:#666">116.25 ms</span> | <span style="color:#666">116.25 ms</span> |
-| C1. MergeEngines mutable exclude – remove 5 ids + immediate search/filter/sort read            | <span style="color:green">28.2 ms</span>  | <span style="color:#666">52.51 ms</span>  | <span style="color:#666">52.51 ms</span>  | <span style="color:#666">52.51 ms</span>  |
-| C2. Native Array/Map swap-pop delete – remove 5 ids + immediate linear search/filter/sort read | <span style="color:#666">57.13 ms</span>  | <span style="color:#666">155.8 ms</span>  | <span style="color:#666">155.8 ms</span>  | <span style="color:#666">155.8 ms</span>  |
