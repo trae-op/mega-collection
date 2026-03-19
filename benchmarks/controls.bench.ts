@@ -235,14 +235,6 @@ function nativeSearchByName(data: Item[], query: string): Item[] {
   return data.filter((item) => item.name.includes(query));
 }
 
-function nativeFilterByCriteria(data: Item[]): Item[] {
-  return data.filter(
-    (item) =>
-      item.city === "kyiv" &&
-      (item.status === "active" || item.status === "pending"),
-  );
-}
-
 function nativeSortByDescriptors(data: Item[]): Item[] {
   return data.slice().sort((left, right) => {
     if (left.score !== right.score) {
