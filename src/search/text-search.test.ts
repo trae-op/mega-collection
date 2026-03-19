@@ -195,6 +195,38 @@ describe("TextSearchEngine", () => {
     expect(engine.search("city", "Kyiv").map((item) => item.id)).toEqual([2]);
   });
 
+  it("delete() removes stored items and keeps indexed search in sync", () => {
+    const dataset = cityCards.map((card) => ({ ...card }));
+    const engine = new TextSearchEngine<CardItem>({
+      data: dataset,
+      fields: ["city"],
+    });
+
+    engine.delete("id", 2);
+
+    expect(engine.search("city", "Kyiv")).toEqual([]);
+    expect(engine.search("city", "Dnipro").map((item) => item.id)).toEqual([1]);
+  });
+
+  it("delete() throws when the target field value is not unique", () => {
+    const engine = new TextSearchEngine<CardItem>({
+      data: [
+        {
+          id: 1,
+          title: "Noah 5",
+          description: "A",
+          tag: "Odd",
+          city: "Dnipro",
+        },
+        { id: 1, title: "Mia 10", description: "B", tag: "Even", city: "Kyiv" },
+      ],
+    });
+
+    expect(() => engine.delete("id", 1)).toThrow(
+      "TextSearchEngine: delete() requires unique field values. Field `id` matched multiple items for value 1.",
+    );
+  });
+
   it("update() refreshes indexed flat search data without replacing the dataset", () => {
     const dataset = cityCards.map((card) => ({ ...card }));
     const engine = new TextSearchEngine<CardItem>({

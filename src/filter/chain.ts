@@ -1,6 +1,7 @@
 import type {
   CollectionItem,
   FilterCriterion,
+  IndexableKey,
   UpdateDescriptor,
 } from "../types";
 import { createChainMethodDescriptor } from "../internal";
@@ -32,6 +33,14 @@ export class FilterEngineChainBuilder<T extends CollectionItem> {
       ),
       add: createChainMethodDescriptor((items: T[]) =>
         this.callbacks.add(items),
+      ),
+      delete: createChainMethodDescriptor(
+        (
+          field: IndexableKey<T> & string,
+          valueOrValues:
+            | T[IndexableKey<T> & string]
+            | T[IndexableKey<T> & string][],
+        ) => this.callbacks.delete(field, valueOrValues),
       ),
       update: createChainMethodDescriptor((descriptor: UpdateDescriptor<T>) =>
         this.callbacks.update(descriptor),

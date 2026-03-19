@@ -17,6 +17,7 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
   - [All-in-one: `MergeEngines`](#all-in-one-mergeengines) – use search, filter, and sort from one engine
   - [Add items with `add([])`](#add-items-with-add) – append multiple items to stored data
   - [Update items with `update(...)`](#update-items-with-update) – replace one stored item by unique field
+  - [Delete items with `delete(...)`](#delete-items-with-delete) – remove stored items by unique field value
   - [Search only](#search-only) – use only text search
     - [Flat collections search](#flat-collections-search) – search simple fields like `name` or `city`
     - [Nested collections search](#nested-collections-search) – search inside nested arrays like `orders.status`
@@ -24,7 +25,6 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
     - [Flat collections filter](#flat-collections-filter) – filter by simple top-level fields
     - [Exclude items with `exclude`](#exclude-items-with-exclude) – remove matching items from the result
       - [Result-only exclude](#result-only-exclude) – return a filtered result without mutating stored data
-      - [Mutable exclude with `mutableExcludeField`](#mutable-exclude-with-mutableexcludefield) – fast delete-like removal via swap-pop
     - [Nested collections filter](#nested-collections-filter) – filter by nested array fields
   - [Sort only](#sort-only) – use only sorting
 - [API Reference](#api-reference) – list of options and methods
@@ -173,7 +173,7 @@ const engine = new MergeEngines<User>({
 const mutableMerge = new MergeEngines<User>({
   imports: [FilterEngine],
   data: users,
-  filter: { fields: ["id", "city"], mutableExcludeField: "id" },
+  filter: { fields: ["id", "city"] },
 });
 
 // Dataset is passed once in the constructor.
@@ -228,7 +228,7 @@ engine.clearData("search").clearData("sort").clearData("filter");
 engine.getOriginData();
 
 // Remove items through the root facade.
-mutableMerge.filter([{ field: "id", exclude: [1, 4] }]);
+mutableMerge.delete("id", [1, 4]);
 ```
 
 ---
@@ -363,6 +363,68 @@ searchEngine.update({
 
 ---
 
+### Delete items with `delete(...)`
+
+Use `delete(...)` when you need to remove stored items from the original dataset by a unique field such as `id`.
+
+- `delete(...)` changes the stored dataset.
+- removal uses **swap-pop**, so order is not preserved.
+- indexed engines update their internal state from the shared `State` mutation instead of rebuilding the full dataset.
+- the target field values must be unique for the values you remove.
+
+```ts
+import { MergeEngines } from "@devisfuture/mega-collection";
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+import { SortEngine } from "@devisfuture/mega-collection/sort";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const merge = new MergeEngines<User>({
+  imports: [TextSearchEngine, SortEngine, FilterEngine],
+  data: users,
+  search: { fields: ["name", "city"], minQueryLength: 2 },
+  filter: { fields: ["id", "city"] },
+  sort: { fields: ["age", "name"] },
+});
+
+merge.delete("id", [1, 4]);
+
+merge.getOriginData();
+merge.search("Kyiv");
+merge.filter([{ field: "city", values: ["Lviv"] }]);
+merge.sort([{ field: "age", direction: "asc" }]);
+```
+
+The same method works in each engine:
+
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+import { SortEngine } from "@devisfuture/mega-collection/sort";
+
+const searchEngine = new TextSearchEngine<User>({
+  data: users,
+  fields: ["name", "city"],
+});
+
+searchEngine.delete("id", 2);
+
+const filterEngine = new FilterEngine<User>({
+  data: users,
+  fields: ["id", "city"],
+});
+
+filterEngine.delete("id", [1, 4]);
+
+const sortEngine = new SortEngine<User>({
+  data: users,
+  fields: ["age", "name"],
+});
+
+sortEngine.delete("id", 3);
+```
+
+---
+
 ### Search only
 
 Use `TextSearchEngine` when you only need text search.
@@ -397,6 +459,9 @@ engine.update({
   field: "id",
   data: { id: 2, name: "Bob", city: "Paris", age: 19 },
 });
+
+// remove one stored item by unique field
+engine.delete("id", 2);
 
 // access original dataset stored in the engine
 engine.getOriginData();
@@ -456,6 +521,9 @@ engine.update({
   data: { id: 2, name: "Bob", city: "Paris", age: 19, active: true },
 });
 
+// Remove stored items by unique field.
+engine.delete("id", [1, 4]);
+
 // Get original stored dataset.
 engine.getOriginData();
 
@@ -475,12 +543,7 @@ This is useful when you already know which `id` values or other field values sho
 
 `exclude` changes only the returned result. It does not change the stored dataset inside the engine.
 
-There are two ways to work with `exclude`:
-
-- Result-only exclude: returns a filtered array and leaves the stored dataset unchanged.
-- Mutable exclude with `mutableExcludeField`: removes items from the stored dataset with **swap-pop**.
-
-**Swap-pop** is an efficient array removal technique where the element to be removed is swapped with the last element in the array, and then the array length is decreased by one. This provides O(1) time complexity for removal but does not preserve the original order of elements.
+`exclude` is always result-only. It never changes the stored dataset inside the engine.
 
 #### Result-only exclude
 
@@ -492,10 +555,8 @@ so the engine still needs one pass over the current data to build the result.
 If `id` is indexed, the engine does not scan the full dataset again for each excluded `id`,
 but it still has to build the final array.
 
-If you need repeated removals from a large collection and do not want O(n) work for each removed item,
-use mutable exclude mode.
-In this mode the engine removes items from the stored dataset with swap-pop.
-Order is not preserved.
+If you need to remove items from the stored dataset itself, use `delete(...)`.
+That operation is separate from filtering so result-only `exclude` stays predictable.
 
 If the field is listed in `fields`, the engine uses indexes for exclude values
 instead of scanning the full dataset again for every removed value.
@@ -516,55 +577,6 @@ engine.filter([
   { field: "city", values: ["Miami", "New York"] },
   { field: "id", exclude: [1, 3] },
 ]);
-```
-
-#### Mutable exclude with `mutableExcludeField`
-
-If you need repeated fast removals from a large stored dataset, use `mutableExcludeField`.
-In this mode the engine removes items from the stored dataset with swap-pop.
-
-Use this mode when all of these points are true:
-
-- the engine already stores the full dataset
-- the exclude field is unique, for example `id`
-- order does not need to be preserved
-- you want repeated removals without O(n) per removed id
-
-This mode changes the stored dataset.
-After exclusion, `getOriginData()` returns the reduced collection.
-
-```ts
-import { FilterEngine } from "@devisfuture/mega-collection/filter";
-
-const mutableEngine = new FilterEngine<User>({
-  data: users,
-  fields: ["id", "city"],
-  mutableExcludeField: "id",
-});
-
-// Removes items from the stored dataset with swap-pop.
-mutableEngine.filter([{ field: "id", exclude: [1, 4] }]);
-
-// The stored dataset is now smaller.
-mutableEngine.getOriginData();
-```
-
-The same mode also works through `MergeEngines`:
-
-```ts
-import { MergeEngines } from "@devisfuture/mega-collection";
-import { FilterEngine } from "@devisfuture/mega-collection/filter";
-
-const mutableMerge = new MergeEngines<User>({
-  imports: [FilterEngine],
-  data: users,
-  filter: {
-    fields: ["id", "city"],
-    mutableExcludeField: "id",
-  },
-});
-
-mutableMerge.filter([{ field: "id", exclude: [1, 4] }]);
 ```
 
 #### Nested collections filter
@@ -614,6 +626,9 @@ engine.update({
   data: { id: 2, name: "Bob", city: "Paris", age: 19 },
 });
 
+// remove one stored item by unique field
+engine.delete("id", 2);
+
 // access original dataset stored in the engine
 engine.getOriginData();
 
@@ -644,7 +659,7 @@ One class that combines search, filter, and sort for the same dataset.
 | `data`                   | `T[]`                                                       | Shared dataset — passed once at construction                                                                   |
 | `filterByPreviousResult` | `boolean`                                                   | When `true`, separate `filter(...)` and `sort(...)` calls continue from the last result stored in shared State |
 | `search`                 | `{ fields, nestedFields?, minQueryLength? }`                | Config for TextSearchEngine                                                                                    |
-| `filter`                 | `{ fields, nestedFields?, mutableExcludeField? }`           | Config for FilterEngine                                                                                        |
+| `filter`                 | `{ fields, nestedFields? }`                                 | Config for FilterEngine                                                                                        |
 | `sort`                   | `{ fields }`                                                | Config for SortEngine                                                                                          |
 
 **Methods:**
@@ -659,6 +674,7 @@ One class that combines search, filter, and sort for the same dataset.
 | `filter(data, criteria)`            | Filter with an explicit dataset                                                                                            |
 | `getOriginData()`                   | Get the shared original dataset                                                                                            |
 | `add(items)`                        | Append multiple items to the stored dataset and update existing indexes or caches for new items only                       |
+| `delete(field, valueOrValues)`      | Remove stored items by unique field value using swap-pop semantics                                                         |
 | `update({ field, data })`           | Replace one stored item by a unique field and refresh only the affected cached or indexed data                             |
 | `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
@@ -687,6 +703,7 @@ Main constructor options:
 | `resetSearchState()`             | Reset previous-result state for sequential narrowing search          |
 | `getOriginData()`                | Get the original stored dataset                                      |
 | `add(items)`                     | Append multiple items to the stored dataset                          |
+| `delete(field, valueOrValues)`   | Remove stored items by unique field value                            |
 | `update({ field, data })`        | Replace one stored item by a unique field                            |
 | `data(data)`                     | Replace stored dataset and rebuild configured indexes                |
 | `clearIndexes()`                 | Clear n-gram indexes (including nested)                              |
@@ -705,20 +722,20 @@ Main constructor options:
 | Option                   | Type       | Description                                                                                                                        |
 | ------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `filterByPreviousResult` | `boolean`  | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset. |
-| `mutableExcludeField`    | `string`   | Optional field for removing items from stored data with swap-pop. This changes the stored dataset and does not preserve order.     |
 | `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                               |
 
-| Method                    | Description                                                                |
-| ------------------------- | -------------------------------------------------------------------------- |
-| `filter(criteria)`        | Filter using stored dataset (supports nested field criteria)               |
-| `filter(data, criteria)`  | Filter with an explicit dataset                                            |
-| `getOriginData()`         | Get the original stored dataset                                            |
-| `add(items)`              | Append multiple items to the stored dataset                                |
-| `update({ field, data })` | Replace one stored item by a unique field                                  |
-| `data(data)`              | Replace stored dataset, rebuild configured indexes, and reset filter state |
-| `resetFilterState()`      | Reset previous-result state for sequential filtering                       |
-| `clearIndexes()`          | Free all index memory (including nested indexes)                           |
-| `clearData()`             | Clear stored data                                                          |
+| Method                         | Description                                                                |
+| ------------------------------ | -------------------------------------------------------------------------- |
+| `filter(criteria)`             | Filter using stored dataset (supports nested field criteria)               |
+| `filter(data, criteria)`       | Filter with an explicit dataset                                            |
+| `getOriginData()`              | Get the original stored dataset                                            |
+| `add(items)`                   | Append multiple items to the stored dataset                                |
+| `delete(field, valueOrValues)` | Remove stored items by unique field value                                  |
+| `update({ field, data })`      | Replace one stored item by a unique field                                  |
+| `data(data)`                   | Replace stored dataset, rebuild configured indexes, and reset filter state |
+| `resetFilterState()`           | Reset previous-result state for sequential filtering                       |
+| `clearIndexes()`               | Free all index memory (including nested indexes)                           |
+| `clearData()`                  | Clear stored data                                                          |
 
 ### `SortEngine<T>` (sort module)
 
@@ -731,6 +748,7 @@ Sort methods return plain arrays.
 | `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                         |
 | `getOriginData()`                   | Get the original stored dataset                       |
 | `add(items)`                        | Append multiple items to the stored dataset           |
+| `delete(field, valueOrValues)`      | Remove stored items by unique field value             |
 | `update({ field, data })`           | Replace one stored item by a unique field             |
 | `data(data)`                        | Replace stored dataset and rebuild configured indexes |
 | `clearIndexes()`                    | Free all cached indexes                               |

@@ -7,10 +7,16 @@ import { State } from "../State";
 import type {
   CollectionItem,
   FilterCriterion,
+  IndexableKey,
   StateMutation,
   SortDescriptor,
   UpdateDescriptor,
 } from "../types";
+import {
+  createNonUniqueDeleteErrorMessage,
+  findDuplicateDeleteValues,
+  normalizeDeleteValues,
+} from "../internal";
 import { MergeEnginesChain, MergeEnginesChainBuilder } from "./chain";
 import {
   createMergeModuleAdapter,
@@ -157,6 +163,7 @@ export class MergeEngines<T extends CollectionItem> {
         this.filter(dataOrCriteria as T[], criteria!),
       getOriginData: () => this.getOriginData(),
       add: (items) => this.add(items),
+      delete: (field, valueOrValues) => this.delete(field, valueOrValues),
       update: (descriptor) => this.update(descriptor),
       data: (data) => this.data(data),
       clearIndexes: (module) => this.clearIndexes(module),
@@ -1097,6 +1104,49 @@ export class MergeEngines<T extends CollectionItem> {
 
     this.state.add(items);
 
+    return this;
+  }
+
+  delete(
+    field: IndexableKey<T> & string,
+    value: T[IndexableKey<T> & string],
+  ): this;
+  delete(
+    field: IndexableKey<T> & string,
+    values: T[IndexableKey<T> & string][],
+  ): this;
+  delete(
+    field: IndexableKey<T> & string,
+    valueOrValues: T[IndexableKey<T> & string] | T[IndexableKey<T> & string][],
+  ): this {
+    const values = normalizeDeleteValues(valueOrValues);
+
+    if (values.length === 0) {
+      return this;
+    }
+
+    const duplicateValues = findDuplicateDeleteValues(
+      this.state.getOriginData(),
+      field,
+      values,
+    );
+
+    if (duplicateValues.length > 0) {
+      throw new Error(
+        createNonUniqueDeleteErrorMessage(
+          "MergeEngines",
+          field,
+          duplicateValues,
+        ),
+      );
+    }
+
+    if (values.length === 1) {
+      this.state.removeByFieldValue(field, values[0]);
+      return this;
+    }
+
+    this.state.removeByFieldValues(field, values);
     return this;
   }
 

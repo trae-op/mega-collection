@@ -163,24 +163,23 @@ describe("MergeEngines", () => {
     expect(
       engine.filter([{ field: "id", exclude: [1, 3] }]).map((user) => user.id),
     ).toEqual([2, 4, 5]);
+    expect(engine.getOriginData().map((user) => user.id)).toEqual([
+      1, 2, 3, 4, 5,
+    ]);
   });
 
-  it("filter() supports mutable exclude through the merge facade", () => {
+  it("delete() removes stored items through the merge facade", () => {
     const dataset = users.map((user) => ({ ...user }));
     const merge = new MergeEngines<User>({
       imports: [FilterEngine],
       data: dataset,
       filter: {
         fields: ["id", "city"],
-        mutableExcludeField: "id",
       },
     });
 
-    const result = merge.filter([{ field: "id", exclude: [1, 4] }]);
+    merge.delete("id", [1, 4]);
 
-    expect(
-      result.map((user) => user.id).sort((leftId, rightId) => leftId - rightId),
-    ).toEqual([2, 3, 5]);
     expect(
       merge
         .getOriginData()
@@ -194,7 +193,7 @@ describe("MergeEngines", () => {
     ).toEqual([2, 5]);
   });
 
-  it("invalidates cached merge searches after mutable exclude changes the shared dataset", () => {
+  it("invalidates cached merge searches after delete() changes the shared dataset", () => {
     const dataset = users.map((user) => ({ ...user }));
     const merge = new MergeEngines<User>({
       imports: [TextSearchEngine, FilterEngine],
@@ -202,15 +201,28 @@ describe("MergeEngines", () => {
       search: { fields: ["name", "city"], minQueryLength: 1 },
       filter: {
         fields: ["id", "city"],
-        mutableExcludeField: "id",
       },
     });
 
     expect(merge.search("Kyiv").map((user) => user.id)).toEqual([1, 3]);
 
-    merge.filter([{ field: "id", exclude: [1] }]);
+    merge.delete("id", 1);
 
     expect(merge.search("Kyiv").map((user) => user.id)).toEqual([3]);
+  });
+
+  it("delete() throws when the target field value is not unique", () => {
+    const merge = new MergeEngines<User>({
+      imports: [FilterEngine],
+      data: [
+        { id: 1, name: "Alice", city: "Kyiv", age: 25 },
+        { id: 1, name: "Bob", city: "Lviv", age: 30 },
+      ],
+    });
+
+    expect(() => merge.delete("id", 1)).toThrow(
+      "MergeEngines: delete() requires unique field values. Field `id` matched multiple items for value 1.",
+    );
   });
 
   it("throws when calling a method whose engine was not imported", () => {
@@ -765,7 +777,7 @@ const usersWithOrders: UserWithOrders[] = [
 ];
 
 describe("MergeEngines — nestedFields", () => {
-  it("mutable exclude keeps nested filter indexes in sync through merge facade", () => {
+  it("delete() keeps nested filter indexes in sync through merge facade", () => {
     const dataset: UserWithOrders[] = usersWithOrders.map((user) => ({
       ...user,
       orders: user.orders.map((order) => ({ ...order })),
@@ -775,11 +787,10 @@ describe("MergeEngines — nestedFields", () => {
       data: dataset,
       filter: {
         nestedFields: ["orders.status"],
-        mutableExcludeField: "id",
       },
     });
 
-    merge.filter([{ field: "id", exclude: ["1"] }]);
+    merge.delete("id", "1");
 
     expect(
       merge

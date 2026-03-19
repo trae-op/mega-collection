@@ -1,5 +1,5 @@
 import type { IndexerStorage } from "../indexer";
-import type { CollectionItem, FilterCriterion } from "../types";
+import type { CollectionItem, FilterCriterion, IndexableKey } from "../types";
 import type { FilterEngine } from "./filter";
 
 export type FilterNestedCollectionStorage<T extends CollectionItem> =
@@ -10,6 +10,14 @@ export interface FilterEngineChain<T extends CollectionItem> {
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & FilterEngineChain<T>;
   getOriginData(): T[];
   add(items: T[]): FilterEngine<T>;
+  delete(
+    field: IndexableKey<T> & string,
+    value: T[IndexableKey<T> & string],
+  ): FilterEngine<T>;
+  delete(
+    field: IndexableKey<T> & string,
+    values: T[IndexableKey<T> & string][],
+  ): FilterEngine<T>;
   update(descriptor: import("../types").UpdateDescriptor<T>): FilterEngine<T>;
   data(data: T[]): FilterEngine<T>;
   clearIndexes(): FilterEngine<T>;
@@ -21,8 +29,6 @@ export interface FilterEngineOptions<
   T extends CollectionItem = CollectionItem,
 > {
   data?: T[];
-
-  mutableExcludeField?: keyof T & string;
 
   fields?: (keyof T & string)[];
 
@@ -59,6 +65,10 @@ export type FilterEngineChainCallbacks<T extends CollectionItem> = {
   ) => T[] & FilterEngineChain<T>;
   getOriginData: () => T[];
   add: (items: T[]) => FilterEngine<T>;
+  delete: (
+    field: IndexableKey<T> & string,
+    valueOrValues: T[IndexableKey<T> & string] | T[IndexableKey<T> & string][],
+  ) => FilterEngine<T>;
   update: (
     descriptor: import("../types").UpdateDescriptor<T>,
   ) => FilterEngine<T>;
@@ -78,18 +88,10 @@ export type FilterSequentialCache<T extends CollectionItem> = {
   previousResultSet: Set<T> | null;
 };
 
-export type MutableExcludeRuntime = {
-  datasetPositions: Map<any, number>;
-  valueCounts: Map<any, number>;
-  duplicateValueCount: number;
-  hasDuplicateValues: boolean;
-};
-
 export type FilterRuntime<T extends CollectionItem> = {
   indexedFields: Set<keyof T & string>;
   indexerStorage: IndexerStorage<T>;
   nestedStorage: FilterNestedCollectionStorage<T>;
   deferredMutationVersion: number | null;
-  mutableExclude: MutableExcludeRuntime;
   sequentialCache: FilterSequentialCache<T>;
 };

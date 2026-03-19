@@ -58,12 +58,11 @@ describe("FilterEngine", () => {
     expect(result.map((user) => user.id)).toEqual([2, 4, 5]);
   });
 
-  it("supports mutable exclude via swap-pop for stored dataset", () => {
+  it("exclude-only criteria do not mutate the stored dataset", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new FilterEngine<User>({
       data: dataset,
-      fields: ["city"],
-      mutableExcludeField: "id",
+      fields: ["id", "city"],
     });
 
     const result = engine.filter([{ field: "id", exclude: [1, 4] }]);
@@ -76,18 +75,17 @@ describe("FilterEngine", () => {
       dataset
         .map((user) => user.id)
         .sort((leftId, rightId) => leftId - rightId),
-    ).toEqual([2, 3, 5]);
+    ).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it("keeps flat indexes in sync after mutable exclude", () => {
+  it("delete() removes stored items and keeps flat indexes in sync", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new FilterEngine<User>({
       data: dataset,
-      fields: ["city"],
-      mutableExcludeField: "id",
+      fields: ["id", "city"],
     });
 
-    engine.filter([{ field: "id", exclude: [2] }]);
+    engine.delete("id", 2);
 
     expect(
       engine
@@ -96,17 +94,16 @@ describe("FilterEngine", () => {
     ).toEqual([5]);
   });
 
-  it("mutable exclude throws when configured field is not unique", () => {
+  it("delete() throws when the target field value is not unique", () => {
     const engine = new FilterEngine<User>({
       data: [
         { id: 1, name: "Alice", city: "Kyiv", age: 25, active: true },
         { id: 1, name: "Bob", city: "Lviv", age: 30, active: false },
       ],
-      mutableExcludeField: "id",
     });
 
-    expect(() => engine.filter([{ field: "id", exclude: [1] }])).toThrow(
-      "cannot use mutable exclude on field `id` because it contains duplicate values",
+    expect(() => engine.delete("id", 1)).toThrow(
+      "FilterEngine: delete() requires unique field values. Field `id` matched multiple items for value 1.",
     );
   });
 
@@ -248,18 +245,52 @@ describe("FilterEngine", () => {
     ).toEqual([1, 3]);
   });
 
-  it("add() updates mutable exclude duplicate tracking", () => {
+  it("delete() treats an empty batch as a no-op", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new FilterEngine<User>({
       data: dataset,
-      mutableExcludeField: "id",
+      fields: ["id", "city"],
     });
 
-    engine.add([{ id: 1, name: "Lia", city: "Berlin", age: 28, active: true }]);
+    engine.delete("id", []);
 
-    expect(() => engine.filter([{ field: "id", exclude: [1] }])).toThrow(
-      "cannot use mutable exclude on field `id` because it contains duplicate values",
-    );
+    expect(engine.getOriginData()).toBe(dataset);
+    expect(
+      engine
+        .filter([{ field: "city", values: ["Kyiv"] }])
+        .map((user) => user.id),
+    ).toEqual([1, 3]);
+  });
+
+  it("chain results expose delete() as a service method", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      fields: ["id", "city"],
+    });
+
+    const result = engine.filter([{ field: "city", values: ["Kyiv", "Lviv"] }]);
+
+    expect(() => result.delete("id", 1)).not.toThrow();
+    expect(engine.getOriginData().map((user) => user.id)).toEqual([5, 2, 3, 4]);
+  });
+
+  it("delete() keeps filterByPreviousResult state coherent", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new FilterEngine<User>({
+      data: dataset,
+      fields: ["id", "city"],
+      filterByPreviousResult: true,
+    });
+
+    engine.filter([{ field: "city", values: ["Kyiv"] }]);
+    engine.delete("id", 1);
+
+    expect(
+      engine
+        .filter([{ field: "city", values: ["Kyiv"] }])
+        .map((user) => user.id),
+    ).toEqual([3]);
   });
 
   it("update() keeps flat indexes in sync and preserves the dataset reference", () => {
@@ -525,7 +556,7 @@ const usersWithOrders: UserWithOrders[] = [
 ];
 
 describe("FilterEngine — nestedFields", () => {
-  it("keeps nested indexes in sync after mutable exclude", () => {
+  it("delete() keeps nested indexes in sync", () => {
     const dataset: UserWithOrders[] = usersWithOrders.map((user) => ({
       ...user,
       orders: user.orders.map((order) => ({ ...order })),
@@ -533,10 +564,9 @@ describe("FilterEngine — nestedFields", () => {
     const engine = new FilterEngine<UserWithOrders>({
       data: dataset,
       nestedFields: ["orders.status"],
-      mutableExcludeField: "id",
     });
 
-    engine.filter([{ field: "id", exclude: ["1"] }]);
+    engine.delete("id", "1");
 
     expect(
       engine

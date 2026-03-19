@@ -1,6 +1,7 @@
 import type {
   CollectionItem,
   FilterCriterion,
+  IndexableKey,
   StateMutation,
   SortDescriptor,
   UpdateDescriptor,
@@ -30,8 +31,6 @@ export interface MergeSortOptions<T extends CollectionItem = CollectionItem> {
 export interface MergeFilterOptions<T extends CollectionItem = CollectionItem> {
   data?: T[];
 
-  mutableExcludeField?: keyof T & string;
-
   fields?: (keyof T & string)[];
 
   nestedFields?: string[];
@@ -53,6 +52,14 @@ export interface MergeEnginesChain<T extends CollectionItem> {
   filter(data: T[], criteria: FilterCriterion<T>[]): T[] & MergeEnginesChain<T>;
   getOriginData(): T[];
   add(items: T[]): MergeEngines<T>;
+  delete(
+    field: IndexableKey<T> & string,
+    value: T[IndexableKey<T> & string],
+  ): MergeEngines<T>;
+  delete(
+    field: IndexableKey<T> & string,
+    values: T[IndexableKey<T> & string][],
+  ): MergeEngines<T>;
   update(descriptor: UpdateDescriptor<T>): MergeEngines<T>;
   data(data: T[]): MergeEngines<T>;
   clearIndexes(module: MergeModuleName): T[] & MergeEnginesChain<T>;
@@ -101,6 +108,10 @@ export type MergeEnginesChainCallbacks<T extends CollectionItem> = {
   ) => T[] & MergeEnginesChain<T>;
   getOriginData: () => T[];
   add: (items: T[]) => MergeEngines<T>;
+  delete: (
+    field: IndexableKey<T> & string,
+    valueOrValues: T[IndexableKey<T> & string] | T[IndexableKey<T> & string][],
+  ) => MergeEngines<T>;
   update: (descriptor: UpdateDescriptor<T>) => MergeEngines<T>;
   data: (data: T[]) => MergeEngines<T>;
   clearIndexes: (module: MergeModuleName) => MergeEngines<T>;

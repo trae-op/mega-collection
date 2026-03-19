@@ -14,12 +14,6 @@ export const createFilterRuntime = <
     itemPositions: new Map<string, Map<any, WeakMap<T, number>>>(),
   },
   deferredMutationVersion: null,
-  mutableExclude: {
-    datasetPositions: new Map<any, number>(),
-    valueCounts: new Map<any, number>(),
-    duplicateValueCount: 0,
-    hasDuplicateValues: false,
-  },
   sequentialCache: {
     previousResult: null,
     previousCriteria: null,

@@ -15,10 +15,4 @@ export class FilterEngineError extends Error {
       "FilterEngine: no dataset in memory. Call data() or add() before filter().",
     );
   }
-
-  static duplicateMutableExcludeField(field: string): FilterEngineError {
-    return new FilterEngineError(
-      `FilterEngine: cannot use mutable exclude on field \`${field}\` because it contains duplicate values.`,
-    );
-  }
 }

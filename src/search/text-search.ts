@@ -6,9 +6,15 @@
 import { State } from "../State";
 import {
   CollectionItem,
+  type IndexableKey,
   type StateMutation,
   type UpdateDescriptor,
 } from "../types";
+import {
+  createNonUniqueDeleteErrorMessage,
+  findDuplicateDeleteValues,
+  normalizeDeleteValues,
+} from "../internal";
 import type {
   SearchIndex,
   SearchQueryOptions,
@@ -1523,6 +1529,49 @@ export class TextSearchEngine<T extends CollectionItem> {
 
   add(items: T[]): this {
     this.state.add(items);
+    return this;
+  }
+
+  delete(
+    field: IndexableKey<T> & string,
+    value: T[IndexableKey<T> & string],
+  ): this;
+  delete(
+    field: IndexableKey<T> & string,
+    values: T[IndexableKey<T> & string][],
+  ): this;
+  delete(
+    field: IndexableKey<T> & string,
+    valueOrValues: T[IndexableKey<T> & string] | T[IndexableKey<T> & string][],
+  ): this {
+    const values = normalizeDeleteValues(valueOrValues);
+
+    if (values.length === 0) {
+      return this;
+    }
+
+    const duplicateValues = findDuplicateDeleteValues(
+      this.dataset,
+      field,
+      values,
+    );
+
+    if (duplicateValues.length > 0) {
+      throw new Error(
+        createNonUniqueDeleteErrorMessage(
+          "TextSearchEngine",
+          field,
+          duplicateValues,
+        ),
+      );
+    }
+
+    if (values.length === 1) {
+      this.state.removeByFieldValue(field, values[0]);
+      return this;
+    }
+
+    this.state.removeByFieldValues(field, values);
     return this;
   }
 

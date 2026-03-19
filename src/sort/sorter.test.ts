@@ -152,6 +152,36 @@ describe("SortEngine", () => {
     ).toEqual([2, 3, 1, 4]);
   });
 
+  it("delete() updates cached sorting incrementally", () => {
+    const dataset = users.map((user) => ({ ...user }));
+    const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
+    engine.sort([{ field: "age", direction: "asc" }]);
+    const buildIndexSpy = vi.spyOn(
+      engine as never,
+      "buildIndexForDataset" as never,
+    );
+
+    engine.delete("id", 1);
+
+    expect(
+      engine.sort([{ field: "age", direction: "asc" }]).map((user) => user.id),
+    ).toEqual([2, 3, 4]);
+    expect(buildIndexSpy).not.toHaveBeenCalled();
+  });
+
+  it("delete() throws when the target field value is not unique", () => {
+    const engine = new SortEngine<User>({
+      data: [
+        { id: 1, name: "Mila", city: "Kyiv", age: 30 },
+        { id: 1, name: "Alex", city: "Lviv", age: 25 },
+      ],
+    });
+
+    expect(() => engine.delete("id", 1)).toThrow(
+      "SortEngine: delete() requires unique field values. Field `id` matched multiple items for value 1.",
+    );
+  });
+
   it("update() repositions cached sorting incrementally without full rebuild", () => {
     const dataset = users.map((user) => ({ ...user }));
     const engine = new SortEngine<User>({ data: dataset, fields: ["age"] });
