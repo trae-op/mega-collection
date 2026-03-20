@@ -155,7 +155,7 @@ These fields are used for indexes.
 Indexes are built lazily on first use inside that shared state, so engine creation stays fast.
 If you skip `fields`, everything still works, but the engine may scan the full array.
 
-### Import
+### Important
 
 This section demonstrates extracting the final result after chained `search`, `sort`, and `filter` calls. Engine methods return an iterable/array-like result that may be evaluated, which enables convenient chaining.
 
