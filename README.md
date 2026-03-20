@@ -155,6 +155,29 @@ These fields are used for indexes.
 Indexes are built lazily on first use inside that shared state, so engine creation stays fast.
 If you skip `fields`, everything still works, but the engine may scan the full array.
 
+### Import
+
+This section demonstrates extracting the final result after chained `search`, `sort`, and `filter` calls. Engine methods return an iterable/array-like result that may be evaluated, which enables convenient chaining.
+
+It is best practice to convert the final result using `Array.from(...)` into an array before using it in UI or passing it further in your app:
+
+```ts
+const result1 = engine.search("Mia 1210"); // search result
+console.log(Array.from(result1)); // clear array
+
+const result2 = engine
+  .search("john")
+  .sort([{ field: "age", direction: "asc" }])
+  .filter([{ field: "city", values: ["Miami", "New York"] }]); // combined result
+
+console.log(Array.from(result2)); // clear array
+```
+
+This is an example of result `const result1 = engine.search("Mia 1210");`:
+![](./data-result.png)
+
+The image shows that the result can be a combination of operations from `search`, `sort`, and `filter`. This combined result is intentional for easy method chaining, and you should call `Array.from(...)` on the final result when you need a stable, ready-to-use array.
+
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
