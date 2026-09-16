@@ -13,6 +13,10 @@ export const createFilterRuntime = <
     indexes: new Map<string, Map<any, T[]>>(),
     itemPositions: new Map<string, Map<any, WeakMap<T, number>>>(),
   },
+  arrayStorage: {
+    indexes: new Map<string, Map<any, T[]>>(),
+    itemPositions: new Map<string, Map<any, WeakMap<T, number>>>(),
+  },
   deferredMutationVersion: null,
   sequentialCache: {
     previousResult: null,

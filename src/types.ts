@@ -1,5 +1,7 @@
 export type CollectionItem = Record<string, any>;
 
+export type ArrayFieldValue = string | number | boolean;
+
 export type IndexableKey<T> = {
   [K in keyof T]: T[K] extends string | number ? K : never;
 }[keyof T];

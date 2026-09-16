@@ -1,6 +1,7 @@
 import type { IndexerStorage } from "../indexer";
 import type { CollectionItem, FilterCriterion, IndexableKey } from "../types";
 import type { FilterEngine } from "./filter";
+import type { FilterArrayCollectionStorage } from "./array";
 
 export type FilterNestedCollectionStorage<T extends CollectionItem> =
   IndexerStorage<T>;
@@ -33,6 +34,8 @@ export interface FilterEngineOptions<
   fields?: (keyof T & string)[];
 
   nestedFields?: string[];
+
+  arrayFields?: (keyof T & string)[];
 
   filterByPreviousResult?: boolean;
 }
@@ -92,6 +95,7 @@ export type FilterRuntime<T extends CollectionItem> = {
   indexedFields: Set<keyof T & string>;
   indexerStorage: IndexerStorage<T>;
   nestedStorage: FilterNestedCollectionStorage<T>;
+  arrayStorage: FilterArrayCollectionStorage<T>;
   deferredMutationVersion: number | null;
   sequentialCache: FilterSequentialCache<T>;
   persistentIndexedResults: Map<string, FilterSequentialCacheEntry<T>>;

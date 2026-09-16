@@ -1259,3 +1259,193 @@ describe("TextSearchEngine — nested filterByPreviousResult regressions", () =>
     expect(narrowed.map((user) => user.id).sort()).toEqual(["1", "3"]);
   });
 });
+
+describe("TextSearchEngine — arrayFields", () => {
+  type UserWithArrays = {
+    id: string;
+    name: string;
+    interests: string[];
+    skills: (string | number)[];
+  };
+
+  const usersWithArrays: UserWithArrays[] = [
+    {
+      id: "1",
+      name: "Alice",
+      interests: ["sports", "music"],
+      skills: ["JavaScript", "React", 30],
+    },
+    {
+      id: "2",
+      name: "Bob",
+      interests: ["reading", "cooking"],
+      skills: ["Python", "Django"],
+    },
+    {
+      id: "3",
+      name: "Cara",
+      interests: ["sports", "travel"],
+      skills: ["React", "Node.js"],
+    },
+    {
+      id: "4",
+      name: "Dan",
+      interests: [],
+      skills: ["JavaScript"],
+    },
+    {
+      id: "5",
+      name: "Eve",
+      interests: ["music", "gaming"],
+      skills: [30, false],
+    },
+  ];
+
+  it("searches across array fields with partial match", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      arrayFields: ["interests"],
+    });
+
+    const result = engine.search("interests", "spo");
+    expect(result.map((u) => u.id).sort()).toEqual(["1", "3"]);
+  });
+
+  it("searches across numeric array elements", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      arrayFields: ["skills"],
+    });
+
+    const result = engine.search("skills", "30");
+    expect(result.map((u) => u.id).sort()).toEqual(["1", "5"]);
+  });
+
+  it("searches specific array field only", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      arrayFields: ["interests"],
+    });
+
+    const result = engine.search("interests", "music");
+    expect(result.map((u) => u.id).sort()).toEqual(["1", "5"]);
+  });
+
+  it("returns empty for non-matching array query", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      arrayFields: ["interests"],
+    });
+
+    const result = engine.search("interests", "nonexistent");
+    expect(result).toEqual([]);
+  });
+
+  it("handles empty array field gracefully", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      arrayFields: ["interests"],
+    });
+
+    const result = engine.search("interests", "sports");
+    expect(result.map((u) => u.id).sort()).toEqual(["1", "3"]);
+  });
+
+  it("returns all for empty query on array field", () => {
+    const data = structuredClone(usersWithArrays);
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data,
+      arrayFields: ["interests"],
+    });
+
+    expect(engine.search("interests", "")).toBe(data);
+  });
+
+  it("combines arrayFields with regular fields", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      fields: ["name"],
+      arrayFields: ["interests"],
+    });
+
+    const result = engine.search("interests", "sport");
+    expect(result.map((u) => u.id).sort()).toEqual(["1", "3"]);
+  });
+
+  it("linear path produces same results as indexed", () => {
+    const data1 = structuredClone(usersWithArrays);
+    const data2 = structuredClone(usersWithArrays);
+    const indexedEngine = new TextSearchEngine<UserWithArrays>({
+      data: data1,
+      arrayFields: ["interests"],
+    });
+    const linearEngine = new TextSearchEngine<UserWithArrays>({
+      data: data2,
+      arrayFields: ["interests"],
+      filterByPreviousResult: true,
+    });
+
+    const indexedResult = indexedEngine.search("interests", "mus");
+    const linearResult = linearEngine.search("interests", "mus");
+    expect(linearResult.map((u) => u.id).sort()).toEqual(
+      indexedResult.map((u) => u.id).sort(),
+    );
+  });
+
+  it("add() updates array indexes correctly", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: [],
+      arrayFields: ["interests"],
+    });
+
+    engine.add([
+      {
+        id: "1",
+        name: "Alice",
+        interests: ["sports"],
+        skills: [],
+      },
+    ]);
+
+    expect(engine.search("interests", "spo").map((u) => u.id)).toEqual(["1"]);
+  });
+
+  it("delete() removes from array indexes", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      arrayFields: ["interests"],
+    });
+
+    engine.delete("id", "1");
+    const result = engine.search("interests", "spo");
+    expect(result.map((u) => u.id)).toEqual(["3"]);
+  });
+
+  it("clearIndexes() forces linear fallback", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      arrayFields: ["interests"],
+    });
+
+    const indexedResult = engine.search("interests", "spo");
+    expect(indexedResult.map((u) => u.id).sort()).toEqual(["1", "3"]);
+
+    engine.clearIndexes();
+
+    const linearResult = engine.search("interests", "spo");
+    expect(linearResult.map((u) => u.id).sort()).toEqual(["1", "3"]);
+  });
+
+  it("filterByPreviousResult narrows array search", () => {
+    const engine = new TextSearchEngine<UserWithArrays>({
+      data: structuredClone(usersWithArrays),
+      arrayFields: ["interests"],
+      filterByPreviousResult: true,
+    });
+
+    engine.search("interests", "spo");
+    const narrowed = engine.search("interests", "trav");
+
+    expect(narrowed.map((u) => u.id)).toEqual(["3"]);
+  });
+});

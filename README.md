@@ -21,11 +21,13 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
   - [Search only](#search-only) – use only text search
     - [Flat collections search](#flat-collections-search) – search simple fields like `name` or `city`
     - [Nested collections search](#nested-collections-search) – search inside nested arrays like `orders.status`
+    - [Array collections search](#array-collections-search) – search inside top-level primitive arrays
   - [Filter only](#filter-only) – use only filtering
     - [Flat collections filter](#flat-collections-filter) – filter by simple top-level fields
     - [Exclude items with `exclude`](#exclude-items-with-exclude) – remove matching items from the result
       - [Result-only exclude](#result-only-exclude) – return a filtered result without mutating stored data
     - [Nested collections filter](#nested-collections-filter) – filter by nested array fields
+    - [Array collections filter](#array-collections-filter) – filter top-level primitive arrays
   - [Sort only](#sort-only) – use only sorting
 - [API Reference](#api-reference) – list of options and methods
   - [`MergeEngines<T>`](#mergeenginest-root-module) – one engine that combines everything
@@ -74,6 +76,15 @@ Native `Array.prototype.filter` with `String.includes` checks every item in the 
 
 For very short queries (fewer than 2 characters) the engine falls back to a linear scan — n-grams that short would match too many items to be useful.
 
+For **primitive array fields** such as `string[]` or
+`Array<string | number | boolean>`, each supported array element is normalized
+and added to the field's n-gram index. Search still confirms the complete
+substring inside one individual array element, so a query cannot match by
+joining text from two adjacent elements. String values are searched
+case-insensitively; numbers and booleans are converted to searchable text.
+Unsupported values such as `null`, `undefined`, objects, and nested arrays are
+ignored.
+
 ### Filter
 
 Native `Array.prototype.filter` with `===` still checks every item on every call.
@@ -87,6 +98,13 @@ field "city" → { "New York": [item0, item4, ...], "Miami": [item1, ...], ... }
 A filter call becomes a map lookup: `index.get("New York")` returns the array of matches in O(1). Multiple values from the same field are concatenated. Multiple fields are intersected using a `Set`.
 
 When the `fields` option is not provided, the engine falls back to a linear scan — which works but is slower.
+
+For **primitive array fields**, `FilterEngine` builds a value→items hash map
+using the original primitive values as keys. `values` uses AND semantics: an
+item must contain every selected value. `exclude` uses ANY semantics: an item
+is removed when its array contains at least one excluded value. Filtering is
+exact and preserves primitive types, so `30` does not match `"30"` and `false`
+does not match `"false"`.
 
 ### Sort
 
@@ -129,6 +147,8 @@ interface User {
   name: string;
   city: string;
   age: number;
+  skills?: (number | string | boolean)[];
+  interests?: (number | string | boolean)[];
 }
 
 interface Order {
@@ -209,6 +229,18 @@ const nestedEngine = new MergeEngines<UserWithOrders>({
 
 nestedEngine.search("pending"); // finds users whose orders contain "pending"
 nestedEngine.filter([{ field: "orders.status", values: ["delivered"] }]);
+
+// Example with array fields (e.g. `interests: string[]` on each user).
+const arrayEngine = new MergeEngines<User>({
+  imports: [TextSearchEngine, FilterEngine],
+  data: users,
+  search: { arrayFields: ["interests", "skills"], minQueryLength: 1 },
+  filter: { arrayFields: ["interests", "skills"] },
+});
+
+arrayEngine.search("spo"); // searches every configured array field
+arrayEngine.search("interests", "spo"); // searches only interests
+arrayEngine.filter([{ field: "skills", values: ["JavaScript", "React"] }]); // AND: both must be present
 
 // Replace dataset later without creating a new instance.
 engine.data([
@@ -488,6 +520,56 @@ nestedSearch.search("pending"); // finds users whose orders match
 nestedSearch.search("orders.status", "delivered"); // search a specific nested field
 ```
 
+#### Array collections search
+
+Search inside top-level primitive arrays. `arrayFields` accepts field names
+directly, not dot-notation paths. Use `nestedFields` for paths such as
+`orders.status`.
+
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+
+interface UserWithArrays {
+  id: string;
+  name: string;
+  interests: Array<string | number | boolean>;
+  skills?: Array<string | number | boolean>;
+}
+
+const usersWithArrays: UserWithArrays[] = [
+  {
+    id: "1",
+    name: "Alice",
+    interests: ["sports", "music", 30, false],
+    skills: ["JavaScript", "React"],
+  },
+  {
+    id: "2",
+    name: "Bob",
+    interests: ["reading", "cooking"],
+    skills: ["TypeScript"],
+  },
+];
+
+// `arrayFields` lists which fields are primitive arrays to index.
+const arraySearch = new TextSearchEngine<UserWithArrays>({
+  data: usersWithArrays,
+  fields: ["name"],
+  arrayFields: ["interests", "skills"],
+});
+
+arraySearch.search("spo"); // searches name, interests, and skills
+arraySearch.search("interests", "spo"); // partial match: finds "sports" in Alice's interests
+arraySearch.search("30"); // numbers are searchable as text
+arraySearch.search("false"); // booleans are searchable as text
+```
+
+Invalid or missing array fields do not throw. Unsupported elements such as
+`null`, `undefined`, objects, and nested arrays are ignored while valid
+`string`, `number`, and `boolean` elements in the same array remain searchable.
+After `clearIndexes()`, the engine uses a linear fallback with the same matching
+semantics.
+
 ### Filter only
 
 Use `FilterEngine` when you only need filtering.
@@ -599,6 +681,56 @@ nestedFilter.filter([
 ]);
 ```
 
+#### Array collections filter
+
+Filter by primitive array fields. Values use **AND** semantics (all selected values must be present). Exclude uses **ANY** semantics (exclude items where the array contains any excluded value).
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const arrayFilter = new FilterEngine<UserWithArrays>({
+  data: usersWithArrays,
+  arrayFields: ["interests"],
+});
+
+// AND: both "sports" AND "music" must be in the interests array
+arrayFilter.filter([{ field: "interests", values: ["sports", "music"] }]);
+
+// ANY exclude: exclude items whose interests contain "sports"
+arrayFilter.filter([{ field: "interests", exclude: ["sports"] }]);
+
+// Combined: interests must contain "music" AND must NOT contain "gaming"
+arrayFilter.filter([
+  { field: "interests", values: ["music"], exclude: ["gaming"] },
+]);
+
+// Exact matching preserves primitive types: 30 does not match "30".
+arrayFilter.filter([{ field: "interests", values: [30] }]);
+
+// An explicit empty values list is unsatisfiable and returns an empty result.
+arrayFilter.filter([{ field: "interests", values: [] }]); // []
+```
+
+Duplicate selected values do not require duplicate entries in the item array.
+For example, `values: ["music", "music"]` behaves like `values: ["music"]`.
+
+When a UI multiselect has no selected values and you want to skip filtering,
+omit that criterion instead of passing `values: []`:
+
+```ts
+const criteria =
+  selectedInterests.length > 0
+    ? [{ field: "interests", values: selectedInterests }]
+    : [];
+
+arrayFilter.filter(criteria);
+```
+
+For inclusion, a missing or invalid array field does not match. For an
+exclude-only criterion, an item with a missing or invalid array field remains
+in the result because it contains none of the excluded values. After
+`clearIndexes()`, the linear fallback preserves the same behavior.
+
 ### Sort only
 
 Use `SortEngine` when you only need sorting.
@@ -658,16 +790,16 @@ One class that combines search, filter, and sort for the same dataset.
 | `imports`                | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to create                                                                                       |
 | `data`                   | `T[]`                                                       | Shared dataset — passed once at construction                                                                   |
 | `filterByPreviousResult` | `boolean`                                                   | When `true`, separate `filter(...)` and `sort(...)` calls continue from the last result stored in shared State |
-| `search`                 | `{ fields, nestedFields?, minQueryLength? }`                | Config for TextSearchEngine                                                                                    |
-| `filter`                 | `{ fields, nestedFields? }`                                 | Config for FilterEngine                                                                                        |
+| `search`                 | `{ fields?, nestedFields?, arrayFields?, minQueryLength? }` | Config for TextSearchEngine                                                                                    |
+| `filter`                 | `{ fields?, nestedFields?, arrayFields? }`                  | Config for FilterEngine                                                                                        |
 | `sort`                   | `{ fields }`                                                | Config for SortEngine                                                                                          |
 
 **Methods:**
 
 | Method                              | Description                                                                                                                |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `search(query)`                     | Search all indexed fields                                                                                                  |
-| `search(field, query)`              | Search a specific field                                                                                                    |
+| `search(query)`                     | Search all configured scalar, nested, and primitive-array fields                                                           |
+| `search(field, query)`              | Search one configured scalar, nested, or primitive-array field                                                             |
 | `sort(descriptors)`                 | Sort using stored dataset                                                                                                  |
 | `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                                                                              |
 | `filter(criteria)`                  | Filter using stored dataset                                                                                                |
@@ -686,28 +818,30 @@ One class that combines search, filter, and sort for the same dataset.
 
 Text search engine.
 It supports `nestedFields` if you need to search inside nested collections such as `["orders.status"]`.
+It supports `arrayFields` for top-level arrays containing primitive values.
 Search methods return plain arrays.
 
 Main constructor options:
 
-| Option                   | Type       | Description                                                                                                                                                                     |
-| ------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `filterByPreviousResult` | `boolean`  | When `true`, a query that narrows the previous one (new query includes old query) searches only the previous result instead of the full dataset. Any mutation resets the state. |
-| `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                                                                            |
+| Option                   | Type                   | Description                                                                                                                                                                     |
+| ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `filterByPreviousResult` | `boolean`              | When `true`, a query that narrows the previous one (new query includes old query) searches only the previous result instead of the full dataset. Any mutation resets the state. |
+| `nestedFields`           | `string[]`             | Nested field paths in dot notation, for example `["orders.status"]`.                                                                                                            |
+| `arrayFields`            | `(keyof T & string)[]` | Top-level primitive-array fields to search. Supports `string`, `number`, and `boolean`; unsupported elements are ignored.                                                       |
 
-| Method                           | Description                                                          |
-| -------------------------------- | -------------------------------------------------------------------- |
-| `search(query, options?)`        | Search all indexed fields (including nested), deduplicated           |
-| `search(field, query, options?)` | Search a specific indexed field or nested field path                 |
-| `searchAll(query, options?)`     | Explicit all-fields alias when you want pagination on broad searches |
-| `resetSearchState()`             | Reset previous-result state for sequential narrowing search          |
-| `getOriginData()`                | Get the original stored dataset                                      |
-| `add(items)`                     | Append multiple items to the stored dataset                          |
-| `delete(field, valueOrValues)`   | Remove stored items by unique field value                            |
-| `update({ field, data })`        | Replace one stored item by a unique field                            |
-| `data(data)`                     | Replace stored dataset and rebuild configured indexes                |
-| `clearIndexes()`                 | Clear n-gram indexes (including nested)                              |
-| `clearData()`                    | Clear stored data                                                    |
+| Method                           | Description                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------ |
+| `search(query, options?)`        | Search all configured scalar, nested, and primitive-array fields, deduplicated |
+| `search(field, query, options?)` | Search a specific configured scalar, nested, or primitive-array field          |
+| `searchAll(query, options?)`     | Explicit all-fields alias when you want pagination on broad searches           |
+| `resetSearchState()`             | Reset previous-result state for sequential narrowing search                    |
+| `getOriginData()`                | Get the original stored dataset                                                |
+| `add(items)`                     | Append multiple items to the stored dataset                                    |
+| `delete(field, valueOrValues)`   | Remove stored items by unique field value                                      |
+| `update({ field, data })`        | Replace one stored item by a unique field                                      |
+| `data(data)`                     | Replace stored dataset and rebuild configured indexes                          |
+| `clearIndexes()`                 | Clear scalar, nested, and primitive-array n-gram indexes                       |
+| `clearData()`                    | Clear stored data                                                              |
 
 `options.limit` and `options.offset` are useful for broad result sets where you only need the current page.
 
@@ -715,27 +849,29 @@ Main constructor options:
 
 Filter engine for one or more rules.
 It supports `nestedFields` if you need to filter by values inside nested collections such as `["orders.status"]`.
+It supports `arrayFields` for top-level arrays containing primitive values.
 Each criterion can use `values`, `exclude`, or both in the same rule.
 
 Main constructor options:
 
-| Option                   | Type       | Description                                                                                                                        |
-| ------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `filterByPreviousResult` | `boolean`  | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset. |
-| `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                               |
+| Option                   | Type                   | Description                                                                                                                                |
+| ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `filterByPreviousResult` | `boolean`              | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset.         |
+| `nestedFields`           | `string[]`             | Nested field paths in dot notation, for example `["orders.status"]`.                                                                       |
+| `arrayFields`            | `(keyof T & string)[]` | Top-level primitive-array fields to filter. `values` uses AND semantics; `exclude` uses ANY semantics; matching preserves primitive types. |
 
-| Method                         | Description                                                                |
-| ------------------------------ | -------------------------------------------------------------------------- |
-| `filter(criteria)`             | Filter using stored dataset (supports nested field criteria)               |
-| `filter(data, criteria)`       | Filter with an explicit dataset                                            |
-| `getOriginData()`              | Get the original stored dataset                                            |
-| `add(items)`                   | Append multiple items to the stored dataset                                |
-| `delete(field, valueOrValues)` | Remove stored items by unique field value                                  |
-| `update({ field, data })`      | Replace one stored item by a unique field                                  |
-| `data(data)`                   | Replace stored dataset, rebuild configured indexes, and reset filter state |
-| `resetFilterState()`           | Reset previous-result state for sequential filtering                       |
-| `clearIndexes()`               | Free all index memory (including nested indexes)                           |
-| `clearData()`                  | Clear stored data                                                          |
+| Method                         | Description                                                                   |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| `filter(criteria)`             | Filter stored data using scalar, nested, and primitive-array criteria         |
+| `filter(data, criteria)`       | Filter an explicit dataset using scalar, nested, and primitive-array criteria |
+| `getOriginData()`              | Get the original stored dataset                                               |
+| `add(items)`                   | Append multiple items to the stored dataset                                   |
+| `delete(field, valueOrValues)` | Remove stored items by unique field value                                     |
+| `update({ field, data })`      | Replace one stored item by a unique field                                     |
+| `data(data)`                   | Replace stored dataset, rebuild configured indexes, and reset filter state    |
+| `resetFilterState()`           | Reset previous-result state for sequential filtering                          |
+| `clearIndexes()`               | Free scalar, nested, and primitive-array index memory                         |
+| `clearData()`                  | Clear stored data                                                             |
 
 ### `SortEngine<T>` (sort module)
 

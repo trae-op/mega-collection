@@ -34,6 +34,7 @@ import {
   removeLowerValue,
 } from "./ngram";
 import { SearchNestedCollection } from "./nested";
+import { SearchArrayCollection } from "./array";
 import { createSearchRuntime } from "./utils";
 import {
   DEFER_SEARCH_MUTATION_INDEX_UPDATES_KEY,
@@ -47,6 +48,8 @@ export class TextSearchEngine<T extends CollectionItem> {
   private readonly namespace: string;
 
   private readonly nestedCollection: SearchNestedCollection<T>;
+
+  private readonly arrayCollection: SearchArrayCollection<T>;
 
   private readonly minQueryLength: number;
 
@@ -83,6 +86,10 @@ export class TextSearchEngine<T extends CollectionItem> {
       this.runtime.nestedStorage,
     );
     this.nestedCollection.registerFields(options.nestedFields);
+    this.arrayCollection = new SearchArrayCollection<T>(
+      this.runtime.arrayStorage,
+    );
+    this.arrayCollection.registerFields(options.arrayFields);
     this.state.subscribe((mutation) => this.handleStateMutation(mutation));
 
     if (options.filterByPreviousResult) {
@@ -91,6 +98,7 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     const hasFields = options.fields?.length;
     const hasNestedFields = this.nestedCollection.hasRegisteredFields();
+    const hasArrayFields = this.arrayCollection.hasRegisteredFields();
 
     if (hasFields) {
       for (const field of options.fields!) {
@@ -98,7 +106,7 @@ export class TextSearchEngine<T extends CollectionItem> {
       }
     }
 
-    if (this.dataset.length > 0 && (hasFields || hasNestedFields)) {
+    if (this.dataset.length > 0 && (hasFields || hasNestedFields || hasArrayFields)) {
       this.rebuildConfiguredIndexes();
     }
   }
@@ -136,6 +144,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     this.runtime.deferredMutationVersion = this.state.getMutationVersion();
     this.flatIndexes.clear();
     this.nestedCollection.clearIndexes();
+    this.arrayCollection.clearIndexes();
     this.cachedIndexedFieldsList = null;
     this.cachedLinearSearchFieldsList = null;
     this.normalizedValuesCache.clear();
@@ -153,7 +162,8 @@ export class TextSearchEngine<T extends CollectionItem> {
     if (
       this.dataset.length > 0 &&
       (this.indexedFields.size > 0 ||
-        this.nestedCollection.hasRegisteredFields())
+        this.nestedCollection.hasRegisteredFields() ||
+        this.arrayCollection.hasRegisteredFields())
     ) {
       this.rebuildConfiguredIndexes();
     }
@@ -162,6 +172,7 @@ export class TextSearchEngine<T extends CollectionItem> {
   private rebuildConfiguredIndexes(): void {
     this.flatIndexes.clear();
     this.nestedCollection.clearIndexes();
+    this.arrayCollection.clearIndexes();
     this.cachedIndexedFieldsList = null;
     this.cachedLinearSearchFieldsList = null;
     this.normalizedValuesCache.clear();
@@ -173,6 +184,10 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     if (this.nestedCollection.hasRegisteredFields()) {
       this.nestedCollection.buildIndexes(this.dataset);
+    }
+
+    if (this.arrayCollection.hasRegisteredFields()) {
+      this.arrayCollection.buildIndexes(this.dataset);
     }
   }
 
@@ -657,6 +672,28 @@ export class TextSearchEngine<T extends CollectionItem> {
       }
     }
 
+    for (const datasetIndex of this.arrayCollection.searchAllIndexedFieldIndices(
+      lowerQuery,
+      uniqueQueryGrams,
+      restrictionLookup,
+      candidateIndices,
+    )) {
+      if (seen[datasetIndex]) continue;
+
+      seen[datasetIndex] = 1;
+      if (matchedCount < window.offset) {
+        matchedCount += 1;
+        continue;
+      }
+
+      combinedIndices.push(datasetIndex);
+      matchedCount += 1;
+
+      if (this.hasReachedWindowLimit(window, combinedIndices.length)) {
+        return this.materializeIndicesResult(combinedIndices);
+      }
+    }
+
     return this.materializeIndicesResult(combinedIndices);
   }
 
@@ -759,6 +796,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     const { indices: sourceIndices, lookup: sourceLookup } =
       this.getSearchSource(lowerQuery);
     const isNested = this.nestedCollection.hasField(field);
+    const isArray = this.arrayCollection.hasField(field);
     let uniqueQueryGrams: ReadonlySet<string> | null | undefined;
     const resolveQueryGrams = (): ReadonlySet<string> | null => {
       if (uniqueQueryGrams !== undefined) {
@@ -780,6 +818,34 @@ export class TextSearchEngine<T extends CollectionItem> {
         if (preparedQueryGrams !== null && this.nestedCollection.hasIndexes()) {
           this.recordIndexedQuery();
           const indices = this.nestedCollection.searchIndexedFieldIndices(
+            field,
+            lowerQuery,
+            preparedQueryGrams,
+            sourceLookup,
+            sourceIndices,
+            window.take,
+          );
+          const result = this.collectItemsFromIndices(indices, window);
+          this.persistSearchResult(result, lowerQuery, shouldTrack);
+          return result.items;
+        }
+
+        this.recordFallbackQuery(scope);
+        const result = this.searchLinearSingleField(
+          this.dataset,
+          field,
+          lowerQuery,
+          sourceIndices,
+          window,
+        );
+        this.persistSearchResult(result, lowerQuery, shouldTrack);
+        return result.items;
+      }
+
+      if (isArray) {
+        if (preparedQueryGrams !== null && this.arrayCollection.hasIndexes()) {
+          this.recordIndexedQuery();
+          const indices = this.arrayCollection.searchIndexedFieldIndices(
             field,
             lowerQuery,
             preparedQueryGrams,
@@ -842,6 +908,42 @@ export class TextSearchEngine<T extends CollectionItem> {
 
         this.recordIndexedQuery();
         const indices = this.nestedCollection.searchIndexedFieldIndices(
+          field,
+          lowerQuery,
+          uniqueQueryGrams,
+          null,
+          null,
+          window.take,
+        );
+        const result = this.collectItemsFromIndices(indices, window);
+        this.persistSearchResult(result, lowerQuery, shouldTrack);
+        return result.items;
+      }
+
+      this.recordFallbackQuery(scope);
+      const result = this.searchLinearSingleField(
+        this.dataset,
+        field,
+        lowerQuery,
+        null,
+        window,
+      );
+      this.persistSearchResult(result, lowerQuery, shouldTrack);
+      return result.items;
+    }
+
+    if (isArray) {
+      if (
+        lowerQuery.length >= MINIMUM_INDEXED_QUERY_LENGTH &&
+        this.arrayCollection.hasIndexes()
+      ) {
+        const uniqueQueryGrams = this.getQueryGrams(lowerQuery);
+        if (uniqueQueryGrams === null) {
+          return [];
+        }
+
+        this.recordIndexedQuery();
+        const indices = this.arrayCollection.searchIndexedFieldIndices(
           field,
           lowerQuery,
           uniqueQueryGrams,
@@ -1133,11 +1235,13 @@ export class TextSearchEngine<T extends CollectionItem> {
     }
 
     const hasNestedFields = this.nestedCollection.hasRegisteredFields();
-    const combinedNormalizedValues = hasNestedFields
+    const hasArrayFields = this.arrayCollection.hasRegisteredFields();
+    const hasComplexFields = hasNestedFields || hasArrayFields;
+    const combinedNormalizedValues = hasComplexFields
       ? null
       : this.getCombinedNormalizedValues(data, fields);
     const allNormalizedValuesAvailable =
-      !hasNestedFields &&
+      !hasComplexFields &&
       fieldNormValues.every(
         (normalizedValues): normalizedValues is string[] =>
           normalizedValues !== null,
@@ -1246,6 +1350,10 @@ export class TextSearchEngine<T extends CollectionItem> {
           hasMatch = this.nestedCollection.matchesAnyField(item, lowerQuery);
         }
 
+        if (!hasMatch && hasArrayFields) {
+          hasMatch = this.arrayCollection.matchesAnyField(item, lowerQuery);
+        }
+
         if (!hasMatch) {
           continue;
         }
@@ -1349,6 +1457,10 @@ export class TextSearchEngine<T extends CollectionItem> {
         hasMatch = this.nestedCollection.matchesAnyField(item, lowerQuery);
       }
 
+      if (!hasMatch && hasArrayFields) {
+        hasMatch = this.arrayCollection.matchesAnyField(item, lowerQuery);
+      }
+
       if (!hasMatch) {
         continue;
       }
@@ -1384,6 +1496,16 @@ export class TextSearchEngine<T extends CollectionItem> {
 
     if (this.nestedCollection.hasField(field)) {
       const indices = this.nestedCollection.searchFieldLinearIndices(
+        data,
+        field,
+        lowerQuery,
+        sourceIndices ?? undefined,
+      );
+      return this.collectItemsFromIndices(indices, window);
+    }
+
+    if (this.arrayCollection.hasField(field)) {
+      const indices = this.arrayCollection.searchFieldLinearIndices(
         data,
         field,
         lowerQuery,
@@ -1513,6 +1635,7 @@ export class TextSearchEngine<T extends CollectionItem> {
   clearIndexes(): this {
     this.flatIndexes.clear();
     this.nestedCollection.clearIndexes();
+    this.arrayCollection.clearIndexes();
     this.normalizedValuesCache.clear();
     this.combinedNormalizedValuesCache = null;
     return this;
@@ -1590,6 +1713,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     }
 
     this.nestedCollection.addItems(items, startIndex);
+    this.arrayCollection.addItems(items, startIndex);
     return this;
   }
 
@@ -1712,6 +1836,7 @@ export class TextSearchEngine<T extends CollectionItem> {
     }
 
     this.nestedCollection.updateItem(nextItem, previousItem, index);
+    this.arrayCollection.updateItem(nextItem, previousItem, index);
   }
 
   private applyRemovedItem(
@@ -1734,9 +1859,11 @@ export class TextSearchEngine<T extends CollectionItem> {
     }
 
     this.nestedCollection.removeItem(removedItem, removedIndex);
+    this.arrayCollection.removeItem(removedItem, removedIndex);
 
     if (movedItem !== null && movedFromIndex !== null) {
       this.nestedCollection.moveItem(movedItem, movedFromIndex, removedIndex);
+      this.arrayCollection.moveItem(movedItem, movedFromIndex, removedIndex);
     }
   }
 

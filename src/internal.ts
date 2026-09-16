@@ -1,5 +1,13 @@
 import type { CollectionItem, IndexableKey } from "./types";
 
+export function normalizeArrayFieldValue(value: unknown): string | null {
+  const type = typeof value;
+  if (type === "string") return (value as string).toLowerCase();
+  if (type === "number") return String(value);
+  if (type === "boolean") return String(value);
+  return null;
+}
+
 export function createChainMethodDescriptor<TValue>(
   value: TValue,
 ): PropertyDescriptor {

@@ -33,6 +33,7 @@ import {
 } from "./criterion";
 import { DEFER_FILTER_MUTATION_INDEX_UPDATES_KEY } from "./constants";
 import { FilterNestedCollection } from "./nested";
+import { FilterArrayCollection } from "./array";
 import { createFilterRuntime } from "./utils";
 import { MERGE_SHARED_SCOPE } from "../constants";
 
@@ -48,6 +49,8 @@ export class FilterEngine<T extends CollectionItem> {
   private readonly namespace: string;
 
   private readonly nestedCollection: FilterNestedCollection<T>;
+
+  private readonly arrayCollection: FilterArrayCollection<T>;
 
   private readonly chainBuilder = new FilterEngineChainBuilder<T>({
     filter: (dataOrCriteria, criteria) => {
@@ -88,10 +91,15 @@ export class FilterEngine<T extends CollectionItem> {
       this.runtime.nestedStorage,
     );
     this.nestedCollection.registerFields(options.nestedFields);
+    this.arrayCollection = new FilterArrayCollection<T>(
+      this.runtime.arrayStorage,
+    );
+    this.arrayCollection.registerFields(options.arrayFields);
     this.state.subscribe((mutation) => this.handleStateMutation(mutation));
 
     const hasFields = options.fields?.length;
     const hasNestedFields = this.nestedCollection.hasRegisteredFields();
+    const hasArrayFields = this.arrayCollection.hasRegisteredFields();
 
     if (hasFields) {
       for (const field of options.fields!) {
@@ -99,7 +107,7 @@ export class FilterEngine<T extends CollectionItem> {
       }
     }
 
-    if (this.dataset.length > 0 && (hasFields || hasNestedFields)) {
+    if (this.dataset.length > 0 && (hasFields || hasNestedFields || hasArrayFields)) {
       this.rebuildConfiguredIndexes();
     }
   }
@@ -144,6 +152,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.runtime.deferredMutationVersion = this.state.getMutationVersion();
     this.indexer.clear();
     this.nestedCollection.clearIndexes();
+    this.arrayCollection.clearIndexes();
     this.clearPersistentIndexedResults();
     this.resetFilterState();
   }
@@ -158,7 +167,8 @@ export class FilterEngine<T extends CollectionItem> {
     if (
       this.dataset.length > 0 &&
       (this.indexedFields.size > 0 ||
-        this.nestedCollection.hasRegisteredFields())
+        this.nestedCollection.hasRegisteredFields() ||
+        this.arrayCollection.hasRegisteredFields())
     ) {
       this.rebuildConfiguredIndexes();
     }
@@ -167,6 +177,7 @@ export class FilterEngine<T extends CollectionItem> {
   private rebuildConfiguredIndexes(): void {
     this.indexer.clear();
     this.nestedCollection.clearIndexes();
+    this.arrayCollection.clearIndexes();
 
     for (const field of this.indexedFields) {
       this.buildIndex(this.dataset, field);
@@ -174,6 +185,10 @@ export class FilterEngine<T extends CollectionItem> {
 
     if (this.nestedCollection.hasRegisteredFields()) {
       this.nestedCollection.buildIndexes(this.dataset);
+    }
+
+    if (this.arrayCollection.hasRegisteredFields()) {
+      this.arrayCollection.buildIndexes(this.dataset);
     }
   }
 
@@ -233,6 +248,7 @@ export class FilterEngine<T extends CollectionItem> {
   clearIndexes(): this {
     this.indexer.clear();
     this.nestedCollection.clearIndexes();
+    this.arrayCollection.clearIndexes();
     this.clearPersistentIndexedResults();
     return this;
   }
@@ -320,6 +336,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.clearPersistentIndexedResults();
     this.indexer.addItems(items);
     this.nestedCollection.addItems(items);
+    this.arrayCollection.addItems(items);
     return this;
   }
 
@@ -425,6 +442,7 @@ export class FilterEngine<T extends CollectionItem> {
       executionCriteria === resolvedCriteria;
 
     const nestedCriteria: ResolvedFilterCriterion<T>[] = [];
+    const arrayCriteria: ResolvedFilterCriterion<T>[] = [];
     const flatCriteria: ResolvedFilterCriterion<T>[] = [];
 
     for (
@@ -435,6 +453,8 @@ export class FilterEngine<T extends CollectionItem> {
       const criterion = executionCriteria[criterionIndex];
       if (this.nestedCollection.hasField(criterion.field)) {
         nestedCriteria.push(criterion);
+      } else if (this.arrayCollection.hasField(criterion.field)) {
+        arrayCriteria.push(criterion);
       } else {
         flatCriteria.push(criterion);
       }
@@ -444,6 +464,21 @@ export class FilterEngine<T extends CollectionItem> {
       sourceData = this.nestedCollection.filter(
         sourceData,
         nestedCriteria,
+        this.dataset,
+      );
+      if (sourceData.length === 0) {
+        return this.createEmptyResult(
+          isUsingStoredData,
+          baseData,
+          resolvedCriteria,
+        );
+      }
+    }
+
+    if (arrayCriteria.length > 0) {
+      sourceData = this.arrayCollection.filter(
+        sourceData,
+        arrayCriteria,
         this.dataset,
       );
       if (sourceData.length === 0) {
@@ -870,6 +905,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.clearPersistentIndexedResults();
     this.indexer.updateItem(previousItem, nextItem);
     this.nestedCollection.updateItem(nextItem, previousItem);
+    this.arrayCollection.updateItem(nextItem, previousItem);
   }
 
   private applyRemovedItem(removedItem: T): void {
@@ -877,6 +913,7 @@ export class FilterEngine<T extends CollectionItem> {
     this.clearPersistentIndexedResults();
     this.indexer.removeItem(removedItem);
     this.nestedCollection.removeItem(removedItem);
+    this.arrayCollection.removeItem(removedItem);
   }
 
   private applyRemovedItems(
@@ -895,6 +932,7 @@ export class FilterEngine<T extends CollectionItem> {
 
       this.indexer.removeItem(entry.removedItem);
       this.nestedCollection.removeItem(entry.removedItem);
+      this.arrayCollection.removeItem(entry.removedItem);
     }
 
     this.resetFilterState();
