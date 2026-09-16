@@ -894,4 +894,118 @@ describe("MergeEngines — nestedFields", () => {
     ).toEqual(["10"]);
     expect(merge.search("orders.status", "pending")).toEqual([]);
   });
+
+  describe("arrayFields", () => {
+    type UserWithArrays = {
+      id: string;
+      name: string;
+      interests: string[];
+      skills: (string | number)[];
+    };
+
+    const usersWithArrays: UserWithArrays[] = [
+      {
+        id: "1",
+        name: "Alice",
+        interests: ["sports", "music"],
+        skills: ["JavaScript", "React"],
+      },
+      {
+        id: "2",
+        name: "Bob",
+        interests: ["reading", "cooking"],
+        skills: ["Python", "Django"],
+      },
+      {
+        id: "3",
+        name: "Cara",
+        interests: ["sports", "travel"],
+        skills: ["React", "Node.js"],
+      },
+      {
+        id: "4",
+        name: "Dan",
+        interests: [],
+        skills: ["JavaScript"],
+      },
+      {
+        id: "5",
+        name: "Eve",
+        interests: ["music", "gaming"],
+        skills: [30, false],
+      },
+    ];
+
+    it("search() works with arrayFields", () => {
+      const merge = new MergeEngines<UserWithArrays>({
+        imports: [TextSearchEngine],
+        data: usersWithArrays,
+        search: { arrayFields: ["interests"], minQueryLength: 1 },
+      });
+
+      expect(merge.search("interests", "spo").map((u) => u.id).sort()).toEqual([
+        "1",
+        "3",
+      ]);
+    });
+
+    it("filter() works with arrayFields", () => {
+      const merge = new MergeEngines<UserWithArrays>({
+        imports: [FilterEngine],
+        data: usersWithArrays,
+        filter: { arrayFields: ["interests"] },
+      });
+
+      expect(
+        merge
+          .filter([{ field: "interests", values: ["sports", "music"] }])
+          .map((u) => u.id),
+      ).toEqual(["1"]);
+    });
+
+    it("combined search + filter with arrayFields", () => {
+      const merge = new MergeEngines<UserWithArrays>({
+        imports: [TextSearchEngine, FilterEngine],
+        data: usersWithArrays,
+        search: { arrayFields: ["interests"], minQueryLength: 1 },
+        filter: { arrayFields: ["interests"] },
+      });
+
+      const searchResult = merge.search("interests", "spo");
+      expect(searchResult.map((u) => u.id).sort()).toEqual(["1", "3"]);
+
+      const filterResult = merge.filter([
+        { field: "interests", values: ["sports", "music"] },
+      ]);
+      expect(filterResult.map((u) => u.id)).toEqual(["1"]);
+    });
+
+    it("add() and delete() update array indexes", () => {
+      const merge = new MergeEngines<UserWithArrays>({
+        imports: [TextSearchEngine, FilterEngine],
+        data: [],
+        search: { arrayFields: ["interests"], minQueryLength: 1 },
+        filter: { arrayFields: ["interests"] },
+      });
+
+      merge.add([
+        {
+          id: "1",
+          name: "Alice",
+          interests: ["sports"],
+          skills: [],
+        },
+      ]);
+
+      expect(merge.search("interests", "spo").map((u) => u.id)).toEqual(["1"]);
+      expect(
+        merge
+          .filter([{ field: "interests", values: ["sports"] }])
+          .map((u) => u.id),
+      ).toEqual(["1"]);
+
+      merge.delete("id", "1");
+      expect(merge.search("interests", "spo")).toEqual([]);
+    });
+  });
 });

@@ -1,5 +1,10 @@
 import type { CollectionItem } from "../types";
 
+export interface SearchArrayCollectionStorage {
+  ngramIndexes: Map<string, Map<string, Set<number>>>;
+  normalizedFieldValues: Map<string, string[]>;
+}
+
 export interface TextSearchEngineOptions<
   T extends CollectionItem = CollectionItem,
 > {
@@ -8,6 +13,8 @@ export interface TextSearchEngineOptions<
   fields?: (keyof T & string)[];
 
   nestedFields?: string[];
+
+  arrayFields?: (keyof T & string)[];
 
   /**
    * Minimum query length required to trigger a search. Defaults to `1`.
@@ -69,6 +76,7 @@ export type SearchRuntime<T extends CollectionItem> = {
   indexedFields: Set<keyof T & string>;
   flatIndexes: Map<string, SearchIndex>;
   nestedStorage: SearchNestedCollectionStorage;
+  arrayStorage: SearchArrayCollectionStorage;
   deferredMutationVersion: number | null;
   filterByPreviousResult: boolean;
   previousResultIndices: number[] | null;

@@ -88,6 +88,8 @@ A filter call becomes a map lookup: `index.get("New York")` returns the array of
 
 When the `fields` option is not provided, the engine falls back to a linear scan — which works but is slower.
 
+For **primitive array fields** (e.g. `string[]`, `(string | number)[]`), the engine joins normalized array values with `\n` (newline) and indexes the joined string. Search uses n-gram intersection like scalar fields. Filter builds a value→items hash map for exact matching.
+
 ### Sort
 
 Native `Array.prototype.sort` re-sorts the whole array from scratch every call.
@@ -129,6 +131,8 @@ interface User {
   name: string;
   city: string;
   age: number;
+  skills?: (number | string | boolean)[];
+  interests?: (number | string | boolean)[];
 }
 
 interface Order {
@@ -209,6 +213,17 @@ const nestedEngine = new MergeEngines<UserWithOrders>({
 
 nestedEngine.search("pending"); // finds users whose orders contain "pending"
 nestedEngine.filter([{ field: "orders.status", values: ["delivered"] }]);
+
+// Example with array fields (e.g. `interests: string[]` on each user).
+const arrayEngine = new MergeEngines<UserWithArrays>({
+  imports: [TextSearchEngine, FilterEngine],
+  data: usersWithArrays,
+  search: { arrayFields: ["interests"], minQueryLength: 1 },
+  filter: { arrayFields: ["interests"] },
+});
+
+arrayEngine.search("interests", "spo"); // finds users whose interests contain "sports"
+arrayEngine.filter([{ field: "interests", values: ["sports", "music"] }]); // AND: both must be present
 
 // Replace dataset later without creating a new instance.
 engine.data([
@@ -488,6 +503,34 @@ nestedSearch.search("pending"); // finds users whose orders match
 nestedSearch.search("orders.status", "delivered"); // search a specific nested field
 ```
 
+#### Array collections search
+
+Search inside simple primitive arrays (e.g. `string[]`, `(string | number)[]`).
+
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+
+interface UserWithArrays {
+  id: string;
+  name: string;
+  interests: string[];
+}
+
+const usersWithArrays: UserWithArrays[] = [
+  { id: "1", name: "Alice", interests: ["sports", "music"] },
+  { id: "2", name: "Bob", interests: ["reading", "cooking"] },
+];
+
+// `arrayFields` lists which fields are primitive arrays to index.
+const arraySearch = new TextSearchEngine<UserWithArrays>({
+  data: usersWithArrays,
+  arrayFields: ["interests"],
+});
+
+arraySearch.search("interests", "spo"); // partial match: finds "sports" in Alice's interests
+arraySearch.search("interests", "music"); // exact value match
+```
+
 ### Filter only
 
 Use `FilterEngine` when you only need filtering.
@@ -599,6 +642,30 @@ nestedFilter.filter([
 ]);
 ```
 
+#### Array collections filter
+
+Filter by primitive array fields. Values use **AND** semantics (all selected values must be present). Exclude uses **ANY** semantics (exclude items where the array contains any excluded value).
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const arrayFilter = new FilterEngine<UserWithArrays>({
+  data: usersWithArrays,
+  arrayFields: ["interests"],
+});
+
+// AND: both "sports" AND "music" must be in the interests array
+arrayFilter.filter([{ field: "interests", values: ["sports", "music"] }]);
+
+// ANY exclude: exclude items whose interests contain "sports"
+arrayFilter.filter([{ field: "interests", exclude: ["sports"] }]);
+
+// Combined: interests must contain "music" AND must NOT contain "gaming"
+arrayFilter.filter([
+  { field: "interests", values: ["music"], exclude: ["gaming"] },
+]);
+```
+
 ### Sort only
 
 Use `SortEngine` when you only need sorting.
@@ -658,8 +725,8 @@ One class that combines search, filter, and sort for the same dataset.
 | `imports`                | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to create                                                                                       |
 | `data`                   | `T[]`                                                       | Shared dataset — passed once at construction                                                                   |
 | `filterByPreviousResult` | `boolean`                                                   | When `true`, separate `filter(...)` and `sort(...)` calls continue from the last result stored in shared State |
-| `search`                 | `{ fields, nestedFields?, minQueryLength? }`                | Config for TextSearchEngine                                                                                    |
-| `filter`                 | `{ fields, nestedFields? }`                                 | Config for FilterEngine                                                                                        |
+| `search`                 | `{ fields, nestedFields?, arrayFields?, minQueryLength? }`  | Config for TextSearchEngine                                                                                    |
+| `filter`                 | `{ fields, nestedFields?, arrayFields? }`                   | Config for FilterEngine                                                                                        |
 | `sort`                   | `{ fields }`                                                | Config for SortEngine                                                                                          |
 
 **Methods:**
@@ -694,6 +761,7 @@ Main constructor options:
 | ------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `filterByPreviousResult` | `boolean`  | When `true`, a query that narrows the previous one (new query includes old query) searches only the previous result instead of the full dataset. Any mutation resets the state. |
 | `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                                                                            |
+| `arrayFields`            | `string[]` | Primitive array fields to index for search (e.g. `["interests"]` for `string[]`). Supports `string`, `number`, and `boolean` elements.                                          |
 
 | Method                           | Description                                                          |
 | -------------------------------- | -------------------------------------------------------------------- |
@@ -723,6 +791,7 @@ Main constructor options:
 | ------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `filterByPreviousResult` | `boolean`  | When `true`, the next `filter(criteria)` call works on the previous result. By default each call starts from the original dataset. |
 | `nestedFields`           | `string[]` | Nested field paths in dot notation, for example `["orders.status"]`.                                                               |
+| `arrayFields`            | `string[]` | Primitive array fields to index for filter (e.g. `["interests"]` for `string[]`). Values use AND semantics.                        |
 
 | Method                         | Description                                                                |
 | ------------------------------ | -------------------------------------------------------------------------- |

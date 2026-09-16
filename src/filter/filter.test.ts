@@ -937,4 +937,200 @@ describe("FilterEngine — nestedFields", () => {
       expect(result.map((u) => u.id)).toEqual(["1"]);
     });
   });
+
+  describe("arrayFields", () => {
+    type UserWithArrays = {
+      id: string;
+      name: string;
+      interests: string[];
+      skills: (string | number)[];
+    };
+
+    const usersWithArrays: UserWithArrays[] = [
+      {
+        id: "1",
+        name: "Alice",
+        interests: ["sports", "music"],
+        skills: ["JavaScript", "React"],
+      },
+      {
+        id: "2",
+        name: "Bob",
+        interests: ["reading", "cooking"],
+        skills: ["Python", "Django"],
+      },
+      {
+        id: "3",
+        name: "Cara",
+        interests: ["sports", "travel"],
+        skills: ["React", "Node.js"],
+      },
+      {
+        id: "4",
+        name: "Dan",
+        interests: [],
+        skills: ["JavaScript"],
+      },
+      {
+        id: "5",
+        name: "Eve",
+        interests: ["music", "gaming"],
+        skills: [30, false],
+      },
+    ];
+
+    it("filters with AND semantics for array values", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+      });
+
+      const result = engine.filter([
+        { field: "interests", values: ["sports", "music"] },
+      ]);
+
+      expect(result.map((u) => u.id)).toEqual(["1"]);
+    });
+
+    it("filters with exclude (ANY semantics)", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+      });
+
+      const result = engine.filter([
+        { field: "interests", exclude: ["sports"] },
+      ]);
+
+      expect(result.map((u) => u.id).sort()).toEqual(["2", "4", "5"]);
+    });
+
+    it("combines values AND exclude", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+      });
+
+      const result = engine.filter([
+        { field: "interests", values: ["music"], exclude: ["gaming"] },
+      ]);
+
+      expect(result.map((u) => u.id)).toEqual(["1"]);
+    });
+
+    it("filters across multiple array fields", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests", "skills"],
+      });
+
+      const result = engine.filter([
+        { field: "interests", values: ["sports"] },
+        { field: "skills", values: ["React"] },
+      ]);
+
+      expect(result.map((u) => u.id).sort()).toEqual(["1", "3"]);
+    });
+
+    it("returns empty for unsatisfiable values", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+      });
+
+      const result = engine.filter([
+        { field: "interests", values: ["nonexistent"] },
+      ]);
+
+      expect(result).toEqual([]);
+    });
+
+    it("empty values array is unsatisfiable", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+      });
+
+      const result = engine.filter([{ field: "interests", values: [] }]);
+      expect(result).toEqual([]);
+    });
+
+    it("handles items with empty arrays", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+      });
+
+      const result = engine.filter([{ field: "interests", values: ["sports"] }]);
+      expect(result.map((u) => u.id).sort()).toEqual(["1", "3"]);
+    });
+
+    it("mixed path: array indexed + scalar linear", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+      });
+
+      const result = engine.filter([
+        { field: "interests", values: ["sports"] },
+        { field: "name", values: ["Cara"] },
+      ]);
+
+      expect(result.map((u) => u.id)).toEqual(["3"]);
+    });
+
+    it("linear fallback produces same results as indexed", () => {
+      const indexedEngine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+      });
+
+      const linearEngine = new FilterEngine<UserWithArrays>({
+        data: usersWithArrays,
+        arrayFields: ["interests"],
+        filterByPreviousResult: true,
+      });
+
+      const indexedResult = indexedEngine.filter([
+        { field: "interests", values: ["sports"] },
+      ]);
+      const linearResult = linearEngine.filter([
+        { field: "interests", values: ["sports"] },
+      ]);
+
+      expect(linearResult.map((u) => u.id).sort()).toEqual(
+        indexedResult.map((u) => u.id).sort(),
+      );
+    });
+
+    it("add() updates array filter indexes", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: [],
+        arrayFields: ["interests"],
+      });
+
+      engine.add([
+        {
+          id: "1",
+          name: "Alice",
+          interests: ["sports"],
+          skills: [],
+        },
+      ]);
+
+      const result = engine.filter([{ field: "interests", values: ["sports"] }]);
+      expect(result.map((u) => u.id)).toEqual(["1"]);
+    });
+
+    it("delete() removes from array filter indexes", () => {
+      const engine = new FilterEngine<UserWithArrays>({
+        data: structuredClone(usersWithArrays),
+        arrayFields: ["interests"],
+      });
+
+      engine.delete("id", "1");
+      const result = engine.filter([{ field: "interests", values: ["sports"] }]);
+      expect(result.map((u) => u.id)).toEqual(["3"]);
+    });
+  });
 });

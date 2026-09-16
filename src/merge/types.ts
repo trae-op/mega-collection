@@ -17,6 +17,8 @@ export interface MergeSearchOptions<T extends CollectionItem = CollectionItem> {
 
   nestedFields?: string[];
 
+  arrayFields?: (keyof T & string)[];
+
   minQueryLength?: number;
 
   filterByPreviousResult?: boolean;
@@ -34,6 +36,8 @@ export interface MergeFilterOptions<T extends CollectionItem = CollectionItem> {
   fields?: (keyof T & string)[];
 
   nestedFields?: string[];
+
+  arrayFields?: (keyof T & string)[];
 }
 
 export interface MergeEnginesChain<T extends CollectionItem> {

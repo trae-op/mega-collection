@@ -10,6 +10,10 @@ export const createSearchRuntime = <
     ngramIndexes: new Map<string, Map<string, Set<number>>>(),
     normalizedFieldValues: new Map<string, string[]>(),
   },
+  arrayStorage: {
+    ngramIndexes: new Map<string, Map<string, Set<number>>>(),
+    normalizedFieldValues: new Map<string, string[]>(),
+  },
   deferredMutationVersion: null,
   filterByPreviousResult: false,
   previousResultIndices: null,
