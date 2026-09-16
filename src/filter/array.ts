@@ -344,6 +344,12 @@ export class FilterArrayCollection<T extends CollectionItem> {
     );
     const allowedItems = sourceData === dataset ? null : new Set(sourceData);
 
+    // Keep indexed filtering consistent with the linear fallback: an explicit
+    // empty inclusion list is unsatisfiable, regardless of criterion order.
+    if (inclusionCriteria.some((criterion) => criterion.values.length === 0)) {
+      return [];
+    }
+
     if (inclusionCriteria.length === 0) {
       return this.applyIndexedExclusions(sourceData, exclusionCriteria);
     }
@@ -359,26 +365,32 @@ export class FilterArrayCollection<T extends CollectionItem> {
     ) {
       const criterion = inclusionCriteria[criterionIndex];
       const indexMap = this.storage.indexes.get(criterion.field);
-      if (!indexMap) return [];
+      const fieldItemPositions = this.storage.itemPositions.get(
+        criterion.field,
+      );
+      if (!indexMap || !fieldItemPositions) return [];
 
       // Deduplicate criterion values
       const uniqueValues = new Set(criterion.values);
-      if (uniqueValues.size === 0) return [];
 
       const buckets: T[][] = [];
+      const bucketItemPositions: WeakMap<T, number>[] = [];
       for (const value of uniqueValues) {
         const bucket = indexMap.get(value);
-        if (!bucket || bucket.length === 0) return [];
+        const positions = fieldItemPositions.get(value);
+        if (!bucket || bucket.length === 0 || !positions) return [];
         buckets.push(bucket);
+        bucketItemPositions.push(positions);
       }
 
       // Find smallest bucket
-      let smallestBucket = buckets[0];
+      let smallestBucketIndex = 0;
       for (let i = 1; i < buckets.length; i++) {
-        if (buckets[i].length < smallestBucket.length) {
-          smallestBucket = buckets[i];
+        if (buckets[i].length < buckets[smallestBucketIndex].length) {
+          smallestBucketIndex = i;
         }
       }
+      const smallestBucket = buckets[smallestBucketIndex];
 
       // Intersect: every selected value must be present
       const candidateItems: T[] = [];
@@ -388,8 +400,8 @@ export class FilterArrayCollection<T extends CollectionItem> {
 
         let hasAll = true;
         for (let b = 0; b < buckets.length; b++) {
-          if (buckets[b] === smallestBucket) continue;
-          if (!buckets[b].includes(item)) {
+          if (b === smallestBucketIndex) continue;
+          if (!bucketItemPositions[b].has(item)) {
             hasAll = false;
             break;
           }
@@ -474,7 +486,14 @@ export class FilterArrayCollection<T extends CollectionItem> {
     for (let itemIndex = 0; itemIndex < data.length; itemIndex++) {
       const item = data[itemIndex];
       const arr = item[field];
-      if (!Array.isArray(arr)) continue;
+      if (!Array.isArray(arr)) {
+        // A missing/invalid array cannot satisfy inclusion, but it also does
+        // not contain an excluded value. Preserve it for exclude-only rules.
+        if (!criterion.hasValues) {
+          result.push(item);
+        }
+        continue;
+      }
 
       // AND semantics for inclusion: all selected values must be present
       if (criterion.hasValues) {
@@ -485,6 +504,7 @@ export class FilterArrayCollection<T extends CollectionItem> {
           const selectedValue = criterion.values[v];
           let found = false;
           for (let a = 0; a < arr.length; a++) {
+            if (normalizeArrayFieldValue(arr[a]) === null) continue;
             if (arr[a] === selectedValue) {
               found = true;
               break;
@@ -502,6 +522,7 @@ export class FilterArrayCollection<T extends CollectionItem> {
       if (criterion.hasExclude) {
         let hasExcluded = false;
         for (let a = 0; a < arr.length; a++) {
+          if (normalizeArrayFieldValue(arr[a]) === null) continue;
           if (criterion.excludedValues!.has(arr[a])) {
             hasExcluded = true;
             break;

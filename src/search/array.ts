@@ -8,6 +8,10 @@ import {
 } from "./ngram";
 import type { SearchArrayCollectionStorage } from "./types";
 
+// A NUL separator prevents ordinary text queries, including multiline
+// queries, from matching across two adjacent array elements.
+const ARRAY_VALUE_SEPARATOR = "\u0000";
+
 export class SearchArrayCollection<T extends CollectionItem> {
   private readonly registeredFields = new Set<string>();
 
@@ -150,6 +154,8 @@ export class SearchArrayCollection<T extends CollectionItem> {
     candidateIndices?: readonly number[] | null,
     take = Number.POSITIVE_INFINITY,
   ): number[] {
+    if (lowerQuery.includes(ARRAY_VALUE_SEPARATOR)) return [];
+
     const ngramMap = this.storage.ngramIndexes.get(field);
     if (!ngramMap) return [];
 
@@ -197,6 +203,8 @@ export class SearchArrayCollection<T extends CollectionItem> {
   ): number[] {
     const matchedIndices: number[] = [];
 
+    if (lowerQuery.includes(ARRAY_VALUE_SEPARATOR)) return matchedIndices;
+
     if (sourceIndices) {
       for (
         let candidateIndex = 0;
@@ -240,6 +248,8 @@ export class SearchArrayCollection<T extends CollectionItem> {
   }
 
   private arrayContainsLower(arr: unknown[], lowerQuery: string): boolean {
+    if (lowerQuery.includes(ARRAY_VALUE_SEPARATOR)) return false;
+
     for (let i = 0; i < arr.length; i++) {
       const norm = normalizeArrayFieldValue(arr[i]);
       if (norm !== null && norm.includes(lowerQuery)) return true;
@@ -277,7 +287,7 @@ export class SearchArrayCollection<T extends CollectionItem> {
 
       if (normalizedValues.length === 0) continue;
 
-      const joinedValue = normalizedValues.join("\n");
+      const joinedValue = normalizedValues.join(ARRAY_VALUE_SEPARATOR);
       normalizedFieldValues[itemIndex] = joinedValue;
       indexLowerValue(ngramMap, joinedValue, itemIndex);
     }
@@ -286,11 +296,7 @@ export class SearchArrayCollection<T extends CollectionItem> {
     this.storage.normalizedFieldValues.set(field, normalizedFieldValues);
   }
 
-  private addItemsToField(
-    field: string,
-    items: T[],
-    startIndex: number,
-  ): void {
+  private addItemsToField(field: string, items: T[], startIndex: number): void {
     const ngramMap = this.storage.ngramIndexes.get(field);
     if (!ngramMap) return;
 
@@ -311,7 +317,7 @@ export class SearchArrayCollection<T extends CollectionItem> {
 
       if (normalizedValues.length === 0) continue;
 
-      const joinedValue = normalizedValues.join("\n");
+      const joinedValue = normalizedValues.join(ARRAY_VALUE_SEPARATOR);
       normalizedFieldValues[datasetIndex] = joinedValue;
       indexLowerValue(ngramMap, joinedValue, datasetIndex);
     }
@@ -352,11 +358,7 @@ export class SearchArrayCollection<T extends CollectionItem> {
     indexLowerValue(ngramMap, nextNormalizedValue, itemIndex);
   }
 
-  private removeItemFromField(
-    field: string,
-    item: T,
-    itemIndex: number,
-  ): void {
+  private removeItemFromField(field: string, item: T, itemIndex: number): void {
     const ngramMap = this.storage.ngramIndexes.get(field);
     if (!ngramMap) return;
 
@@ -412,6 +414,6 @@ export class SearchArrayCollection<T extends CollectionItem> {
 
     if (normalizedValues.length === 0) return null;
 
-    return normalizedValues.join("\n");
+    return normalizedValues.join(ARRAY_VALUE_SEPARATOR);
   }
 }
