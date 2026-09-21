@@ -505,4 +505,67 @@ describe("SortEngine", () => {
       expect(buildIndexSpy).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe("dataAsync()", () => {
+    it("replaces stored dataset and resolves after rebuild", async () => {
+      const engine = new SortEngine<User>({
+        data: users,
+        fields: ["age"],
+      });
+
+      await engine.dataAsync([
+        { id: 10, name: "Tim", city: "New-York", age: 30 },
+        { id: 11, name: "Mona", city: "Miami", age: 22 },
+      ]);
+
+      const sorted = engine.sort([{ field: "age", direction: "asc" }]);
+      expect(sorted.map((u) => u.id)).toEqual([11, 10]);
+    });
+
+    it("returns this for chaining", async () => {
+      const engine = new SortEngine<User>({
+        data: users,
+        fields: ["age"],
+      });
+
+      const result = await engine.dataAsync([
+        { id: 10, name: "Tim", city: "New-York", age: 30 },
+      ]);
+
+      expect(result).toBe(engine);
+    });
+
+    it("updates getOriginData after resolve", async () => {
+      const engine = new SortEngine<User>({
+        data: users,
+        fields: ["age"],
+      });
+
+      const nextUsers: User[] = [
+        { id: 10, name: "Tim", city: "New-York", age: 30 },
+      ];
+
+      await engine.dataAsync(nextUsers);
+
+      expect(engine.getOriginData()).toBe(nextUsers);
+    });
+
+    it("does not block the event loop", async () => {
+      const engine = new SortEngine<User>({
+        data: users,
+        fields: ["age"],
+      });
+
+      let sideEffect = false;
+      const promise = engine.dataAsync([
+        { id: 10, name: "Tim", city: "New-York", age: 30 },
+      ]);
+
+      sideEffect = true;
+
+      await promise;
+
+      expect(sideEffect).toBe(true);
+    });
+  });
 });

@@ -18,6 +18,7 @@ If this package saved you some time, a ⭐ on GitHub would be much appreciated.
   - [Add items with `add([])`](#add-items-with-add) – append multiple items to stored data
   - [Update items with `update(...)`](#update-items-with-update) – replace one stored item by unique field
   - [Delete items with `delete(...)`](#delete-items-with-delete) – remove stored items by unique field value
+  - [Replace data with `data()` / `dataAsync()`](#replace-data-with-data--dataasync) – replace stored dataset, sync or async
   - [Search only](#search-only) – use only text search
     - [Flat collections search](#flat-collections-search) – search simple fields like `name` or `city`
     - [Nested collections search](#nested-collections-search) – search inside nested arrays like `orders.status`
@@ -262,6 +263,34 @@ engine.getOriginData();
 // Remove items through the root facade.
 mutableMerge.delete("id", [1, 4]);
 ```
+
+---
+
+### Replace data with `data()` / `dataAsync()`
+
+Use `data(...)` to replace the entire stored dataset.
+All configured indexes are rebuilt synchronously.
+
+Use `dataAsync(...)` when the dataset is very large and you want to avoid
+blocking the main thread. It performs the same work but returns a `Promise`
+that resolves after the data is replaced and all indexes are rebuilt.
+
+```ts
+// Synchronous — blocks until all indexes are rebuilt.
+engine.data(largeDataset);
+
+// Asynchronous — returns a Promise, does not block.
+await engine.dataAsync(largeDataset);
+```
+
+Both methods replace the stored dataset and rebuild all configured indexes.
+The only difference is that `dataAsync()` is non-blocking: the caller can
+`await` the result and continue doing other work while the rebuild happens.
+
+| Method          | Returns   | Blocking | Use case                                  |
+| --------------- | --------- | -------- | ----------------------------------------- |
+| `data(data)`    | `this`    | Yes      | Small/medium datasets, immediate results  |
+| `dataAsync(data)` | `Promise` | No    | Large datasets, keeping the UI responsive |
 
 ---
 
@@ -809,6 +838,7 @@ One class that combines search, filter, and sort for the same dataset.
 | `delete(field, valueOrValues)`      | Remove stored items by unique field value using swap-pop semantics                                                         |
 | `update({ field, data })`           | Replace one stored item by a unique field and refresh only the affected cached or indexed data                             |
 | `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
+| `dataAsync(data)`                   | Replace stored dataset for all imported modules, resolving when all indexes are rebuilt (non-blocking)                      |
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
 | `clearData(module)`                 | Clear the shared stored dataset through one imported module (`"search"`, `"sort"`, `"filter"`)                             |
 
@@ -840,6 +870,7 @@ Main constructor options:
 | `delete(field, valueOrValues)`   | Remove stored items by unique field value                                      |
 | `update({ field, data })`        | Replace one stored item by a unique field                                      |
 | `data(data)`                     | Replace stored dataset and rebuild configured indexes                          |
+| `dataAsync(data)`                | Replace stored dataset and rebuild configured indexes asynchronously           |
 | `clearIndexes()`                 | Clear scalar, nested, and primitive-array n-gram indexes                       |
 | `clearData()`                    | Clear stored data                                                              |
 
@@ -869,6 +900,7 @@ Main constructor options:
 | `delete(field, valueOrValues)` | Remove stored items by unique field value                                     |
 | `update({ field, data })`      | Replace one stored item by a unique field                                     |
 | `data(data)`                   | Replace stored dataset, rebuild configured indexes, and reset filter state    |
+| `dataAsync(data)`              | Replace stored dataset, rebuild configured indexes, and reset filter state asynchronously |
 | `resetFilterState()`           | Reset previous-result state for sequential filtering                          |
 | `clearIndexes()`               | Free scalar, nested, and primitive-array index memory                         |
 | `clearData()`                  | Clear stored data                                                             |
@@ -887,6 +919,7 @@ Sort methods return plain arrays.
 | `delete(field, valueOrValues)`      | Remove stored items by unique field value             |
 | `update({ field, data })`           | Replace one stored item by a unique field             |
 | `data(data)`                        | Replace stored dataset and rebuild configured indexes |
+| `dataAsync(data)`                   | Replace stored dataset and rebuild configured indexes asynchronously |
 | `clearIndexes()`                    | Free all cached indexes                               |
 | `clearData()`                       | Clear stored data                                     |
 

@@ -1008,4 +1008,80 @@ describe("MergeEngines — nestedFields", () => {
       expect(merge.search("interests", "spo")).toEqual([]);
     });
   });
+
+  describe("dataAsync()", () => {
+    it("replaces stored dataset and resolves after rebuild", async () => {
+      const merge = new MergeEngines<User>({
+        imports: [TextSearchEngine, SortEngine, FilterEngine],
+        data: users,
+        search: { fields: ["name", "city"], minQueryLength: 1 },
+        filter: { fields: ["city", "age"] },
+        sort: { fields: ["age", "name"] },
+      });
+
+      const nextUsers: User[] = [
+        { id: 10, name: "Tim", city: "New-York", age: 30 },
+        { id: 11, name: "Mona", city: "Miami", age: 22 },
+      ];
+
+      await merge.dataAsync(nextUsers);
+
+      expect(merge.search("Tim").map((u) => u.id)).toEqual([10]);
+      expect(
+        merge.filter([{ field: "city", values: ["Miami"] }]).map((u) => u.id),
+      ).toEqual([11]);
+      expect(
+        merge.sort([{ field: "age", direction: "asc" }]).map((u) => u.id),
+      ).toEqual([11, 10]);
+    });
+
+    it("returns this for chaining", async () => {
+      const merge = new MergeEngines<User>({
+        imports: [TextSearchEngine],
+        data: users,
+        search: { fields: ["name"], minQueryLength: 1 },
+      });
+
+      const result = await merge.dataAsync([
+        { id: 10, name: "Tim", city: "New-York", age: 30 },
+      ]);
+
+      expect(result).toBe(merge);
+    });
+
+    it("updates getOriginData after resolve", async () => {
+      const merge = new MergeEngines<User>({
+        imports: [TextSearchEngine],
+        data: users,
+        search: { fields: ["name"], minQueryLength: 1 },
+      });
+
+      const nextUsers: User[] = [
+        { id: 10, name: "Tim", city: "New-York", age: 30 },
+      ];
+
+      await merge.dataAsync(nextUsers);
+
+      expect(merge.getOriginData()).toBe(nextUsers);
+    });
+
+    it("does not block the event loop", async () => {
+      const merge = new MergeEngines<User>({
+        imports: [TextSearchEngine],
+        data: users,
+        search: { fields: ["name"], minQueryLength: 1 },
+      });
+
+      let sideEffect = false;
+      const promise = merge.dataAsync([
+        { id: 10, name: "Tim", city: "New-York", age: 30 },
+      ]);
+
+      sideEffect = true;
+
+      await promise;
+
+      expect(sideEffect).toBe(true);
+    });
+  });
 });

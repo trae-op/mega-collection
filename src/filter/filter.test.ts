@@ -1061,7 +1061,9 @@ describe("FilterEngine — nestedFields", () => {
         arrayFields: ["interests"],
       });
 
-      const result = engine.filter([{ field: "interests", values: ["sports"] }]);
+      const result = engine.filter([
+        { field: "interests", values: ["sports"] },
+      ]);
       expect(result.map((u) => u.id).sort()).toEqual(["1", "3"]);
     });
 
@@ -1118,7 +1120,9 @@ describe("FilterEngine — nestedFields", () => {
         },
       ]);
 
-      const result = engine.filter([{ field: "interests", values: ["sports"] }]);
+      const result = engine.filter([
+        { field: "interests", values: ["sports"] },
+      ]);
       expect(result.map((u) => u.id)).toEqual(["1"]);
     });
 
@@ -1129,8 +1133,77 @@ describe("FilterEngine — nestedFields", () => {
       });
 
       engine.delete("id", "1");
-      const result = engine.filter([{ field: "interests", values: ["sports"] }]);
+      const result = engine.filter([
+        { field: "interests", values: ["sports"] },
+      ]);
       expect(result.map((u) => u.id)).toEqual(["3"]);
+    });
+  });
+
+  describe("dataAsync()", () => {
+    it("replaces stored dataset and resolves after rebuild", async () => {
+      const engine = new FilterEngine<User>({
+        data: users,
+        fields: ["city", "age"],
+      });
+
+      await engine.dataAsync([
+        { id: 10, name: "Tim", city: "New-York", age: 30, active: true },
+        { id: 11, name: "Mona", city: "Miami", age: 22, active: false },
+      ]);
+
+      expect(
+        engine
+          .filter([{ field: "city", values: ["New-York"] }])
+          .map((u) => u.id),
+      ).toEqual([10]);
+      expect(engine.filter([{ field: "city", values: ["Kyiv"] }])).toEqual([]);
+    });
+
+    it("returns this for chaining", async () => {
+      const engine = new FilterEngine<User>({
+        data: users,
+        fields: ["city"],
+      });
+
+      const result = await engine.dataAsync([
+        { id: 10, name: "Tim", city: "New-York", age: 30, active: true },
+      ]);
+
+      expect(result).toBe(engine);
+    });
+
+    it("updates getOriginData after resolve", async () => {
+      const engine = new FilterEngine<User>({
+        data: users,
+        fields: ["city"],
+      });
+
+      const nextUsers: User[] = [
+        { id: 10, name: "Tim", city: "New-York", age: 30, active: true },
+      ];
+
+      await engine.dataAsync(nextUsers);
+
+      expect(engine.getOriginData()).toBe(nextUsers);
+    });
+
+    it("does not block the event loop", async () => {
+      const engine = new FilterEngine<User>({
+        data: users,
+        fields: ["city", "age"],
+      });
+
+      let sideEffect = false;
+      const promise = engine.dataAsync([
+        { id: 10, name: "Tim", city: "New-York", age: 30, active: true },
+      ]);
+
+      sideEffect = true;
+
+      await promise;
+
+      expect(sideEffect).toBe(true);
     });
   });
 });
