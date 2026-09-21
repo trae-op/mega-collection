@@ -1,7 +1,7 @@
 {
   "name": "@devisfuture/mega-collection",
-  "version": "2.7.0",
-  "description": "High-performance search, filter & sort engine for 100K+ item collections in JavaScript/TypeScript",
+  "version": "2.7.1",
+  "description": "Fast indexed search, filtering, and sorting for arrays of objects in JavaScript and TypeScript. Supports nested fields, array fields, and large client-side collections.",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -51,29 +51,35 @@
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
-    "javascript",
     "search",
     "filter",
     "sort",
+    "array",
     "collection",
+    "array-search",
+    "array-filter",
+    "array-sort",
+    "text-search",
+    "substring-search",
+    "fast-search",
+    "fast-filter",
+    "high-performance",
     "performance",
-    "trigram",
-    "inverted-index",
-    "hashmap",
+    "large-arrays",
     "large-dataset",
-    "big-data",
+    "client-side",
+    "in-memory",
+    "nested-search",
+    "nested-filter",
+    "array-fields",
+    "multi-filter",
+    "multi-field-sort",
+    "indexed-search",
+    "inverted-index",
+    "javascript",
     "typescript",
     "zero-dependencies",
-    "tree-shakeable",
-    "esm",
-    "indexer",
-    "50k",
-    "100k",
-    "text-search",
-    "multi-filter",
-    "sort-engine",
-    "merge-engines",
-    "o1-lookup"
+    "tree-shakeable"
   ],
   "publishConfig": {
     "access": "public"
@@ -92,5 +98,9 @@
     "vite": "^8.0.0",
     "vitest": "^4.1.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "homepage": "https://github.com/trae-op/mega-collection#readme",
+  "bugs": {
+    "url": "https://github.com/trae-op/mega-collection/issues"
+  }
 }
