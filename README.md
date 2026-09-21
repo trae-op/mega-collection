@@ -1,136 +1,43 @@
-<p align="center">
-  <img src="./illustration.png" alt="mega-collection illustration" width="100%" />
-</p>
+# mega-collection — Search, filter, and sort arrays of objects
+
+Indexed client-side search, filtering, and sorting for JavaScript and TypeScript collections. Search text across object fields, filter nested arrays or tags, and sort by one or more fields — with zero runtime dependencies.
+
+Use it when your application already has the data in memory and users repeatedly search, filter, or sort it: product catalogs, user directories, admin tables, and searchable lists.
 
 [![npm version](https://img.shields.io/npm/v/@devisfuture/mega-collection.svg)](https://www.npmjs.com/package/@devisfuture/mega-collection) [![Downloads](https://img.shields.io/npm/dt/@devisfuture/mega-collection.svg)](https://www.npmjs.com/package/@devisfuture/mega-collection) [![Coverage](https://img.shields.io/codecov/c/github/trae-op/mega-collection/main)](https://codecov.io/gh/trae-op/mega-collection) [![TypeScript](https://img.shields.io/badge/TypeScript-%233178C6.svg?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/) [![GitHub Stars](https://img.shields.io/github/stars/trae-op/mega-collection?style=social)](https://github.com/trae-op/mega-collection)
 
-If this package saved you some time, a ⭐ on GitHub would be much appreciated.
+[Live React demo](https://trae-op.github.io/quick-start_react_mega-collection/) · [Demo source](https://github.com/trae-op/quick-start_react_mega-collection) · [Benchmarks](https://github.com/trae-op/mega-collection/blob/main/BENCHMARKS.md)
 
-## Table of Contents
+## What does this package solve?
 
-- [What does this package solve](#what-does-this-package-solve) – what problem this package helps with
-- [How it works](#how-it-works) – plain-English explanation of how each engine works internally
-- [Benchmarks](#benchmarks) – performance numbers and how to run them
-- [React demo](#react-demo) – example project and live demo
-- [Install](#install) – how to install the package
-- [Quick Start](#quick-start) – basic usage examples
-  - [All-in-one: `MergeEngines`](#all-in-one-mergeengines) – use search, filter, and sort from one engine
-  - [Add items with `add([])`](#add-items-with-add) – append multiple items to stored data
-  - [Update items with `update(...)`](#update-items-with-update) – replace one stored item by unique field
-  - [Delete items with `delete(...)`](#delete-items-with-delete) – remove stored items by unique field value
-  - [Replace data with `data()` / `dataAsync()`](#replace-data-with-data--dataasync) – replace stored dataset, sync or async
-  - [Search only](#search-only) – use only text search
-    - [Flat collections search](#flat-collections-search) – search simple fields like `name` or `city`
-    - [Nested collections search](#nested-collections-search) – search inside nested arrays like `orders.status`
-    - [Array collections search](#array-collections-search) – search inside top-level primitive arrays
-  - [Filter only](#filter-only) – use only filtering
-    - [Flat collections filter](#flat-collections-filter) – filter by simple top-level fields
-    - [Exclude items with `exclude`](#exclude-items-with-exclude) – remove matching items from the result
-      - [Result-only exclude](#result-only-exclude) – return a filtered result without mutating stored data
-    - [Nested collections filter](#nested-collections-filter) – filter by nested array fields
-    - [Array collections filter](#array-collections-filter) – filter top-level primitive arrays
-  - [Sort only](#sort-only) – use only sorting
-- [API Reference](#api-reference) – list of options and methods
-  - [`MergeEngines<T>`](#mergeenginest-root-module) – one engine that combines everything
-  - [`TextSearchEngine<T>`](#textsearchenginet-search-module) – engine for text search
-  - [`FilterEngine<T>`](#filterenginet-filter-module) – engine for filtering
-  - [`SortEngine<T>`](#sortenginet-sort-module) – engine for sorting
-- [Contributing](#contributing) – contribution rules
-- [Security](#security) – security policy
-- [License](#license) – license information
-
-## What does this package solve
-
-When your API returns thousands of items, you usually need to let the user search, filter, or sort them on the client side.
-
-The typical way to do this is with built-in array methods:
+A search input, a few filters, and sortable columns often lead to repeated array scans and sorting:
 
 ```ts
-const results = users.filter((u) => u.city === "New York");
-const sorted = [...users].sort((a, b) => a.age - b.age);
-const found = users.filter((u) => u.name.toLowerCase().includes(query));
+const found = users.filter((user) =>
+  user.name.toLowerCase().includes(query.toLowerCase()),
+);
+const filtered = found.filter((user) => user.city === "Kyiv");
+const sorted = [...filtered].sort((a, b) => a.age - b.age);
 ```
 
-This works fine for small arrays. But with 10 000–100 000+ items, every call to `filter` or `sort` scans the whole array from scratch. If you run it on every keystroke, it adds up.
+Native array methods are a good starting point. As the dataset and number of repeated operations grow, rebuilding the same results can become costly.
 
-This package solves this by building indexes ahead of time — special data structures that let you look up results without scanning the full array every time. You pay the cost once when the data arrives, and then each search, filter, or sort is much cheaper.
+`mega-collection` keeps reusable search and filter indexes and sorting caches for a stored collection. Configure the fields once, reuse the engine across interactions, and update its data through the provided methods. Indexes are built on demand; mutations can update indexes or invalidate caches.
 
-### Important
+Indexing has an initial time and memory cost. The benefit depends on your data, query selectivity, update frequency, and how often you reuse the engine — it is not a promise that every operation is faster.
 
-The package has no dependencies. You can import only the parts you need.
-Each engine has its own entry point: `/search`, `/filter`, `/sort`.
-If you import only `@devisfuture/mega-collection/search`, only search code goes into the bundle.
-Unused modules are not included.
+### Is this the right package for you?
 
-## How it works
+| Your task                                                              | Use                |
+| ---------------------------------------------------------------------- | ------------------ |
+| Search names, titles, or other text fields by a partial string         | `TextSearchEngine` |
+| Filter an array of objects by exact field values                       | `FilterEngine`     |
+| Search or filter objects inside nested arrays, such as `orders.status` | `nestedFields`     |
+| Search tags or require selected skills in a primitive array            | `arrayFields`      |
+| Sort by one or more fields                                             | `SortEngine`       |
+| Combine search, filtering, and sorting over one stored dataset         | `MergeEngines`     |
 
-### Search
-
-Native `Array.prototype.filter` with `String.includes` checks every item in the array on each keystroke. For 50 000 items that's 50 000 string comparisons per call.
-
-`TextSearchEngine` avoids this by building an **n-gram inverted index** upfront:
-
-1. Each string value is split into overlapping 2- and 3-character pieces called n-grams. For example, `"hello"` produces `"he"`, `"hel"`, `"el"`, `"ell"`, `"ll"`, `"llo"`, `"lo"`.
-2. For every n-gram the engine keeps a set of item positions that contain it.
-3. When you search for `"john"`, the engine splits that query into the same n-gram pieces, then intersects the sets — only items that share all query n-grams survive. This candidate set is usually tiny even for 100 000 items.
-4. Each surviving candidate is checked with a fast `String.includes` to confirm the full substring match.
-
-For very short queries (fewer than 2 characters) the engine falls back to a linear scan — n-grams that short would match too many items to be useful.
-
-For **primitive array fields** such as `string[]` or
-`Array<string | number | boolean>`, each supported array element is normalized
-and added to the field's n-gram index. Search still confirms the complete
-substring inside one individual array element, so a query cannot match by
-joining text from two adjacent elements. String values are searched
-case-insensitively; numbers and booleans are converted to searchable text.
-Unsupported values such as `null`, `undefined`, objects, and nested arrays are
-ignored.
-
-### Filter
-
-Native `Array.prototype.filter` with `===` still checks every item on every call.
-
-`FilterEngine` builds a **hash-map** for each indexed field:
-
-```
-field "city" → { "New York": [item0, item4, ...], "Miami": [item1, ...], ... }
-```
-
-A filter call becomes a map lookup: `index.get("New York")` returns the array of matches in O(1). Multiple values from the same field are concatenated. Multiple fields are intersected using a `Set`.
-
-When the `fields` option is not provided, the engine falls back to a linear scan — which works but is slower.
-
-For **primitive array fields**, `FilterEngine` builds a value→items hash map
-using the original primitive values as keys. `values` uses AND semantics: an
-item must contain every selected value. `exclude` uses ANY semantics: an item
-is removed when its array contains at least one excluded value. Filtering is
-exact and preserves primitive types, so `30` does not match `"30"` and `false`
-does not match `"false"`.
-
-### Sort
-
-Native `Array.prototype.sort` re-sorts the whole array from scratch every call.
-
-`SortEngine` pre-sorts and stores results in a `Uint32Array` of positions:
-
-```
-cache["age"] = [index of youngest item, index of next, ..., index of oldest]
-```
-
-The first sort call builds this index. Subsequent calls just read it in O(n). The cache is invalidated on mutations and rebuilt lazily on the next sort call.
-
----
-
-## Benchmarks
-
-Benchmarks for `TextSearchEngine`, `FilterEngine`, and `SortEngine` are collected in [BENCHMARKS](./BENCHMARKS.md).
-
-## React demo
-
-A small [repository](https://github.com/trae-op/quick-start_react_mega-collection) shows how to use `@devisfuture/mega-collection` in React.
-It has examples for search, filter, sort, and `MergeEngines` with a simple UI.
-
-There is also a live [demo](https://trae-op.github.io/quick-start_react_mega-collection/).
+The package is a data-processing library, not a table or search-input component. It works independently of your UI framework, including React, Vue, and Angular. It processes the data you provide; it does not fetch records or replace server-side queries for data that is not loaded.
 
 ## Install
 
@@ -138,9 +45,88 @@ There is also a live [demo](https://trae-op.github.io/quick-start_react_mega-col
 npm install @devisfuture/mega-collection
 ```
 
-_This package is framework-agnostic and works in all popular front‑end frameworks including React, Angular, Vue and so on._
+The package provides ESM entry points and TypeScript declarations. Import only the engines you need; separate entry points and `sideEffects: false` support tree shaking in compatible bundlers.
 
-## Quick Start
+## Quick start
+
+A complete example: search users, keep matches from Kyiv, then sort by age.
+
+```ts
+import { MergeEngines } from "@devisfuture/mega-collection";
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+import { SortEngine } from "@devisfuture/mega-collection/sort";
+
+interface User {
+  id: number;
+  name: string;
+  city: string;
+  age: number;
+}
+
+const users: User[] = [
+  { id: 1, name: "John", city: "Kyiv", age: 32 },
+  { id: 2, name: "Johnny", city: "Kyiv", age: 24 },
+  { id: 3, name: "Alice", city: "Lviv", age: 28 },
+];
+
+const engine = new MergeEngines<User>({
+  imports: [TextSearchEngine, FilterEngine, SortEngine],
+  data: users,
+  search: { fields: ["name"], minQueryLength: 2 },
+  filter: { fields: ["city"] },
+  sort: { fields: ["age"] },
+});
+
+// Explicit intermediate results make each processing step clear.
+const found = engine.search("john");
+const filtered = engine.filter(found, [{ field: "city", values: ["Kyiv"] }]);
+const sorted = engine.sort(filtered, [{ field: "age", direction: "asc" }]);
+
+console.log(sorted.map((user) => user.name));
+// ["Johnny", "John"]
+```
+
+Create and reuse an engine for a collection instead of rebuilding it for every keystroke. Each engine instance has its own data and runtime state.
+
+## Table of contents
+
+- [Choose an engine](#choose-an-engine)
+- [Example data](#example-data)
+- [Search arrays of objects](#search-arrays-of-objects)
+  - [Search text fields](#search-text-fields)
+  - [Search nested arrays](#search-nested-arrays)
+  - [Search tags and primitive array fields](#search-tags-and-primitive-array-fields)
+- [Filter arrays of objects](#filter-arrays-of-objects)
+  - [Filter by multiple fields](#filter-by-multiple-fields)
+  - [Exclude items](#exclude-items-with-exclude)
+  - [Filter nested arrays](#filter-nested-arrays)
+  - [Filter tags and skills](#filter-tags-and-skills)
+- [Sort by one or multiple fields](#sort-by-one-or-multiple-fields)
+- [Combine search, filter, and sort](#combine-search-filter-and-sort)
+- [Update the stored collection](#update-the-stored-collection)
+- [How indexing works](#how-indexing-works)
+- [Benchmarks and performance](#benchmarks-and-performance)
+- [React demo](#react-demo)
+- [API reference](#api-reference)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
+
+## Choose an engine
+
+| Export             | Import path                                                            | Purpose                              |
+| ------------------ | ---------------------------------------------------------------------- | ------------------------------------ |
+| `TextSearchEngine` | `@devisfuture/mega-collection/search`                                  | Case-insensitive substring search    |
+| `FilterEngine`     | `@devisfuture/mega-collection/filter`                                  | Exact-value inclusion and exclusion  |
+| `SortEngine`       | `@devisfuture/mega-collection/sort`                                    | Single-field and multi-field sorting |
+| `MergeEngines`     | `@devisfuture/mega-collection` or `@devisfuture/mega-collection/merge` | Combine engines over shared data     |
+
+Configure scalar fields with `fields`, nested array paths with `nestedFields`, and top-level primitive arrays with `arrayFields`. The latter two options apply to search and filtering.
+
+## Example data
+
+The detailed examples below use this shared fixture unless they define their own data. Run each example independently; mutation examples change the stored collection.
 
 ```ts
 interface User {
@@ -148,8 +134,8 @@ interface User {
   name: string;
   city: string;
   age: number;
-  skills?: (number | string | boolean)[];
-  interests?: (number | string | boolean)[];
+  skills?: (string | number | boolean)[];
+  interests?: (string | number | boolean)[];
 }
 
 interface Order {
@@ -160,78 +146,402 @@ interface Order {
 interface UserWithOrders extends User {
   orders: Order[];
 }
+
+const users: User[] = [
+  {
+    id: 1,
+    name: "John",
+    city: "Miami",
+    age: 25,
+    skills: ["JavaScript", "React"],
+    interests: ["sports", "music"],
+  },
+  {
+    id: 2,
+    name: "Bob",
+    city: "New York",
+    age: 30,
+    skills: ["TypeScript"],
+    interests: ["reading"],
+  },
+  {
+    id: 3,
+    name: "Alice",
+    city: "Miami",
+    age: 22,
+    skills: ["JavaScript", "TypeScript"],
+    interests: ["music"],
+  },
+  {
+    id: 4,
+    name: "Johnny",
+    city: "New York",
+    age: 35,
+    skills: ["React"],
+    interests: ["gaming"],
+  },
+];
+
+const usersWithOrders: UserWithOrders[] = users.map((user) => ({
+  ...user,
+  orders: [
+    { id: `order-${user.id}`, status: user.id % 2 ? "pending" : "delivered" },
+  ],
+}));
 ```
 
-### All-in-one: `MergeEngines`
+## Search arrays of objects
 
-Use `MergeEngines` when you want one class that works with one dataset.
-Add needed engines to `imports`. Only those engines will be created.
+Use `TextSearchEngine` when you only need text search.
+Search is case-insensitive substring matching: `john` matches `Johnny`, and `ohn` matches `John`. Use one field or search across configured fields.
 
-You can create many engine instances in one project for different collections.
-Each instance keeps its own dataset and runtime indexes inside an internal shared `State`, so separate instances do not affect each other.
+### Search text fields
 
-Each engine can receive an optional `fields` array through `search`, `filter`, or `sort` options.
-These fields are used for indexes.
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
 
-Indexes are built lazily on first use inside that shared state, so engine creation stays fast.
-If you skip `fields`, everything still works, but the engine may scan the full array.
+// `fields` tells the engine which fields should use indexed search.
+// The index is built only when it is needed for the first time.
+// If you skip `fields`, search still works, but it scans the full dataset.
+const engine = new TextSearchEngine<User>({
+  data: users,
+  fields: ["name", "city"],
+  minQueryLength: 2, // begins searching when query length >= 2
+});
+
+// If the query is shorter than `minQueryLength`, the engine returns
+// the original dataset. Empty or blank queries do the same.
+
+engine.search("john"); // searches all indexed fields, deduplicated
+engine.search("name", "john"); // searches a specific field
+engine.search("john", { limit: 20, offset: 20 }); // paginate broad result sets
+
+// replace dataset without re-initializing
+engine.data(users);
+
+// replace one stored item by unique field
+engine.update({
+  field: "id",
+  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+});
+
+// remove one stored item by unique field
+engine.delete("id", 2);
+
+// access original dataset stored in the engine
+engine.getOriginData();
+
+// service methods stay on the engine instance
+engine.clearIndexes();
+engine.clearData();
+```
+
+### Search nested arrays
+
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+
+// Search inside nested arrays. `nestedFields` uses dot notation.
+const nestedSearch = new TextSearchEngine<UserWithOrders>({
+  data: usersWithOrders,
+  fields: ["name", "city"],
+  nestedFields: ["orders.status"],
+  minQueryLength: 2,
+});
+
+nestedSearch.search("pending"); // finds users whose orders match
+nestedSearch.search("orders.status", "delivered"); // search a specific nested field
+```
+
+### Search tags and primitive array fields
+
+Search inside top-level primitive arrays. `arrayFields` accepts field names
+directly, not dot-notation paths. Use `nestedFields` for paths such as
+`orders.status`.
+
+```ts
+import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+
+interface UserWithArrays {
+  id: string;
+  name: string;
+  interests: Array<string | number | boolean>;
+  skills?: Array<string | number | boolean>;
+}
+
+const usersWithArrays: UserWithArrays[] = [
+  {
+    id: "1",
+    name: "Alice",
+    interests: ["sports", "music", 30, false],
+    skills: ["JavaScript", "React"],
+  },
+  {
+    id: "2",
+    name: "Bob",
+    interests: ["reading", "cooking"],
+    skills: ["TypeScript"],
+  },
+];
+
+// `arrayFields` lists which fields are primitive arrays to index.
+const arraySearch = new TextSearchEngine<UserWithArrays>({
+  data: usersWithArrays,
+  fields: ["name"],
+  arrayFields: ["interests", "skills"],
+});
+
+arraySearch.search("spo"); // searches name, interests, and skills
+arraySearch.search("interests", "spo"); // partial match: finds "sports" in Alice's interests
+arraySearch.search("30"); // numbers are searchable as text
+arraySearch.search("false"); // booleans are searchable as text
+```
+
+Invalid or missing array fields do not throw. Unsupported elements such as
+`null`, `undefined`, objects, and nested arrays are ignored while valid
+`string`, `number`, and `boolean` elements in the same array remain searchable.
+After `clearIndexes()`, the engine uses a linear fallback with the same matching
+semantics.
+
+## Filter arrays of objects
+
+Use `FilterEngine` when you only need filtering.
+For scalar fields, multiple `values` in one criterion are alternatives (OR). Criteria for different fields are combined (AND). For primitive array fields, all selected values must be present (AND).
+
+### Filter by multiple fields
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+// `fields` tells the engine which fields should use indexes for filtering.
+// The index is built only when it is needed for the first time.
+// Without `fields`, filtering still works, but it scans the data.
+const engine = new FilterEngine<User>({
+  data: users,
+  fields: ["city", "age"],
+  filterByPreviousResult: true,
+});
+
+engine.filter([
+  { field: "city", values: ["Miami", "New York"] },
+  { field: "age", values: [25, 30, 35] },
+]);
+
+// Replace dataset without creating a new engine.
+engine.data(users);
+
+// Replace one stored item by unique field.
+engine.update({
+  field: "id",
+  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+});
+
+// Remove stored items by unique field.
+engine.delete("id", [1, 4]);
+
+// Get original stored dataset.
+engine.getOriginData();
+
+// Sequential mode example:
+// 1) First call filters by city.
+const byCity = engine.filter([{ field: "city", values: ["Miami"] }]);
+// 2) Second call works only on the previous result.
+const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
+// 3) Returning to an earlier criteria state restores its previous result.
+const byCityAgain = engine.filter([{ field: "city", values: ["Miami"] }]);
+```
+
+### Exclude items with `exclude`
+
+Use `exclude` when you want to remove items from the result by exact field values.
+This is useful when you already know which `id` values or other field values should not be in the result.
+
+`exclude` changes only the returned result. It does not change the stored dataset inside the engine.
+
+#### Result-only exclude
+
+If the engine already stores the full dataset, `exclude` alone is enough. For example,
+`engine.filter([{ field: "id", exclude: [1, 4] }])` returns all stored users except users with `id` `1` and `4`.
+
+This mode does not use swap-pop on the stored dataset. `filter(...)` returns a new array,
+so the engine still needs one pass over the current data to build the result.
+If `id` is indexed, the engine does not scan the full dataset again for each excluded `id`,
+but it still has to build the final array.
+
+If you need to remove items from the stored dataset itself, use `delete(...)`.
+That operation is separate from filtering so result-only `exclude` stays predictable.
+
+If the field is listed in `fields`, the engine uses indexes for exclude values
+instead of scanning the full dataset again for every removed value.
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+const engine = new FilterEngine<User>({
+  data: users,
+  fields: ["id", "city"],
+});
+
+// Returns all users except users with ids 1 and 3.
+const visibleUsers = engine.filter([{ field: "id", exclude: [1, 3] }]);
+
+// You can combine normal filtering and exclude.
+engine.filter([
+  { field: "city", values: ["Miami", "New York"] },
+  { field: "id", exclude: [1, 3] },
+]);
+```
+
+### Filter nested arrays
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+// Filter inside nested arrays. `nestedFields` uses dot notation.
+const nestedFilter = new FilterEngine<UserWithOrders>({
+  data: usersWithOrders,
+  fields: ["city", "age"],
+  nestedFields: ["orders.status"],
+  filterByPreviousResult: true,
+});
+
+nestedFilter.filter([{ field: "orders.status", values: ["pending"] }]);
+nestedFilter.filter([
+  { field: "orders.status", values: ["pending"] },
+  { field: "city", values: ["New York"] },
+]);
+```
+
+### Filter tags and skills
+
+Filter by primitive array fields. Values use **AND** semantics (all selected values must be present). Exclude uses **ANY** semantics (exclude items where the array contains any excluded value).
+
+```ts
+import { FilterEngine } from "@devisfuture/mega-collection/filter";
+
+// Uses the UserWithArrays type and usersWithArrays data from the array search example.
+const arrayFilter = new FilterEngine<UserWithArrays>({
+  data: usersWithArrays,
+  arrayFields: ["interests"],
+});
+
+// AND: both "sports" AND "music" must be in the interests array
+arrayFilter.filter([{ field: "interests", values: ["sports", "music"] }]);
+
+// ANY exclude: exclude items whose interests contain "sports"
+arrayFilter.filter([{ field: "interests", exclude: ["sports"] }]);
+
+// Combined: interests must contain "music" AND must NOT contain "gaming"
+arrayFilter.filter([
+  { field: "interests", values: ["music"], exclude: ["gaming"] },
+]);
+
+// Exact matching preserves primitive types: 30 does not match "30".
+arrayFilter.filter([{ field: "interests", values: [30] }]);
+
+// An explicit empty values list is unsatisfiable and returns an empty result.
+arrayFilter.filter([{ field: "interests", values: [] }]); // []
+```
+
+Duplicate selected values do not require duplicate entries in the item array.
+For example, `values: ["music", "music"]` behaves like `values: ["music"]`.
+
+When a UI multiselect has no selected values and you want to skip filtering,
+omit that criterion instead of passing `values: []`:
+
+```ts
+const selectedInterests: string[] = ["music"];
+
+const criteria =
+  selectedInterests.length > 0
+    ? [{ field: "interests", values: selectedInterests }]
+    : [];
+
+arrayFilter.filter(criteria);
+```
+
+For inclusion, a missing or invalid array field does not match. For an
+exclude-only criterion, an item with a missing or invalid array field remains
+in the result because it contains none of the excluded values. After
+`clearIndexes()`, the linear fallback preserves the same behavior.
+
+## Sort by one or multiple fields
+
+Use `SortEngine` when you only need sorting.
+
+```ts
+import { SortEngine } from "@devisfuture/mega-collection/sort";
+
+// `fields` tells the engine which fields should use cached single-field
+// sorting. The cache is built lazily on first use. If you skip `fields`,
+// sorting still works.
+const engine = new SortEngine<User>({
+  data: users,
+  fields: ["age", "name", "city"],
+});
+
+// Single-field sort
+engine.sort([{ field: "age", direction: "asc" }]);
+
+// Multi-field sort
+engine.sort([
+  { field: "age", direction: "asc" },
+  { field: "name", direction: "desc" },
+]);
+
+// replace dataset without re-initializing
+engine.data(users);
+
+// replace one stored item by unique field
+engine.update({
+  field: "id",
+  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
+});
+
+// remove one stored item by unique field
+engine.delete("id", 2);
+
+// access original dataset stored in the engine
+engine.getOriginData();
+
+// service methods stay on the engine instance
+engine.clearIndexes();
+engine.clearData();
+```
+
+---
+
+## Combine search, filter, and sort
+
+`MergeEngines` creates only the engine classes listed in `imports`. Each instance owns one shared dataset and its runtime indexes; separate instances do not share state.
+
+The quick start passes intermediate arrays explicitly. Alternatively, enable `filterByPreviousResult` so separate filter and sort calls continue from the last shared result:
 
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
 import { TextSearchEngine } from "@devisfuture/mega-collection/search";
-import { SortEngine } from "@devisfuture/mega-collection/sort";
 import { FilterEngine } from "@devisfuture/mega-collection/filter";
+import { SortEngine } from "@devisfuture/mega-collection/sort";
 
 const engine = new MergeEngines<User>({
-  imports: [TextSearchEngine, SortEngine, FilterEngine],
+  imports: [TextSearchEngine, FilterEngine, SortEngine],
   data: users,
   filterByPreviousResult: true,
   search: { fields: ["name", "city"], minQueryLength: 2 },
   filter: { fields: ["city", "age"] },
-  sort: { fields: ["age", "name", "city"] },
+  sort: { fields: ["age", "name"] },
 });
 
-const mutableMerge = new MergeEngines<User>({
-  imports: [FilterEngine],
-  data: users,
-  filter: { fields: ["id", "city"] },
-});
+engine.search("john");
+engine.filter([{ field: "city", values: ["Miami", "New York"] }]);
+const result = engine.sort([{ field: "age", direction: "asc" }]);
+```
 
-// Dataset is passed once in the constructor.
-engine
-  .search("john")
-  .sort([{ field: "age", direction: "asc" }])
-  .filter([{ field: "city", values: ["Miami", "New York"] }]);
+For nested arrays, add `nestedFields: ["orders.status"]` to the search or filter configuration and use `UserWithOrders` as the item type.
 
-// Separate calls also continue from the last result when
-// `filterByPreviousResult` is enabled on MergeEngines.
-const searchResult = engine.search("john");
-const filteredResult = engine.filter([
-  { field: "city", values: ["Miami", "New York"] },
-]);
-const sortedResult = engine.sort([{ field: "age", direction: "asc" }]);
+For primitive array fields, configure `arrayFields` on the relevant engines:
 
-// Example with nested fields, for example `orders` inside each user.
-const nestedEngine = new MergeEngines<UserWithOrders>({
-  imports: [TextSearchEngine, SortEngine, FilterEngine],
-  data: usersWithOrders,
-  filterByPreviousResult: true,
-  search: {
-    fields: ["name", "city"],
-    nestedFields: ["orders.status"],
-    minQueryLength: 2,
-  },
-  filter: {
-    fields: ["city", "age"],
-    nestedFields: ["orders.status"],
-  },
-  sort: { fields: ["age", "name", "city"] },
-});
-
-nestedEngine.search("pending"); // finds users whose orders contain "pending"
-nestedEngine.filter([{ field: "orders.status", values: ["delivered"] }]);
-
-// Example with array fields (e.g. `interests: string[]` on each user).
+```ts
 const arrayEngine = new MergeEngines<User>({
   imports: [TextSearchEngine, FilterEngine],
   data: users,
@@ -239,58 +549,37 @@ const arrayEngine = new MergeEngines<User>({
   filter: { arrayFields: ["interests", "skills"] },
 });
 
-arrayEngine.search("spo"); // searches every configured array field
-arrayEngine.search("interests", "spo"); // searches only interests
-arrayEngine.filter([{ field: "skills", values: ["JavaScript", "React"] }]); // AND: both must be present
-
-// Replace dataset later without creating a new instance.
-engine.data([
-  {
-    id: 1,
-    name: "Tim",
-    city: "New-York",
-    age: 30,
-  },
-]);
-
-// Clear indexes or data for one module.
-engine.clearIndexes("search").clearIndexes("sort").clearIndexes("filter");
-engine.clearData("search").clearData("sort").clearData("filter");
-
-// Get shared original dataset.
-engine.getOriginData();
-
-// Remove items through the root facade.
-mutableMerge.delete("id", [1, 4]);
+arrayEngine.search("interests", "spo");
+arrayEngine.filter([{ field: "skills", values: ["JavaScript", "React"] }]); // Both skills must be present.
 ```
 
----
+### Clear indexes or data
+
+```ts
+engine.clearIndexes("search");
+engine.clearIndexes("sort");
+engine.clearIndexes("filter");
+
+engine.getOriginData(); // Access the shared original dataset.
+
+// This clears shared data, not just one independent module's records.
+engine.clearData("search");
+```
+
+## Update the stored collection
+
+Use the engine methods to replace, append, update, or delete records so the stored data and indexes stay in sync.
 
 ### Replace data with `data()` / `dataAsync()`
 
-Use `data(...)` to replace the entire stored dataset.
-All configured indexes are rebuilt synchronously.
-
-Use `dataAsync(...)` when the dataset is very large and you want to avoid
-blocking the main thread. It performs the same work but returns a `Promise`
-that resolves after the data is replaced and all indexes are rebuilt.
+`data(...)` replaces the entire stored dataset and rebuilds configured indexes synchronously. `dataAsync(...)` is the asynchronous alternative; await completion before querying the replaced data.
 
 ```ts
-// Synchronous — blocks until all indexes are rebuilt.
-engine.data(largeDataset);
-
-// Asynchronous — returns a Promise, does not block.
-await engine.dataAsync(largeDataset);
+engine.data(users);
+await engine.dataAsync(users);
 ```
 
-Both methods replace the stored dataset and rebuild all configured indexes.
-The only difference is that `dataAsync()` is non-blocking: the caller can
-`await` the result and continue doing other work while the rebuild happens.
-
-| Method          | Returns   | Blocking | Use case                                  |
-| --------------- | --------- | -------- | ----------------------------------------- |
-| `data(data)`    | `this`    | Yes      | Small/medium datasets, immediate results  |
-| `dataAsync(data)` | `Promise` | No    | Large datasets, keeping the UI responsive |
+An asynchronous return value is not a guarantee of zero main-thread work. Measure responsiveness with your actual data and runtime.
 
 ---
 
@@ -304,10 +593,10 @@ This is different from `data(...)`:
 
 If indexes are already built, `add()` updates them incrementally for the new items only:
 
-- **TextSearchEngine / FilterEngine**: O(k) — only the new items are written into the n-gram or hash-map index (existing index entries are untouched).
-- **SortEngine**: the sort cache for each configured field is invalidated on `add()` and rebuilt lazily on the next `sort()` call. This avoids O(N) work per add and is optimal when multiple adds happen between sorts.
+- **TextSearchEngine / FilterEngine**: already-built indexes are updated for the new items. Cost also depends on the number of indexed fields and text lengths.
+- **SortEngine**: the sort cache for each configured field is invalidated on `add()` and rebuilt lazily on the next `sort()` call. This defers sort-cache rebuilding until it is needed.
 
-If indexes have not been built yet (first `sort()` has not been called), `add()` appends the items without touching any index.
+If indexes have not been built yet, `add()` appends the items without touching any index.
 If you cleared indexes with `clearIndexes()`, `add([])` does not rebuild them automatically.
 
 ```ts
@@ -380,7 +669,7 @@ Use `update(...)` when you need to replace one stored item by a unique field suc
 
 - `update(...)` keeps the same stored array reference.
 - `update(...)` replaces only the matched item in stored data.
-- configured indexes or caches refresh only the affected item instead of rebuilding the whole dataset.
+- configured indexes or caches are refreshed or invalidated as needed.
 
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
@@ -486,325 +775,57 @@ sortEngine.delete("id", 3);
 
 ---
 
-### Search only
+## How indexing works
 
-Use `TextSearchEngine` when you only need text search.
-The examples below show search by simple fields and nested fields.
+### Text search: n-gram inverted indexes
 
-#### Flat collections search
+Search splits indexed text into overlapping two- and three-character pieces, called n-grams. For example, `hello` includes `he`, `hel`, `el`, `ell`, `ll`, `llo`, and `lo`.
 
-```ts
-import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+For each n-gram, an inverted index stores matching item positions. A query intersects those candidate sets, then confirms the complete substring with `String.includes`. Common queries can still produce large candidate sets.
 
-// `fields` tells the engine which fields should use indexed search.
-// The index is built only when it is needed for the first time.
-// If you skip `fields`, search still works, but it scans the full dataset.
-const engine = new TextSearchEngine<User>({
-  data: users,
-  fields: ["name", "city"],
-  minQueryLength: 2, // begins searching when query length >= 2
-});
+Queries shorter than two characters use a linear scan when allowed by `minQueryLength`. Blank queries and queries below `minQueryLength` return the original dataset.
 
-// If the query is shorter than `minQueryLength`, the engine returns
-// the original dataset. Empty or blank queries do the same.
+### Filtering: value indexes
 
-engine.search("john"); // searches all indexed fields, deduplicated
-engine.search("name", "john"); // searches a specific field
-engine.search("john", { limit: 20, offset: 20 }); // paginate broad result sets
+For each indexed field, a map associates an exact value with matching items. Scalar values within a criterion use OR semantics; different criteria are intersected. Primitive array fields require every selected value.
 
-// replace dataset without re-initializing
-engine.data(users);
+A direct value lookup avoids testing every item for that value, but combining matches and constructing the returned array still take work. The complete filter operation is not universally O(1).
 
-// replace one stored item by unique field
-engine.update({
-  field: "id",
-  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
-});
+When relevant indexes are unavailable, filtering can use a linear fallback. Result-only exclusion also has to construct the remaining result array.
 
-// remove one stored item by unique field
-engine.delete("id", 2);
+### Sorting: cached positions
 
-// access original dataset stored in the engine
-engine.getOriginData();
+Single-field sorting can cache item positions in a `Uint32Array`. The first indexed sort builds the cache; subsequent eligible calls reuse it and materialize the result array. Mutations can invalidate cached orders, which are rebuilt when needed.
 
-// service methods stay on the engine instance
-engine.clearIndexes();
-engine.clearData();
+Multi-field sorting is supported, but should not be assumed to have the same cache behavior as repeated single-field sorting.
+
+## Benchmarks and performance
+
+See [BENCHMARKS.md](https://github.com/trae-op/mega-collection/blob/main/BENCHMARKS.md) for the project's benchmark results and methodology.
+
+To run the engine benchmarks from a development checkout after installing dependencies:
+
+```bash
+npm run search-bench
+npm run filter-bench
+npm run sort-bench
 ```
 
-#### Nested collections search
+For your workload, measure:
 
-```ts
-import { TextSearchEngine } from "@devisfuture/mega-collection/search";
+- Index construction and the first query separately from repeated queries.
+- Broad queries as well as selective queries.
+- Memory use, indexed field count, and text lengths.
+- Update frequency and cache rebuilding.
+- Result construction and UI rendering time separately.
 
-// Search inside nested arrays. `nestedFields` uses dot notation.
-const nestedSearch = new TextSearchEngine<UserWithOrders>({
-  data: usersWithOrders,
-  fields: ["name", "city"],
-  nestedFields: ["orders.status"],
-  minQueryLength: 2,
-});
+Start with native array methods for small or infrequently queried collections. Consider indexed processing when repeated scans or sorts become measurable bottlenecks. Large lists may also need rendering optimizations independently of data processing.
 
-nestedSearch.search("pending"); // finds users whose orders match
-nestedSearch.search("orders.status", "delivered"); // search a specific nested field
-```
+## React demo
 
-#### Array collections search
+Try the [live React demo](https://trae-op.github.io/quick-start_react_mega-collection/) or inspect the [example repository](https://github.com/trae-op/quick-start_react_mega-collection).
 
-Search inside top-level primitive arrays. `arrayFields` accepts field names
-directly, not dot-notation paths. Use `nestedFields` for paths such as
-`orders.status`.
-
-```ts
-import { TextSearchEngine } from "@devisfuture/mega-collection/search";
-
-interface UserWithArrays {
-  id: string;
-  name: string;
-  interests: Array<string | number | boolean>;
-  skills?: Array<string | number | boolean>;
-}
-
-const usersWithArrays: UserWithArrays[] = [
-  {
-    id: "1",
-    name: "Alice",
-    interests: ["sports", "music", 30, false],
-    skills: ["JavaScript", "React"],
-  },
-  {
-    id: "2",
-    name: "Bob",
-    interests: ["reading", "cooking"],
-    skills: ["TypeScript"],
-  },
-];
-
-// `arrayFields` lists which fields are primitive arrays to index.
-const arraySearch = new TextSearchEngine<UserWithArrays>({
-  data: usersWithArrays,
-  fields: ["name"],
-  arrayFields: ["interests", "skills"],
-});
-
-arraySearch.search("spo"); // searches name, interests, and skills
-arraySearch.search("interests", "spo"); // partial match: finds "sports" in Alice's interests
-arraySearch.search("30"); // numbers are searchable as text
-arraySearch.search("false"); // booleans are searchable as text
-```
-
-Invalid or missing array fields do not throw. Unsupported elements such as
-`null`, `undefined`, objects, and nested arrays are ignored while valid
-`string`, `number`, and `boolean` elements in the same array remain searchable.
-After `clearIndexes()`, the engine uses a linear fallback with the same matching
-semantics.
-
-### Filter only
-
-Use `FilterEngine` when you only need filtering.
-The examples below show filtering by simple fields and nested fields.
-
-#### Flat collections filter
-
-```ts
-import { FilterEngine } from "@devisfuture/mega-collection/filter";
-
-// `fields` tells the engine which fields should use indexes for filtering.
-// The index is built only when it is needed for the first time.
-// Without `fields`, filtering still works, but it scans the data.
-const engine = new FilterEngine<User>({
-  data: users,
-  fields: ["city", "age"],
-  filterByPreviousResult: true,
-});
-
-engine.filter([
-  { field: "city", values: ["Miami", "New York"] },
-  { field: "age", values: [25, 30, 35] },
-]);
-
-// Replace dataset without creating a new engine.
-engine.data(users);
-
-// Replace one stored item by unique field.
-engine.update({
-  field: "id",
-  data: { id: 2, name: "Bob", city: "Paris", age: 19, active: true },
-});
-
-// Remove stored items by unique field.
-engine.delete("id", [1, 4]);
-
-// Get original stored dataset.
-engine.getOriginData();
-
-// Sequential mode example:
-// 1) First call filters by city.
-const byCity = engine.filter([{ field: "city", values: ["Miami"] }]);
-// 2) Second call works only on the previous result.
-const byCityAndAge = engine.filter([{ field: "age", values: [22] }]);
-// 3) Returning to an earlier criteria state restores its previous result.
-const byCityAgain = engine.filter([{ field: "city", values: ["Miami"] }]);
-```
-
-#### Exclude items with `exclude`
-
-Use `exclude` when you want to remove items from the result by exact field values.
-This is useful when you already know which `id` values or other field values should not be in the result.
-
-`exclude` changes only the returned result. It does not change the stored dataset inside the engine.
-
-`exclude` is always result-only. It never changes the stored dataset inside the engine.
-
-#### Result-only exclude
-
-If the engine already stores the full dataset, `exclude` alone is enough. For example,
-`engine.filter([{ field: "id", exclude: [1, 4] }])` returns all stored users except users with `id` `1` and `4`.
-
-This mode does not use swap-pop on the stored dataset. `filter(...)` returns a new array,
-so the engine still needs one pass over the current data to build the result.
-If `id` is indexed, the engine does not scan the full dataset again for each excluded `id`,
-but it still has to build the final array.
-
-If you need to remove items from the stored dataset itself, use `delete(...)`.
-That operation is separate from filtering so result-only `exclude` stays predictable.
-
-If the field is listed in `fields`, the engine uses indexes for exclude values
-instead of scanning the full dataset again for every removed value.
-
-```ts
-import { FilterEngine } from "@devisfuture/mega-collection/filter";
-
-const engine = new FilterEngine<User>({
-  data: users,
-  fields: ["id", "city"],
-});
-
-// Returns all users except users with ids 1 and 3.
-const visibleUsers = engine.filter([{ field: "id", exclude: [1, 3] }]);
-
-// You can combine normal filtering and exclude.
-engine.filter([
-  { field: "city", values: ["Miami", "New York"] },
-  { field: "id", exclude: [1, 3] },
-]);
-```
-
-#### Nested collections filter
-
-```ts
-import { FilterEngine } from "@devisfuture/mega-collection/filter";
-
-// Filter inside nested arrays. `nestedFields` uses dot notation.
-const nestedFilter = new FilterEngine<UserWithOrders>({
-  data: usersWithOrders,
-  fields: ["city", "age"],
-  nestedFields: ["orders.status"],
-  filterByPreviousResult: true,
-});
-
-nestedFilter.filter([{ field: "orders.status", values: ["pending"] }]);
-nestedFilter.filter([
-  { field: "orders.status", values: ["pending"] },
-  { field: "city", values: ["New-York"] },
-]);
-```
-
-#### Array collections filter
-
-Filter by primitive array fields. Values use **AND** semantics (all selected values must be present). Exclude uses **ANY** semantics (exclude items where the array contains any excluded value).
-
-```ts
-import { FilterEngine } from "@devisfuture/mega-collection/filter";
-
-const arrayFilter = new FilterEngine<UserWithArrays>({
-  data: usersWithArrays,
-  arrayFields: ["interests"],
-});
-
-// AND: both "sports" AND "music" must be in the interests array
-arrayFilter.filter([{ field: "interests", values: ["sports", "music"] }]);
-
-// ANY exclude: exclude items whose interests contain "sports"
-arrayFilter.filter([{ field: "interests", exclude: ["sports"] }]);
-
-// Combined: interests must contain "music" AND must NOT contain "gaming"
-arrayFilter.filter([
-  { field: "interests", values: ["music"], exclude: ["gaming"] },
-]);
-
-// Exact matching preserves primitive types: 30 does not match "30".
-arrayFilter.filter([{ field: "interests", values: [30] }]);
-
-// An explicit empty values list is unsatisfiable and returns an empty result.
-arrayFilter.filter([{ field: "interests", values: [] }]); // []
-```
-
-Duplicate selected values do not require duplicate entries in the item array.
-For example, `values: ["music", "music"]` behaves like `values: ["music"]`.
-
-When a UI multiselect has no selected values and you want to skip filtering,
-omit that criterion instead of passing `values: []`:
-
-```ts
-const criteria =
-  selectedInterests.length > 0
-    ? [{ field: "interests", values: selectedInterests }]
-    : [];
-
-arrayFilter.filter(criteria);
-```
-
-For inclusion, a missing or invalid array field does not match. For an
-exclude-only criterion, an item with a missing or invalid array field remains
-in the result because it contains none of the excluded values. After
-`clearIndexes()`, the linear fallback preserves the same behavior.
-
-### Sort only
-
-Use `SortEngine` when you only need sorting.
-
-```ts
-import { SortEngine } from "@devisfuture/mega-collection/sort";
-
-// `fields` tells the engine which fields should use cached single-field
-// sorting. The cache is built lazily on first use. If you skip `fields`,
-// sorting still works.
-const engine = new SortEngine<User>({
-  data: users,
-  fields: ["age", "name", "city"],
-});
-
-// Single-field sort
-engine.sort([{ field: "age", direction: "asc" }]);
-
-// replace dataset without re-initializing
-engine.data(users);
-
-// replace one stored item by unique field
-engine.update({
-  field: "id",
-  data: { id: 2, name: "Bob", city: "Paris", age: 19 },
-});
-
-// remove one stored item by unique field
-engine.delete("id", 2);
-
-// access original dataset stored in the engine
-engine.getOriginData();
-
-// service methods stay on the engine instance
-engine.clearIndexes();
-engine.clearData();
-
-// Multi-field sort
-engine.sort([
-  { field: "age", direction: "asc" },
-  { field: "name", direction: "desc" },
-]);
-```
-
----
+It demonstrates search, filtering, sorting, and `MergeEngines` with a UI. React is not a runtime dependency of this package.
 
 ## API Reference
 
@@ -816,12 +837,12 @@ One class that combines search, filter, and sort for the same dataset.
 
 | Option                   | Type                                                        | Description                                                                                                    |
 | ------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `imports`                | `(typeof TextSearchEngine \| SortEngine \| FilterEngine)[]` | Engine classes to create                                                                                       |
+| `imports`                | `Array of engine classes`                                   | Engine classes to create                                                                                       |
 | `data`                   | `T[]`                                                       | Shared dataset — passed once at construction                                                                   |
 | `filterByPreviousResult` | `boolean`                                                   | When `true`, separate `filter(...)` and `sort(...)` calls continue from the last result stored in shared State |
 | `search`                 | `{ fields?, nestedFields?, arrayFields?, minQueryLength? }` | Config for TextSearchEngine                                                                                    |
 | `filter`                 | `{ fields?, nestedFields?, arrayFields? }`                  | Config for FilterEngine                                                                                        |
-| `sort`                   | `{ fields }`                                                | Config for SortEngine                                                                                          |
+| `sort`                   | `{ fields? }`                                               | Config for SortEngine                                                                                          |
 
 **Methods:**
 
@@ -834,11 +855,11 @@ One class that combines search, filter, and sort for the same dataset.
 | `filter(criteria)`                  | Filter using stored dataset                                                                                                |
 | `filter(data, criteria)`            | Filter with an explicit dataset                                                                                            |
 | `getOriginData()`                   | Get the shared original dataset                                                                                            |
-| `add(items)`                        | Append multiple items to the stored dataset and update existing indexes or caches for new items only                       |
+| `add(items)`                        | Append items, update built search/filter indexes, and invalidate sorting caches as needed                                  |
 | `delete(field, valueOrValues)`      | Remove stored items by unique field value using swap-pop semantics                                                         |
-| `update({ field, data })`           | Replace one stored item by a unique field and refresh only the affected cached or indexed data                             |
+| `update({ field, data })`           | Replace one stored item by a unique field and refresh the relevant indexes or caches                                       |
 | `data(data)`                        | Replace stored dataset for all imported modules, rebuilding configured indexes and resetting filter state where applicable |
-| `dataAsync(data)`                   | Replace stored dataset for all imported modules, resolving when all indexes are rebuilt (non-blocking)                      |
+| `dataAsync(data)`                   | Replace stored dataset for all imported modules, resolving when all indexes are rebuilt                                    |
 | `clearIndexes(module)`              | Clear indexes for one module (`"search"`, `"sort"`, `"filter"`)                                                            |
 | `clearData(module)`                 | Clear the shared stored dataset through one imported module (`"search"`, `"sort"`, `"filter"`)                             |
 
@@ -891,48 +912,48 @@ Main constructor options:
 | `nestedFields`           | `string[]`             | Nested field paths in dot notation, for example `["orders.status"]`.                                                                       |
 | `arrayFields`            | `(keyof T & string)[]` | Top-level primitive-array fields to filter. `values` uses AND semantics; `exclude` uses ANY semantics; matching preserves primitive types. |
 
-| Method                         | Description                                                                   |
-| ------------------------------ | ----------------------------------------------------------------------------- |
-| `filter(criteria)`             | Filter stored data using scalar, nested, and primitive-array criteria         |
-| `filter(data, criteria)`       | Filter an explicit dataset using scalar, nested, and primitive-array criteria |
-| `getOriginData()`              | Get the original stored dataset                                               |
-| `add(items)`                   | Append multiple items to the stored dataset                                   |
-| `delete(field, valueOrValues)` | Remove stored items by unique field value                                     |
-| `update({ field, data })`      | Replace one stored item by a unique field                                     |
-| `data(data)`                   | Replace stored dataset, rebuild configured indexes, and reset filter state    |
+| Method                         | Description                                                                               |
+| ------------------------------ | ----------------------------------------------------------------------------------------- |
+| `filter(criteria)`             | Filter stored data using scalar, nested, and primitive-array criteria                     |
+| `filter(data, criteria)`       | Filter an explicit dataset using scalar, nested, and primitive-array criteria             |
+| `getOriginData()`              | Get the original stored dataset                                                           |
+| `add(items)`                   | Append multiple items to the stored dataset                                               |
+| `delete(field, valueOrValues)` | Remove stored items by unique field value                                                 |
+| `update({ field, data })`      | Replace one stored item by a unique field                                                 |
+| `data(data)`                   | Replace stored dataset, rebuild configured indexes, and reset filter state                |
 | `dataAsync(data)`              | Replace stored dataset, rebuild configured indexes, and reset filter state asynchronously |
-| `resetFilterState()`           | Reset previous-result state for sequential filtering                          |
-| `clearIndexes()`               | Free scalar, nested, and primitive-array index memory                         |
-| `clearData()`                  | Clear stored data                                                             |
+| `resetFilterState()`           | Reset previous-result state for sequential filtering                                      |
+| `clearIndexes()`               | Free scalar, nested, and primitive-array index memory                                     |
+| `clearData()`                  | Clear stored data                                                                         |
 
 ### `SortEngine<T>` (sort module)
 
 Sort engine with prepared indexes for faster sorting in common cases.
 Sort methods return plain arrays.
 
-| Method                              | Description                                           |
-| ----------------------------------- | ----------------------------------------------------- |
-| `sort(descriptors)`                 | Sort using stored dataset                             |
-| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                         |
-| `getOriginData()`                   | Get the original stored dataset                       |
-| `add(items)`                        | Append multiple items to the stored dataset           |
-| `delete(field, valueOrValues)`      | Remove stored items by unique field value             |
-| `update({ field, data })`           | Replace one stored item by a unique field             |
-| `data(data)`                        | Replace stored dataset and rebuild configured indexes |
+| Method                              | Description                                                          |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| `sort(descriptors)`                 | Sort using stored dataset                                            |
+| `sort(data, descriptors, inPlace?)` | Sort with an explicit dataset                                        |
+| `getOriginData()`                   | Get the original stored dataset                                      |
+| `add(items)`                        | Append multiple items to the stored dataset                          |
+| `delete(field, valueOrValues)`      | Remove stored items by unique field value                            |
+| `update({ field, data })`           | Replace one stored item by a unique field                            |
+| `data(data)`                        | Replace stored dataset and rebuild configured indexes                |
 | `dataAsync(data)`                   | Replace stored dataset and rebuild configured indexes asynchronously |
-| `clearIndexes()`                    | Free all cached indexes                               |
-| `clearData()`                       | Clear stored data                                     |
+| `clearIndexes()`                    | Free all cached indexes                                              |
+| `clearData()`                       | Clear stored data                                                    |
 
 ---
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+See [CONTRIBUTING.md](https://github.com/trae-op/mega-collection/blob/main/CONTRIBUTING.md) for contribution guidelines. If the package helps your project, a GitHub star is appreciated.
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) for our security policy.
+See [SECURITY.md](https://github.com/trae-op/mega-collection/blob/main/SECURITY.md) for the security policy.
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](https://github.com/trae-op/mega-collection/blob/main/LICENSE).
