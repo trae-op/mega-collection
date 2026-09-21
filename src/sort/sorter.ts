@@ -158,6 +158,11 @@ export class SortEngine<T extends CollectionItem> {
     return this;
   }
 
+  async dataAsync(data: T[]): Promise<this> {
+    await this.state.dataAsync(data);
+    return this;
+  }
+
   add(items: T[]): this {
     this.state.add(items);
     return this;

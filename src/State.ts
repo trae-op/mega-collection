@@ -10,6 +10,8 @@ import type {
   UpdateDescriptor,
 } from "./types";
 
+declare const setTimeout: (callback: () => void, ms: number) => unknown;
+
 export class State<T extends CollectionItem> {
   private originData: T[];
 
@@ -161,6 +163,50 @@ export class State<T extends CollectionItem> {
     }
 
     this.emit({ type: "data", data });
+  }
+
+  dataAsync(data: T[]): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      try {
+        this.originData = data;
+        this.bumpMutationVersion();
+        this.rebuildItemIndexLookup();
+
+        if (this.originData !== data) {
+          reject(new Error("Data reference was lost after rebuildItemIndexLookup"));
+          return;
+        }
+
+        const fields = Array.from(this.indexMaps.keys());
+
+        const rebuildNext = (index: number): void => {
+          if (index >= fields.length) {
+            this.emit({ type: "data", data });
+            resolve();
+            return;
+          }
+
+          setTimeout(() => {
+            try {
+              this.rebuildIndexMap(fields[index]);
+
+              if (!this.indexMaps.has(fields[index])) {
+                reject(new Error(`Index map for field "${fields[index]}" was not built`));
+                return;
+              }
+
+              rebuildNext(index + 1);
+            } catch (error) {
+              reject(error);
+            }
+          }, 0);
+        };
+
+        rebuildNext(0);
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 
   add(items: T[]): void {

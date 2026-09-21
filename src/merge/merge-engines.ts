@@ -1173,6 +1173,12 @@ export class MergeEngines<T extends CollectionItem> {
     return this;
   }
 
+  async dataAsync(data: T[]): Promise<this> {
+    await this.state.dataAsync(data);
+
+    return this;
+  }
+
   clearData(module: MergeModuleName): this {
     if (this.getAdapter(module)) {
       this.state.clearData();

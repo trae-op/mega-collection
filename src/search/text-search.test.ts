@@ -1448,4 +1448,94 @@ describe("TextSearchEngine — arrayFields", () => {
 
     expect(narrowed.map((u) => u.id)).toEqual(["3"]);
   });
+
+  describe("dataAsync()", () => {
+    it("replaces stored dataset and resolves after rebuild", async () => {
+      const engine = new TextSearchEngine<CardItem>({
+        data: cityCards,
+        fields: ["city"],
+      });
+
+      const nextCards: CardItem[] = [
+        {
+          id: 11,
+          title: "Liam 1",
+          description: "User from London",
+          tag: "Odd",
+          city: "London",
+        },
+      ];
+
+      await engine.dataAsync(nextCards);
+
+      expect(engine.search("city", "Kyiv")).toEqual([]);
+      expect(engine.search("city", "London").map((item) => item.id)).toEqual([
+        11,
+      ]);
+    });
+
+    it("returns this for chaining", async () => {
+      const engine = new TextSearchEngine<CardItem>({
+        data: cityCards,
+        fields: ["city"],
+      });
+
+      const result = await engine.dataAsync([
+        {
+          id: 11,
+          title: "Liam 1",
+          description: "User from London",
+          tag: "Odd",
+          city: "London",
+        },
+      ]);
+
+      expect(result).toBe(engine);
+    });
+
+    it("updates getOriginData after resolve", async () => {
+      const engine = new TextSearchEngine<CardItem>({
+        data: cityCards,
+        fields: ["city"],
+      });
+
+      const nextCards: CardItem[] = [
+        {
+          id: 11,
+          title: "Liam 1",
+          description: "User from London",
+          tag: "Odd",
+          city: "London",
+        },
+      ];
+
+      await engine.dataAsync(nextCards);
+
+      expect(engine.getOriginData()).toBe(nextCards);
+    });
+
+    it("does not block the event loop", async () => {
+      const engine = new TextSearchEngine<CardItem>({
+        data: cityCards,
+        fields: ["city"],
+      });
+
+      let sideEffect = false;
+      const promise = engine.dataAsync([
+        {
+          id: 11,
+          title: "Liam 1",
+          description: "User from London",
+          tag: "Odd",
+          city: "London",
+        },
+      ]);
+
+      sideEffect = true;
+
+      await promise;
+
+      expect(sideEffect).toBe(true);
+    });
+  });
 });
