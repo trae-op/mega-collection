@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="./illustration.png" alt="Fast indexed search, filtering, and sorting for arrays of objects in JavaScript and TypeScript. Supports nested fields, array fields, and large client-side collections." width="100%" />
+</p>
+
 # mega-collection — Search, filter, and sort arrays of objects
 
 Indexed client-side search, filtering, and sorting for JavaScript and TypeScript collections. Search text across object fields, filter nested arrays or tags, and sort by one or more fields — with zero runtime dependencies.
