@@ -12,6 +12,12 @@ Use it when your application already has the data in memory and users repeatedly
 
 [Live React demo](https://trae-op.github.io/quick-start_react_mega-collection/) · [Demo source](https://github.com/trae-op/quick-start_react_mega-collection) · [Benchmarks](https://github.com/trae-op/mega-collection/blob/main/BENCHMARKS.md)
 
+## Important note
+
+**This package optimizes data processing, not rendering.**
+`@devisfuture/mega-collection` speeds up search, filtering, and sorting _before_ render. It does not virtualize the DOM: if you render thousands of processed rows at once, the browser will still lag because every row creates real DOM nodes.
+For React apps, pair the processed result with a virtualization package such as `react-window`.
+
 ## What does this package solve?
 
 A search input, a few filters, and sortable columns often lead to repeated array scans and sorting:
