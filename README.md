@@ -12,6 +12,12 @@ Use it when your application already has the data in memory and users repeatedly
 
 [Live React demo](https://trae-op.github.io/quick-start_react_mega-collection/) · [Demo source](https://github.com/trae-op/quick-start_react_mega-collection) · [Benchmarks](https://github.com/trae-op/mega-collection/blob/main/BENCHMARKS.md)
 
+## Important note
+
+**This package optimizes data processing, not rendering.**
+`@devisfuture/mega-collection` speeds up search, filtering, and sorting _before_ render. It does not virtualize the DOM: if you render thousands of processed rows at once, the browser will still lag because every row creates real DOM nodes.
+For React apps, pair the processed result with a virtualization package such as `react-window`.
+
 ## What does this package solve?
 
 A search input, a few filters, and sortable columns often lead to repeated array scans and sorting:
@@ -20,7 +26,7 @@ A search input, a few filters, and sortable columns often lead to repeated array
 const found = users.filter((user) =>
   user.name.toLowerCase().includes(query.toLowerCase()),
 );
-const filtered = found.filter((user) => user.city === "Kyiv");
+const filtered = found.filter((user) => user.city === "Austin");
 const sorted = [...filtered].sort((a, b) => a.age - b.age);
 ```
 
@@ -53,7 +59,7 @@ The package provides ESM entry points and TypeScript declarations. Import only t
 
 ## Quick start
 
-A complete example: search users, keep matches from Kyiv, then sort by age.
+A complete example: search users, keep matches from Austin, then sort by age.
 
 ```ts
 import { MergeEngines } from "@devisfuture/mega-collection";
@@ -69,9 +75,9 @@ interface User {
 }
 
 const users: User[] = [
-  { id: 1, name: "John", city: "Kyiv", age: 32 },
-  { id: 2, name: "Johnny", city: "Kyiv", age: 24 },
-  { id: 3, name: "Alice", city: "Lviv", age: 28 },
+  { id: 1, name: "John", city: "Austin", age: 32 },
+  { id: 2, name: "Johnny", city: "Austin", age: 24 },
+  { id: 3, name: "Alice", city: "Boston", age: 28 },
 ];
 
 const engine = new MergeEngines<User>({
@@ -84,7 +90,7 @@ const engine = new MergeEngines<User>({
 
 // Explicit intermediate results make each processing step clear.
 const found = engine.search("john");
-const filtered = engine.filter(found, [{ field: "city", values: ["Kyiv"] }]);
+const filtered = engine.filter(found, [{ field: "city", values: ["Austin"] }]);
 const sorted = engine.sort(filtered, [{ field: "age", direction: "asc" }]);
 
 console.log(sorted.map((user) => user.name));
@@ -619,11 +625,11 @@ const merge = new MergeEngines<User>({
 
 merge.add([
   { id: 6, name: "Lia", city: "Berlin", age: 28 },
-  { id: 7, name: "Omar", city: "Kyiv", age: 31 },
+  { id: 7, name: "Omar", city: "Austin", age: 31 },
 ]);
 
 merge.search("Berlin");
-merge.filter([{ field: "city", values: ["Kyiv"] }]);
+merge.filter([{ field: "city", values: ["Austin"] }]);
 merge.sort([{ field: "age", direction: "asc" }]);
 ```
 
@@ -641,7 +647,7 @@ const searchEngine = new TextSearchEngine<User>({
 
 searchEngine.add([
   { id: 6, name: "Lia", city: "Berlin", age: 28 },
-  { id: 7, name: "Omar", city: "Kyiv", age: 31 },
+  { id: 7, name: "Omar", city: "Austin", age: 31 },
 ]);
 
 const filterEngine = new FilterEngine<User>({
@@ -651,7 +657,7 @@ const filterEngine = new FilterEngine<User>({
 
 filterEngine.add([
   { id: 6, name: "Lia", city: "Berlin", age: 28 },
-  { id: 7, name: "Omar", city: "Kyiv", age: 31 },
+  { id: 7, name: "Omar", city: "Austin", age: 31 },
 ]);
 
 const sortEngine = new SortEngine<User>({
@@ -661,7 +667,7 @@ const sortEngine = new SortEngine<User>({
 
 sortEngine.add([
   { id: 6, name: "Lia", city: "Berlin", age: 28 },
-  { id: 7, name: "Omar", city: "Kyiv", age: 31 },
+  { id: 7, name: "Omar", city: "Austin", age: 31 },
 ]);
 ```
 
@@ -743,8 +749,8 @@ const merge = new MergeEngines<User>({
 merge.delete("id", [1, 4]);
 
 merge.getOriginData();
-merge.search("Kyiv");
-merge.filter([{ field: "city", values: ["Lviv"] }]);
+merge.search("Austin");
+merge.filter([{ field: "city", values: ["Boston"] }]);
 merge.sort([{ field: "age", direction: "asc" }]);
 ```
 
